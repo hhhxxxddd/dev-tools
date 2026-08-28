@@ -1,0 +1,19 @@
+[tools]
+java = "temurin"
+maven = "latest"
+node = "latest"
+npm = "latest"
+python = "latest"
+uv = "latest"
+pnpm = "latest"
+"npm:@openai/codex" = { version = "latest", os = ["windows"] }
+"npm:@anthropic-ai/claude-code" = { version = "latest", os = ["windows"], allow_builds = ["@anthropic-ai/claude-code"] }
+"npm:@colbymchenry/codegraph" = { version = "latest", os = ["windows"] }
+
+[settings]
+idiomatic_version_file_enable_tools = ["java", "node", "python", "pnpm"]
+python.uv_venv_auto = "source"
+
+[settings.npm]
+package_manager = "npm"
+shell_out = true
