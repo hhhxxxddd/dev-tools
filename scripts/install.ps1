@@ -50,9 +50,12 @@ $content = if (Test-Path -LiteralPath $profilePath) {
 } else {
     ''
 }
-$content = $content.Replace($legacyConfigPath, $cliConfigPath)
 $pattern = "(?ms)^$([regex]::Escape($startMarker)).*?^$([regex]::Escape($endMarker))\r?\n?"
 $content = [regex]::Replace($content, $pattern, '').TrimEnd()
+foreach ($managedConfigPath in @($legacyConfigPath, $cliConfigPath)) {
+    $assignment = "`$env:MISE_GLOBAL_CONFIG_FILE = '$managedConfigPath'"
+    $content = $content.Replace("$assignment`r`n", '').Replace("$assignment`n", '')
+}
 $updated = if ($content) { "$content`r`n`r`n$block`r`n" } else { "$block`r`n" }
 [IO.File]::WriteAllText($profilePath, $updated, [Text.UTF8Encoding]::new($false))
 
