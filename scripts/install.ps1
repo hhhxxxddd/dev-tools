@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [string] $Distro = 'Ubuntu',
+    [switch] $EnableWslDevctlForwarder
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -10,10 +13,17 @@ $startMarker = '# >>> dev-tools >>>'
 $endMarker = '# <<< dev-tools <<<'
 $quotedConfig = $configPath.Replace("'", "''")
 $quotedEntrypoint = $entrypoint.Replace("'", "''")
+$quotedDistro = $Distro.Replace("'", "''")
+$forwarder = if ($EnableWslDevctlForwarder) {
+    "function wsl-devctl { & wsl.exe -d '$quotedDistro' -- wsl-devctl @args }"
+} else {
+    ''
+}
 $block = @"
 $startMarker
 `$env:MISE_GLOBAL_CONFIG_FILE = '$quotedConfig'
 function dev-tools { & '$quotedEntrypoint' @args }
+$forwarder
 $endMarker
 "@
 
@@ -39,4 +49,7 @@ $updated = if ($content) { "$content`r`n`r`n$block`r`n" } else { "$block`r`n" }
 [IO.File]::WriteAllText($profilePath, $updated, [Text.UTF8Encoding]::new($false))
 
 Write-Host "dev-tools installed for PowerShell: $entrypoint"
+if ($EnableWslDevctlForwarder) {
+    Write-Host "wsl-devctl PowerShell forwarder enabled for WSL distro: $Distro"
+}
 Write-Host "Restart PowerShell or run: . `$PROFILE"

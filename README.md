@@ -2,31 +2,76 @@
 
 [中文](README.md) | [English](README.en.md)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 `dev-tools` 是个人 Windows + WSL 开发环境的统一命令入口。它组织 mise 的共享运行时管理，
 并把项目已有的版本声明归一化为项目级 `mise.toml`。
 
 它不替代 Scoop、winget、APT、Maven、pnpm、uv 或 `wsl-devctl`，也不会执行扫描项目中的
 脚本。
 
+## 配套项目
+
+[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) 负责把 Windows 源码安全同步到
+WSL ext4，并管理项目构建、systemd 进程和热更新；`dev-tools` 为它提供共享运行时声明与
+项目级 `mise.toml`。
+
 ## 安装
 
-克隆到 Windows 与 WSL 都能访问的位置后执行：
+克隆到 Windows 与 WSL 都能访问的位置：
 
 ```powershell
-git clone git@github.com:hhhxxxddd/dev-tools.git
+git clone https://github.com/hhhxxxddd/dev-tools.git
 cd dev-tools
 ```
+
+推荐从 PowerShell 一次完成 Windows、Ubuntu WSL 和共享运行时初始化：
+
+```powershell
+.\scripts\bootstrap.ps1 -InstallWslDevctl
+```
+
+该命令会：
+
+1. 缺少时通过 Scoop 安装 Windows mise。
+2. 缺少时通过 mise 官方文档推荐的
+   [`extrepo + apt`](https://mise.jdx.dev/installing-mise.html#apt) 方式安装 WSL mise。
+3. 安装 Windows 和 WSL 两侧的 `dev-tools` 入口。
+4. 安装共享 `config/mise.toml` 声明的两侧原生运行时。
+5. 可选安装同级目录中的 `wsl-devctl`，并在 PowerShell 中增加透明转发命令。
+
+常用选项：
+
+```powershell
+.\scripts\bootstrap.ps1 -Distro Ubuntu -InstallWslDevctl
+.\scripts\bootstrap.ps1 -InstallWslDevctl -WslDevctlPath E:\Projects\MyProjects\wsl-devctl
+.\scripts\bootstrap.ps1 -SkipRuntimeInstall
+```
+
+Windows 和 WSL 的二进制、缓存与 PATH 仍保持平台原生；bootstrap 统一的是安装流程、版本
+声明和命令入口。
+
+只安装单侧入口时可以分别执行：
 
 ```powershell
 .\scripts\install.ps1
 ```
 
 ```bash
-bash scripts/install.sh
+sudo bash scripts/install.sh
 ```
 
 脚本根据仓库实际位置配置入口，不绑定用户名或盘符。卸载入口使用对应的
 `uninstall.ps1` 或 `uninstall.sh`；已安装的运行时和缓存不会被删除。
+
+安装 `wsl-devctl` 后，PowerShell 可以直接执行：
+
+```powershell
+wsl-devctl help
+wsl-devctl status local-my-app
+```
+
+命令会透明转发到配置的 WSL 发行版。
 
 ## 环境管理
 

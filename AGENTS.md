@@ -30,3 +30,6 @@ uvx ruff format --check src tests
 
 Also verify `scripts/dev-tools.ps1` on Windows and `scripts/dev-tools` in WSL when changing an
 entrypoint or shared mise configuration.
+
+Parse every PowerShell installer before testing bootstrap changes. Bootstrap must use reviewed
+package-manager sources and verify a checkout's Git origin before executing its installer.

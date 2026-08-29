@@ -20,4 +20,5 @@ if ($current -eq $configPath) {
     [Environment]::SetEnvironmentVariable('MISE_GLOBAL_CONFIG_FILE', $null, 'User')
 }
 Remove-Item Function:dev-tools -ErrorAction SilentlyContinue
+Remove-Item Function:wsl-devctl -ErrorAction SilentlyContinue
 Write-Host 'dev-tools PowerShell entrypoint removed. Runtime installations were preserved.'
