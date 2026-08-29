@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$legacyConfigPath = Join-Path $repoRoot 'config\mise.toml'
 $cliConfigPath = Join-Path $repoRoot 'config\windows-cli-tools.toml'
 $entrypoint = Join-Path $repoRoot 'scripts\dev-tools.ps1'
 $profilePath = $PROFILE.CurrentUserCurrentHost
@@ -49,6 +50,7 @@ $content = if (Test-Path -LiteralPath $profilePath) {
 } else {
     ''
 }
+$content = $content.Replace($legacyConfigPath, $cliConfigPath)
 $pattern = "(?ms)^$([regex]::Escape($startMarker)).*?^$([regex]::Escape($endMarker))\r?\n?"
 $content = [regex]::Replace($content, $pattern, '').TrimEnd()
 $updated = if ($content) { "$content`r`n`r`n$block`r`n" } else { "$block`r`n" }
