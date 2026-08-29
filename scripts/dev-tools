@@ -4,31 +4,34 @@ set -euo pipefail
 script_path="$(readlink -f "${BASH_SOURCE[0]}")"
 script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
-config_path="$repo_root/config/mise.toml"
 
 show_help() {
   cat <<'EOF'
-dev-tools - 管理当前 WSL 开发运行时和项目版本声明
+dev-tools - 按项目发现并准备当前 WSL 的开发工具版本
 
-环境命令：
+帮助：
+  dev-tools help
+  dev-tools project --help
+  dev-tools project <命令> --help
+
+环境检查：
   dev-tools status
-  dev-tools install
-  dev-tools outdated
-  dev-tools upgrade
-  dev-tools prune
   dev-tools doctor
 
-项目命令：
+项目工作流：
   dev-tools project scan [PATH]
   dev-tools project scan [PATH] --json
   dev-tools project init [PATH]
   dev-tools project init [PATH] --dry-run
+  dev-tools project prepare [PATH]
+  dev-tools project prepare [PATH] --dry-run
 
-需要同时管理 Windows 和 WSL 时，在 PowerShell 中运行相同命令。
+dev-tools 不维护或安装 Java、Node、Python 等全局默认版本。
+需要同时检查 Windows 和 WSL 时，请从 PowerShell 运行 status 或 doctor。
 EOF
 }
 
-command_name="${1:-status}"
+command_name="${1:-help}"
 if [[ $# -gt 0 ]]; then
   shift
 fi
@@ -36,47 +39,33 @@ fi
 case "$command_name" in
   help|-h|--help)
     show_help
-    exit 0
     ;;
   project)
-    if [[ ! -f "$config_path" ]]; then
-      printf '找不到共享 mise 配置：%s\n' "$config_path" >&2
+    command -v python3 >/dev/null 2>&1 || {
+      printf 'python3 不在 PATH 中；dev-tools 需要 Python 3.11 或更高版本。\n' >&2
       exit 1
-    fi
-    export MISE_GLOBAL_CONFIG_FILE="$config_path"
-    python_executable="$(mise -C "$repo_root" which python)"
+    }
     export PYTHONPATH="$repo_root/src"
-    exec "$python_executable" -m dev_tools.cli project "$@"
+    exec python3 -m dev_tools.cli project "$@"
     ;;
-  status|install|sync|outdated|upgrade|prune|doctor)
+  status)
+    command -v mise >/dev/null 2>&1 || {
+      printf '当前 WSL 未安装 mise。\n' >&2
+      exit 1
+    }
+    mise --version
+    python3 --version
+    ;;
+  doctor)
+    command -v mise >/dev/null 2>&1 || {
+      printf '当前 WSL 未安装 mise。\n' >&2
+      exit 1
+    }
+    mise doctor
     ;;
   *)
     printf '未知命令：%s\n\n' "$command_name" >&2
     show_help >&2
     exit 2
     ;;
-esac
-
-if [[ ! -f "$config_path" ]]; then
-  printf '找不到共享 mise 配置：%s\n' "$config_path" >&2
-  exit 1
-fi
-if ! command -v mise >/dev/null 2>&1; then
-  printf '当前 WSL 未安装 mise。\n' >&2
-  exit 1
-fi
-
-export MISE_GLOBAL_CONFIG_FILE="$config_path"
-printf '== dev-tools: WSL（用户：%s）==\n' "$(id -un)"
-
-case "$command_name" in
-  status)
-    mise --version
-    mise ls --current
-    ;;
-  install|sync) mise --yes install ;;
-  outdated) mise outdated ;;
-  upgrade) mise --yes upgrade ;;
-  prune) mise --yes prune --tools ;;
-  doctor) mise doctor ;;
 esac

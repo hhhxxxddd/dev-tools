@@ -6,13 +6,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$configPath = Join-Path $repoRoot 'config\mise.toml'
+$cliConfigPath = Join-Path $repoRoot 'config\windows-cli-tools.toml'
 $entrypoint = Join-Path $repoRoot 'scripts\dev-tools.ps1'
 $profilePath = $PROFILE.CurrentUserCurrentHost
 $startMarker = '# >>> dev-tools >>>'
 $endMarker = '# <<< dev-tools <<<'
-$quotedConfig = $configPath.Replace("'", "''")
 $quotedEntrypoint = $entrypoint.Replace("'", "''")
+$quotedCliConfig = $cliConfigPath.Replace("'", "''")
 $quotedDistro = $Distro.Replace("'", "''")
 $forwarder = if ($EnableWslDevctlForwarder) {
     "function wsl-devctl { & wsl.exe -d '$quotedDistro' -- wsl-devctl @args }"
@@ -21,7 +21,7 @@ $forwarder = if ($EnableWslDevctlForwarder) {
 }
 $block = @"
 $startMarker
-`$env:MISE_GLOBAL_CONFIG_FILE = '$quotedConfig'
+`$env:MISE_GLOBAL_CONFIG_FILE = '$quotedCliConfig'
 function dev-tools { & '$quotedEntrypoint' @args }
 $forwarder
 $endMarker
@@ -31,8 +31,14 @@ if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
     throw 'mise is not available. Install it first, for example with: scoop install mise'
 }
 
-[Environment]::SetEnvironmentVariable('MISE_GLOBAL_CONFIG_FILE', $configPath, 'User')
-$env:MISE_GLOBAL_CONFIG_FILE = $configPath
+[Environment]::SetEnvironmentVariable('MISE_GLOBAL_CONFIG_FILE', $cliConfigPath, 'User')
+$env:MISE_GLOBAL_CONFIG_FILE = $cliConfigPath
+
+Write-Host 'Installing the private Python runtime used by dev-tools...'
+& mise --yes install python@3.11
+if ($LASTEXITCODE -ne 0) {
+    throw "mise failed to install dev-tools internal Python (exit $LASTEXITCODE)."
+}
 
 $profileDirectory = Split-Path -Parent $profilePath
 if (-not (Test-Path -LiteralPath $profileDirectory)) {

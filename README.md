@@ -1,57 +1,78 @@
 # dev-tools
 
-[中文](README.md) | [English](README.en.md)
+**简体中文** · [English](README.en.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-`dev-tools` 是个人 Windows + WSL 开发环境的统一命令入口。它组织 mise 的共享运行时管理，
-并把项目已有的版本声明归一化为项目级 `mise.toml`。
+`dev-tools` 是 Windows + WSL 的项目开发工具入口。它从项目已有文件中识别 Java、Node.js、
+Python、Maven 和包管理器版本，生成项目级 `mise.toml`，并在明确执行准备命令时安装该项目
+缺少的版本。
 
-它不替代 Scoop、winget、APT、Maven、pnpm、uv 或 `wsl-devctl`，也不会执行扫描项目中的
-脚本。
+## 设计边界
 
-## 配套项目
+- 不为项目创建或安装 Java、Node.js、Python、Maven 等全局默认版本。
+- `scan` 和 `init` 只读取已知元数据，不执行项目代码，也不下载运行时。
+- 只有显式执行 `project prepare` 才会调用 mise 安装版本。
+- Windows 与 WSL 共享项目版本声明，但分别安装平台原生运行时和缓存。
+- `dev-tools` 自身在 Windows 使用一个未全局激活的私有 Python 3.11；它不参与项目选版。
+- Codex、Claude Code、CodeGraph 属于 Windows 操作型 CLI，使用独立配置和宿主 Node；
+  `project prepare` 会强制忽略这份配置。
 
-[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) 负责把 Windows 源码安全同步到
-WSL ext4，并管理项目构建、systemd 进程和热更新；`dev-tools` 为它提供共享运行时声明与
-项目级 `mise.toml`。
+## 命令帮助
+
+先从以下三个入口开始：
+
+```powershell
+dev-tools help
+dev-tools project --help
+dev-tools project prepare --help
+```
+
+| 命令 | 是否写文件 | 是否下载 | 用途 |
+|---|---:|---:|---|
+| `dev-tools status` | 否 | 否 | 检查 Windows 与 WSL 的 mise 状态 |
+| `dev-tools doctor` | 否 | 否 | 运行两侧 mise 诊断 |
+| `dev-tools cli status` | 否 | 否 | 查看 Windows 操作型 CLI |
+| `dev-tools cli install` | 否 | 是 | 显式安装缺失的操作型 CLI |
+| `dev-tools cli outdated` | 否 | 否 | 检查操作型 CLI 更新 |
+| `dev-tools cli upgrade` | 否 | 是 | 显式更新操作型 CLI |
+| `dev-tools project scan [PATH]` | 否 | 否 | 报告项目版本声明、来源与冲突 |
+| `dev-tools project init [PATH]` | 可能 | 否 | 缺少时生成根级 `mise.toml` |
+| `dev-tools project prepare [PATH] --dry-run` | 否 | 否 | 预览该项目需要安装的版本 |
+| `dev-tools project prepare [PATH]` | 否 | 是 | 安装该项目 mise 配置声明的缺失版本 |
+
+未提供 `PATH` 时使用当前目录。PowerShell 的 `status` 和 `doctor` 默认同时检查 Windows
+与 `Ubuntu` WSL，可用 `-Distro` 指定其他发行版；在 WSL 中执行时只检查当前 WSL。
 
 ## 安装
 
-克隆到 Windows 与 WSL 都能访问的位置：
+把仓库克隆到 Windows 和 WSL 都能访问的位置：
 
 ```powershell
 git clone https://github.com/hhhxxxddd/dev-tools.git
 cd dev-tools
+.\scripts\bootstrap.ps1
 ```
 
-推荐从 PowerShell 一次完成 Windows、Ubuntu WSL 和共享运行时初始化：
+同时安装配套的
+[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl)：
 
 ```powershell
 .\scripts\bootstrap.ps1 -InstallWslDevctl
 ```
 
-该命令会：
+bootstrap 会：
 
 1. 缺少时通过 Scoop 安装 Windows mise。
-2. 缺少时通过 mise 官方文档推荐的
-   [`extrepo + apt`](https://mise.jdx.dev/installing-mise.html#apt) 方式安装 WSL mise。
-3. 安装 Windows 和 WSL 两侧的 `dev-tools` 入口。
-4. 安装共享 `config/mise.toml` 声明的两侧原生运行时。
-5. 可选安装同级目录中的 `wsl-devctl`，并在 PowerShell 中增加透明转发命令。
+2. 缺少时通过 `extrepo + apt` 安装 WSL mise 和 Python 3。
+3. 安装 Windows 与 WSL 的 `dev-tools` 命令入口。
+4. 安装仅供 `dev-tools` 扫描器使用的 Windows 私有 Python。
+5. 可选安装 `wsl-devctl` 并创建 PowerShell 转发命令。
 
-常用选项：
+它不会扫描项目、安装项目开发运行时或自动安装 Windows 操作型 CLI。需要这些 CLI 时显式
+执行 `dev-tools cli install`。
 
-```powershell
-.\scripts\bootstrap.ps1 -Distro Ubuntu -InstallWslDevctl
-.\scripts\bootstrap.ps1 -InstallWslDevctl -WslDevctlPath E:\Projects\MyProjects\wsl-devctl
-.\scripts\bootstrap.ps1 -SkipRuntimeInstall
-```
-
-Windows 和 WSL 的二进制、缓存与 PATH 仍保持平台原生；bootstrap 统一的是安装流程、版本
-声明和命令入口。
-
-只安装单侧入口时可以分别执行：
+只安装单侧命令入口：
 
 ```powershell
 .\scripts\install.ps1
@@ -61,76 +82,51 @@ Windows 和 WSL 的二进制、缓存与 PATH 仍保持平台原生；bootstrap 
 sudo bash scripts/install.sh
 ```
 
-脚本根据仓库实际位置配置入口，不绑定用户名或盘符。卸载入口使用对应的
-`uninstall.ps1` 或 `uninstall.sh`；已安装的运行时和缓存不会被删除。
+## 项目工作流
 
-安装 `wsl-devctl` 后，PowerShell 可以直接执行：
-
-```powershell
-wsl-devctl help
-wsl-devctl status local-my-app
-```
-
-命令会透明转发到配置的 WSL 发行版。
-
-## 环境管理
-
-在 PowerShell 中同时管理 Windows 和 Ubuntu WSL：
+### 1. 查看识别结果
 
 ```powershell
-dev-tools status
-dev-tools install
-dev-tools outdated
-dev-tools upgrade
-dev-tools prune
-dev-tools doctor
+dev-tools project scan E:\Projects\MyProjects\some-project
+dev-tools project scan E:\Projects\MyProjects\some-project --json
 ```
 
-在 WSL 中运行相同命令时，只管理当前 WSL。
+### 2. 生成项目声明
 
-共享默认版本位于 [`config/mise.toml`](config/mise.toml)。Windows 与 WSL 使用相同声明、
-各自安装平台原生运行时，不共享可执行目录和缓存。
-
-## 项目版本扫描
-
-只扫描并报告：
-
-```bash
-dev-tools project scan .
-dev-tools project scan . --json
+```powershell
+dev-tools project init E:\Projects\MyProjects\some-project --dry-run
+dev-tools project init E:\Projects\MyProjects\some-project
 ```
 
-预览或生成项目配置：
+已有根级 `mise.toml` 或 `.mise.toml` 时保持原文件不变；同优先级版本冲突时停止并报告。
 
-```bash
-dev-tools project init . --dry-run
-dev-tools project init .
+### 3. 安装项目版本
+
+```powershell
+dev-tools project prepare E:\Projects\MyProjects\some-project --dry-run
+dev-tools project prepare E:\Projects\MyProjects\some-project
 ```
 
-扫描器目前识别：
+`prepare` 要求项目根目录已经存在 `mise.toml` 或 `.mise.toml`。它等价于在目标项目
+上下文显式执行 `mise install`，不会安装仓库外的全局默认版本。
 
-- `mise.toml`、`.mise.toml`、`.tool-versions`。
-- Java 的 `.java-version`、`.sdkmanrc`、Maven POM、Gradle toolchain。
-- Maven Wrapper；存在 Wrapper 时不重复生成 mise Maven 声明。
-- Node 的 `.nvmrc`、`.node-version`、`package.json` engines、devEngines、Volta。
-- npm、pnpm、Yarn 的 `packageManager`、engines 和 Volta 声明。
-- Python 的 `.python-version`、`pyproject.toml`、`uv.lock`，以及 uv 自身版本要求。
+## 可识别的声明
 
-安全规则：
+- mise：`mise.toml`、`.mise.toml`、`.tool-versions`。
+- Java：`.java-version`、`.sdkmanrc`、Maven POM、Gradle toolchain。
+- Maven：Maven Wrapper；存在 Wrapper 时不重复生成 Maven 声明。
+- Node.js：`.nvmrc`、`.node-version`、`package.json` engines、devEngines、Volta。
+- 包管理器：npm、pnpm、Yarn 的 `packageManager`、engines 和 Volta 声明。
+- Python：`.python-version`、`pyproject.toml`、`uv.lock` 和 uv 版本要求。
 
-- 只解析已知文本、TOML、JSON 和 XML，不执行项目代码。
-- 已有根级 `mise.toml` 或 `.mise.toml` 时不改写。
-- 同优先级声明冲突时退出并报告，不生成文件。
-- 版本范围转换为可审计的宽松版本，例如 `>=3.11` 转为 `python = "3.11"`。
-- 扫描结果包含来源；生成内容应由用户审阅并按项目需要提交 Git。
+扫描器只解析已知文本、TOML、JSON 和 XML。版本范围会转换成可审阅的宽松版本，例如
+`>=3.11` 转为 `python = "3.11"`。
 
-## 与 wsl-devctl 的边界
+## 与 wsl-devctl 配合
 
-- `dev-tools` 发现和生成项目版本声明。
-- `wsl-devctl` 消费声明，负责 Windows 源码镜像、systemd、构建、热更新和恢复。
-- 两者通过 CLI/JSON 协作，不相互导入 Python 模块。
-
-典型流程：
+`dev-tools` 负责发现、生成和显式安装项目工具版本；
+[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) 负责把 Windows 源码同步到 WSL
+ext4，并管理构建、systemd 进程和热更新。
 
 ```bash
 dev-tools project init /mnt/e/Projects/CompanyProjects/order-service
@@ -138,9 +134,24 @@ wsl-devctl init /mnt/e/Projects/CompanyProjects/order-service \
   --toolchain mise --fix --start
 ```
 
-`wsl-devctl` 支持集成参数后，也可以用一条命令完成生成和注册：
+也可以由 `wsl-devctl` 调用 `dev-tools` 生成配置：
 
 ```bash
 wsl-devctl init /mnt/e/Projects/CompanyProjects/order-service \
   --toolchain mise --generate-mise --fix --start
 ```
+
+## 更新、卸载与测试
+
+更新仓库后重新运行对应安装脚本即可刷新入口。卸载入口使用
+`scripts/uninstall.ps1` 或 `scripts/uninstall.sh`；已安装的项目运行时和缓存不会被删除。
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+$python = Join-Path "$(mise where python@3.11)" python.exe
+& $python -m unittest discover -s tests -t . -v
+```
+
+## License
+
+Licensed under the [MIT License](LICENSE).

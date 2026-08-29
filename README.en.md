@@ -1,145 +1,138 @@
 # dev-tools
 
-[中文](README.md) | [English](README.en.md)
+[简体中文](README.md) · **English**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-`dev-tools` is a unified command entrypoint for a personal Windows and WSL development
-environment. It organizes shared runtime management through mise and normalizes existing project
-version declarations into a project-level `mise.toml`.
+`dev-tools` is a project toolchain entrypoint for Windows and WSL. It detects Java, Node.js,
+Python, Maven, and package-manager versions from files already in a project, generates a
+project-level `mise.toml`, and installs missing versions only when preparation is explicitly
+requested.
 
-It does not replace Scoop, winget, APT, Maven, pnpm, uv, or `wsl-devctl`, and it never executes
-scripts found in a scanned project.
+## Design boundaries
 
-## Companion Project
+- Never create or install global project defaults for Java, Node.js, Python, Maven, or other
+  runtimes.
+- `scan` and `init` parse known metadata only. They do not execute project code or download
+  runtimes.
+- Only an explicit `project prepare` call may ask mise to install versions.
+- Windows and WSL share project declarations while keeping native binaries and caches separate.
+- On Windows, `dev-tools` uses a private, globally inactive Python 3.11 for its own scanner. It
+  does not participate in project version selection.
+- Codex, Claude Code, and CodeGraph are Windows operator CLIs with a separate config and host Node;
+  `project prepare` explicitly ignores that config.
 
-[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) safely mirrors Windows source into WSL ext4
-and manages project builds, systemd processes, and live reload. `dev-tools` supplies its shared
-runtime declarations and project-level `mise.toml`.
+## Command help
+
+Start with these entrypoints:
+
+```powershell
+dev-tools help
+dev-tools project --help
+dev-tools project prepare --help
+```
+
+| Command | Writes files | Downloads | Purpose |
+|---|---:|---:|---|
+| `dev-tools status` | No | No | Check mise on Windows and WSL |
+| `dev-tools doctor` | No | No | Run mise diagnostics on both sides |
+| `dev-tools cli status` | No | No | Inspect Windows operator CLIs |
+| `dev-tools cli install` | No | Yes | Explicitly install missing operator CLIs |
+| `dev-tools cli outdated` | No | No | Check operator CLI updates |
+| `dev-tools cli upgrade` | No | Yes | Explicitly update operator CLIs |
+| `dev-tools project scan [PATH]` | No | No | Report project versions, sources, and conflicts |
+| `dev-tools project init [PATH]` | Maybe | No | Generate a root `mise.toml` when missing |
+| `dev-tools project prepare [PATH] --dry-run` | No | No | Preview versions required by this project |
+| `dev-tools project prepare [PATH]` | No | Yes | Install missing versions declared by this project |
+
+Commands use the current directory when `PATH` is omitted. PowerShell `status` and `doctor`
+check Windows and the `Ubuntu` WSL distribution by default; pass `-Distro` to select another
+distribution. The WSL entrypoint checks the current WSL environment only.
 
 ## Installation
 
-Clone the repository to a location accessible from both Windows and WSL:
+Clone the repository somewhere accessible from both Windows and WSL:
 
 ```powershell
 git clone https://github.com/hhhxxxddd/dev-tools.git
 cd dev-tools
+.\scripts\bootstrap.ps1
 ```
 
-The recommended PowerShell bootstrap initializes Windows, Ubuntu WSL, and shared runtimes in one
-command:
+Install the companion
+[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) at the same time:
 
 ```powershell
 .\scripts\bootstrap.ps1 -InstallWslDevctl
 ```
 
-It will:
+Bootstrap will:
 
 1. Install Windows mise through Scoop when missing.
-2. Install WSL mise through the officially documented
-   [`extrepo + apt`](https://mise.jdx.dev/installing-mise.html#apt) method when missing.
-3. Install the `dev-tools` entrypoint on Windows and WSL.
-4. Install platform-native runtimes declared by the shared `config/mise.toml`.
-5. Optionally install the sibling `wsl-devctl` checkout and add a transparent PowerShell forwarder.
+2. Install WSL mise and Python 3 through `extrepo + apt` when missing.
+3. Install the `dev-tools` command entrypoint on Windows and WSL.
+4. Install the private Windows Python used only by the `dev-tools` scanner.
+5. Optionally install `wsl-devctl` and create its PowerShell forwarding command.
 
-Common options:
+It does not scan projects, install project runtimes, or automatically install Windows operator
+CLIs. Run `dev-tools cli install` explicitly when those CLIs are wanted.
 
-```powershell
-.\scripts\bootstrap.ps1 -Distro Ubuntu -InstallWslDevctl
-.\scripts\bootstrap.ps1 -InstallWslDevctl -WslDevctlPath E:\Projects\MyProjects\wsl-devctl
-.\scripts\bootstrap.ps1 -SkipRuntimeInstall
-```
-
-Windows and WSL binaries, caches, and PATH values remain platform-native. Bootstrap unifies the
-installation workflow, version declarations, and command entrypoints.
-
-Use the individual installers when only one side is needed.
-
-Install the PowerShell entrypoint:
+Install only one command entrypoint when needed:
 
 ```powershell
 .\scripts\install.ps1
 ```
 
-Install the WSL entrypoint:
-
 ```bash
 sudo bash scripts/install.sh
 ```
 
-The installers resolve the repository's actual location and do not embed a username or drive
-letter. Use the matching `uninstall.ps1` or `uninstall.sh` to remove an entrypoint. Installed
-runtimes and caches are preserved.
+## Project workflow
 
-After installing `wsl-devctl`, PowerShell can call it directly:
+### 1. Inspect detected versions
 
 ```powershell
-wsl-devctl help
-wsl-devctl status local-my-app
+dev-tools project scan E:\Projects\MyProjects\some-project
+dev-tools project scan E:\Projects\MyProjects\some-project --json
 ```
 
-The command is transparently forwarded to the configured WSL distribution.
-
-## Environment Management
-
-From PowerShell, manage both Windows and Ubuntu WSL:
+### 2. Generate a project declaration
 
 ```powershell
-dev-tools status
-dev-tools install
-dev-tools outdated
-dev-tools upgrade
-dev-tools prune
-dev-tools doctor
+dev-tools project init E:\Projects\MyProjects\some-project --dry-run
+dev-tools project init E:\Projects\MyProjects\some-project
 ```
 
-The same commands run inside WSL manage only the current WSL environment.
+An existing root `mise.toml` or `.mise.toml` is preserved byte-for-byte. Equal-priority version
+conflicts stop generation and are reported.
 
-Shared defaults live in [`config/mise.toml`](config/mise.toml). Windows and WSL use the same
-declarations while installing platform-native runtimes into separate data and cache directories.
+### 3. Install project versions
 
-## Project Version Discovery
-
-Scan and report without writing files:
-
-```bash
-dev-tools project scan .
-dev-tools project scan . --json
+```powershell
+dev-tools project prepare E:\Projects\MyProjects\some-project --dry-run
+dev-tools project prepare E:\Projects\MyProjects\some-project
 ```
 
-Preview or generate a project configuration:
+`prepare` requires an existing root `mise.toml` or `.mise.toml`. It explicitly runs
+`mise install` in the target project context and never installs repository-wide global defaults.
 
-```bash
-dev-tools project init . --dry-run
-dev-tools project init .
-```
+## Recognized declarations
 
-The scanner currently recognizes:
+- mise: `mise.toml`, `.mise.toml`, and `.tool-versions`.
+- Java: `.java-version`, `.sdkmanrc`, Maven POM files, and Gradle toolchains.
+- Maven: Maven Wrapper; no duplicate Maven declaration is generated when a wrapper exists.
+- Node.js: `.nvmrc`, `.node-version`, and `package.json` engines, devEngines, or Volta.
+- Package managers: npm, pnpm, and Yarn versions from `packageManager`, engines, or Volta.
+- Python: `.python-version`, `pyproject.toml`, `uv.lock`, and uv version requirements.
 
-- `mise.toml`, `.mise.toml`, and `.tool-versions`.
-- Java declarations in `.java-version`, `.sdkmanrc`, Maven POM files, and Gradle toolchains.
-- Maven Wrapper; when present, no duplicate mise Maven declaration is generated.
-- Node declarations in `.nvmrc`, `.node-version`, and `package.json` engines, devEngines, or Volta.
-- npm, pnpm, and Yarn versions from `packageManager`, engines, and Volta declarations.
-- Python declarations in `.python-version`, `pyproject.toml`, and `uv.lock`, including uv's own
-  required version.
+The scanner parses known text, TOML, JSON, and XML only. Version ranges become reviewable broad
+versions, such as `>=3.11` to `python = "3.11"`.
 
-Safety rules:
+## Working with wsl-devctl
 
-- Parse only known text, TOML, JSON, and XML metadata. Never execute project code.
-- Preserve an existing root `mise.toml` or `.mise.toml` byte-for-byte.
-- Stop and report equal-priority version conflicts instead of generating a file.
-- Convert version ranges into auditable broad versions, such as `>=3.11` to `python = "3.11"`.
-- Include declaration sources in scan and generated output for review before committing.
-
-## Relationship with wsl-devctl
-
-- `dev-tools` discovers and generates project version declarations.
-- [`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) consumes those declarations and manages
-  Windows source mirroring, systemd, builds, live reload, and recovery.
-- The projects cooperate through a CLI/JSON contract and do not import each other's Python modules.
-
-Typical workflow:
+`dev-tools` discovers, generates, and explicitly installs project tool versions.
+[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) mirrors Windows source into WSL ext4 and
+manages builds, systemd processes, and live reload.
 
 ```bash
 dev-tools project init /mnt/e/Projects/CompanyProjects/order-service
@@ -147,9 +140,25 @@ wsl-devctl init /mnt/e/Projects/CompanyProjects/order-service \
   --toolchain mise --fix --start
 ```
 
-Use the integrated command when both tools are installed:
+`wsl-devctl` can also invoke `dev-tools` while registering a project:
 
 ```bash
 wsl-devctl init /mnt/e/Projects/CompanyProjects/order-service \
   --toolchain mise --generate-mise --fix --start
 ```
+
+## Upgrade, uninstall, and tests
+
+After updating the repository, rerun the relevant installer to refresh the entrypoint. Remove
+entrypoints with `scripts/uninstall.ps1` or `scripts/uninstall.sh`; installed project runtimes
+and caches are preserved.
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+$python = Join-Path "$(mise where python@3.11)" python.exe
+& $python -m unittest discover -s tests -t . -v
+```
+
+## License
+
+Licensed under the [MIT License](LICENSE).

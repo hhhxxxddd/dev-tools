@@ -3,7 +3,8 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$configPath = Join-Path $repoRoot 'config\mise.toml'
+$legacyConfigPath = Join-Path $repoRoot 'config\mise.toml'
+$cliConfigPath = Join-Path $repoRoot 'config\windows-cli-tools.toml'
 $profilePath = $PROFILE.CurrentUserCurrentHost
 $startMarker = '# >>> dev-tools >>>'
 $endMarker = '# <<< dev-tools <<<'
@@ -16,7 +17,7 @@ if (Test-Path -LiteralPath $profilePath) {
 }
 
 $current = [Environment]::GetEnvironmentVariable('MISE_GLOBAL_CONFIG_FILE', 'User')
-if ($current -eq $configPath) {
+if ($current -in @($legacyConfigPath, $cliConfigPath)) {
     [Environment]::SetEnvironmentVariable('MISE_GLOBAL_CONFIG_FILE', $null, 'User')
 }
 Remove-Item Function:dev-tools -ErrorAction SilentlyContinue

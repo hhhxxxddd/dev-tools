@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 
 from .scanner import ScanResult, render_mise, scan_project
@@ -80,6 +83,32 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 2 if action == "conflict" else 0
 
 
+def cmd_prepare(args: argparse.Namespace) -> int:
+    result = scan_project(args.path)
+    if result.conflicts:
+        _print_human(result)
+        print("存在同优先级版本冲突，未安装开发工具。", file=sys.stderr)
+        return 2
+    if result.existing_config is None:
+        print(
+            "项目根目录没有 mise.toml 或 .mise.toml；"
+            "请先运行 dev-tools project init。",
+            file=sys.stderr,
+        )
+        return 1
+    if shutil.which("mise") is None:
+        print("mise 不在 PATH 中，无法准备项目环境。", file=sys.stderr)
+        return 1
+
+    command = ["mise", "--yes", "-C", str(result.root), "install"]
+    if args.dry_run:
+        command.append("--dry-run")
+    environment = os.environ.copy()
+    environment["MISE_GLOBAL_CONFIG_FILE"] = os.devnull
+    completed = subprocess.run(command, check=False, env=environment)
+    return completed.returncode
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="dev-tools")
     commands = result.add_subparsers(dest="command", required=True)
@@ -94,6 +123,13 @@ def parser() -> argparse.ArgumentParser:
     initialize.add_argument("--dry-run", action="store_true")
     initialize.add_argument("--json", action="store_true")
     initialize.set_defaults(func=cmd_init)
+    prepare = project_commands.add_parser(
+        "prepare",
+        help="安装项目 mise 配置声明但尚未安装的版本",
+    )
+    prepare.add_argument("path", nargs="?", default=".")
+    prepare.add_argument("--dry-run", action="store_true")
+    prepare.set_defaults(func=cmd_prepare)
     return result
 
 

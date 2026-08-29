@@ -2,8 +2,7 @@
 param(
     [string] $Distro = 'Ubuntu',
     [switch] $InstallWslDevctl,
-    [string] $WslDevctlPath,
-    [switch] $SkipRuntimeInstall
+    [string] $WslDevctlPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -140,14 +139,6 @@ $wslRepoRoot = Convert-ToWslPath $repoRoot
 Write-Host "Installing the dev-tools entrypoint in WSL distro $Distro..."
 Invoke-WslInstaller -WslRepositoryPath $wslRepoRoot
 
-if (-not $SkipRuntimeInstall) {
-    Write-Host 'Installing shared runtime declarations on Windows and WSL...'
-    & (Join-Path $PSScriptRoot 'dev-tools.ps1') install -Distro $Distro
-    if ($LASTEXITCODE -ne 0) {
-        throw "dev-tools install failed with exit code $LASTEXITCODE."
-    }
-}
-
 if ($InstallWslDevctl) {
     $resolvedWslDevctl = if ($WslDevctlPath) {
         [IO.Path]::GetFullPath($WslDevctlPath)
@@ -190,7 +181,8 @@ if ($InstallWslDevctl) {
 Write-Host ''
 Write-Host 'Bootstrap complete.' -ForegroundColor Green
 Write-Host 'Restart PowerShell or run: . $PROFILE'
-Write-Host "Verify both runtimes with: dev-tools status"
+Write-Host 'Command overview: dev-tools help'
+Write-Host 'Verify mise on Windows and WSL with: dev-tools status'
 if ($InstallWslDevctl) {
     Write-Host 'Chinese help is available with: wsl-devctl help'
 }
