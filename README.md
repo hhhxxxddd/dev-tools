@@ -30,6 +30,7 @@ dev-tools project prepare --help
 
 | 命令 | 是否写文件 | 是否下载 | 用途 |
 |---|---:|---:|---|
+| `dev-tools --version` | 否 | 否 | 显示当前版本 |
 | `dev-tools status` | 否 | 否 | 检查 Windows 与 WSL 的 mise 状态 |
 | `dev-tools doctor` | 否 | 否 | 运行两侧 mise 诊断 |
 | `dev-tools cli status` | 否 | 否 | 查看 Windows 操作型 CLI |

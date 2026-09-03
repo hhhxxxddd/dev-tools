@@ -21,6 +21,7 @@ dev-tools - 按项目发现并准备 Windows/WSL 开发工具版本
 
 帮助：
   dev-tools help                         显示本页
+  dev-tools --version                    显示当前版本
   dev-tools project --help               显示项目子命令
   dev-tools project <命令> --help        显示某个项目命令的完整参数
 
@@ -55,25 +56,33 @@ function Assert-Mise {
     }
 }
 
-function Invoke-ProjectCommand {
+function Get-InternalPython {
     Assert-Mise
     $pythonRoot = "$(& mise where $internalPython 2>$null | Select-Object -First 1)".Trim()
     $python = if ($pythonRoot) { Join-Path $pythonRoot 'python.exe' } else { $null }
     if ($LASTEXITCODE -ne 0 -or -not $python -or -not (Test-Path -LiteralPath $python)) {
         throw 'dev-tools internal Python is missing. Rerun scripts\install.ps1.'
     }
+    return $python
+}
+
+function Invoke-InternalCli {
+    param([Parameter(Mandatory)][string[]] $CliArguments)
+
+    $python = Get-InternalPython
     $previousPythonPath = $env:PYTHONPATH
     $previousPythonUtf8 = $env:PYTHONUTF8
     try {
         $env:PYTHONPATH = $sourcePath
         $env:PYTHONUTF8 = '1'
-        & $python -m dev_tools.cli project @Arguments
-        exit $LASTEXITCODE
+        & $python -m dev_tools.cli @CliArguments
+        $exitCode = $LASTEXITCODE
     }
     finally {
         $env:PYTHONPATH = $previousPythonPath
         $env:PYTHONUTF8 = $previousPythonUtf8
     }
+    exit $exitCode
 }
 
 function Invoke-CliCommand {
@@ -131,8 +140,12 @@ if ($Command -in @('help', '-h', '--help')) {
     Show-Help
     exit 0
 }
+if ($Command -in @('version', '-V', '--version')) {
+    Invoke-InternalCli -CliArguments @('--version')
+}
 if ($Command -eq 'project') {
-    Invoke-ProjectCommand
+    $cliArguments = @('project') + $Arguments
+    Invoke-InternalCli -CliArguments $cliArguments
 }
 if ($Command -eq 'cli') {
     Invoke-CliCommand

@@ -11,6 +11,7 @@ dev-tools - 按项目发现并准备当前 WSL 的开发工具版本
 
 帮助：
   dev-tools help
+  dev-tools --version
   dev-tools project --help
   dev-tools project <命令> --help
 
@@ -39,6 +40,14 @@ fi
 case "$command_name" in
   help|-h|--help)
     show_help
+    ;;
+  version|-V|--version)
+    command -v python3 >/dev/null 2>&1 || {
+      printf 'python3 不在 PATH 中；dev-tools 需要 Python 3.11 或更高版本。\n' >&2
+      exit 1
+    }
+    export PYTHONPATH="$repo_root/src"
+    exec python3 -m dev_tools.cli --version
     ;;
   project)
     command -v python3 >/dev/null 2>&1 || {

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 
+from . import __version__
 from .scanner import ScanResult, render_mise, scan_project
 
 
@@ -91,8 +92,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         return 2
     if result.existing_config is None:
         print(
-            "项目根目录没有 mise.toml 或 .mise.toml；"
-            "请先运行 dev-tools project init。",
+            "项目根目录没有 mise.toml 或 .mise.toml；请先运行 dev-tools project init。",
             file=sys.stderr,
         )
         return 1
@@ -111,6 +111,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="dev-tools")
+    result.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = result.add_subparsers(dest="command", required=True)
     project = commands.add_parser("project", help="扫描并规范项目开发工具版本")
     project_commands = project.add_subparsers(dest="project_command", required=True)

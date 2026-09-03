@@ -6,14 +6,32 @@ import io
 import json
 import os
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from dev_tools.cli import cmd_init, cmd_prepare
+from dev_tools import __version__
+from dev_tools.cli import cmd_init, cmd_prepare, parser
 
 
 class CliTests(unittest.TestCase):
+    def test_version_matches_project_metadata(self) -> None:
+        metadata = tomllib.loads(
+            (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(__version__, "0.2.0")
+        self.assertEqual(metadata["project"]["version"], __version__)
+
+    def test_version_flag_prints_version(self) -> None:
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exit_context:
+            parser().parse_args(["--version"])
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertEqual(output.getvalue().strip(), "dev-tools 0.2.0")
+
     def test_init_creates_parseable_mise_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -58,7 +76,7 @@ class CliTests(unittest.TestCase):
                 code = cmd_prepare(argparse.Namespace(path=str(root), dry_run=False))
 
             self.assertEqual(code, 0)
-            command, = run.call_args.args
+            (command,) = run.call_args.args
             self.assertEqual(
                 command,
                 ["mise", "--yes", "-C", str(root.resolve()), "install"],

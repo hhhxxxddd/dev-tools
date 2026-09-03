@@ -34,6 +34,7 @@ dev-tools project prepare --help
 
 | Command | Writes files | Downloads | Purpose |
 |---|---:|---:|---|
+| `dev-tools --version` | No | No | Show the current version |
 | `dev-tools status` | No | No | Check mise on Windows and WSL |
 | `dev-tools doctor` | No | No | Run mise diagnostics on both sides |
 | `dev-tools cli status` | No | No | Inspect Windows operator CLIs |
