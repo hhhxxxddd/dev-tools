@@ -34,6 +34,21 @@ function Test-WslCommand {
     return $LASTEXITCODE -eq 0
 }
 
+function Convert-ToLf {
+    param([Parameter(Mandatory)][string] $Value)
+
+    return $Value.Replace("`r`n", "`n").Replace("`r", "`n")
+}
+
+function Invoke-WslRootShell {
+    param([Parameter(Mandatory)][string] $Script)
+
+    $normalizedScript = Convert-ToLf $Script
+    Invoke-Native -FilePath wsl.exe -Arguments @(
+        '-d', $Distro, '-u', 'root', '--', 'bash', '-lc', $normalizedScript
+    )
+}
+
 function Convert-ToWslPath {
     param([Parameter(Mandatory)][string] $WindowsPath)
 
@@ -49,18 +64,9 @@ function Convert-ToWslPath {
 function Invoke-WslInstaller {
     param([Parameter(Mandatory)][string] $WslRepositoryPath)
 
-    $rawUserId = & wsl.exe -d $Distro -- id -u
-    $userId = if ($null -ne $rawUserId) { "$rawUserId".Trim() } else { '' }
-    if ($LASTEXITCODE -ne 0 -or $userId -notmatch '^\d+$') {
-        throw "Cannot determine the active user in WSL distro: $Distro"
-    }
-    $arguments = @('-d', $Distro, '--')
-    if ($userId -eq '0') {
-        $arguments += @('bash', "$WslRepositoryPath/scripts/install.sh")
-    } else {
-        $arguments += @('sudo', 'bash', "$WslRepositoryPath/scripts/install.sh")
-    }
-    Invoke-Native -FilePath wsl.exe -Arguments $arguments
+    Invoke-Native -FilePath wsl.exe -Arguments @(
+        '-d', $Distro, '-u', 'root', '--', 'bash', "$WslRepositoryPath/scripts/install.sh"
+    )
 }
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
@@ -88,43 +94,25 @@ if ! command -v apt-get >/dev/null 2>&1; then
   printf 'Automatic mise installation requires an Ubuntu/Debian WSL distro.\n' >&2
   exit 1
 fi
-if [[ $(id -u) -eq 0 ]]; then
-  sudo_cmd=()
-elif command -v sudo >/dev/null 2>&1; then
-  sudo_cmd=(sudo)
-else
-  printf 'Root or sudo is required to install mise.\n' >&2
-  exit 1
-fi
 if ! command -v extrepo >/dev/null 2>&1; then
-  "${sudo_cmd[@]}" apt-get update
-  "${sudo_cmd[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y extrepo
+  apt-get update
+  env DEBIAN_FRONTEND=noninteractive apt-get install -y extrepo
 fi
-"${sudo_cmd[@]}" extrepo enable mise
-"${sudo_cmd[@]}" apt-get update
-"${sudo_cmd[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y mise python3
+extrepo enable mise
+apt-get update
+env DEBIAN_FRONTEND=noninteractive apt-get install -y mise python3
 '@
-    Invoke-Native -FilePath wsl.exe -Arguments @('-d', $Distro, '--', 'bash', '-lc', $installMise)
+    Invoke-WslRootShell -Script $installMise
 }
 
 if (-not (Test-WslCommand python3)) {
     Write-Host "Installing Python 3 in WSL distro $Distro for the dev-tools installer..."
     $installPython = @'
 set -euo pipefail
-if [[ $(id -u) -eq 0 ]]; then
-  sudo_cmd=()
-elif command -v sudo >/dev/null 2>&1; then
-  sudo_cmd=(sudo)
-else
-  printf 'Root or sudo is required to install Python 3.\n' >&2
-  exit 1
-fi
-"${sudo_cmd[@]}" apt-get update
-"${sudo_cmd[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y python3
+apt-get update
+env DEBIAN_FRONTEND=noninteractive apt-get install -y python3
 '@
-    Invoke-Native -FilePath wsl.exe -Arguments @(
-        '-d', $Distro, '--', 'bash', '-lc', $installPython
-    )
+    Invoke-WslRootShell -Script $installPython
 }
 
 Write-Host 'Installing the PowerShell dev-tools entrypoint...'
