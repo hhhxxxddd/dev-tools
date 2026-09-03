@@ -99,7 +99,7 @@ class ScannerTests(unittest.TestCase):
 
             result = scan_project(root)
 
-            self.assertEqual(result.existing_config, config)
+            self.assertEqual(result.existing_config, config.resolve())
             self.assertEqual(config.read_text(encoding="utf-8"), original)
 
     def test_uv_required_version_and_python_range_are_detected(self) -> None:
