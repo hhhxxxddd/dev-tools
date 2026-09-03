@@ -4,7 +4,6 @@ import argparse
 import contextlib
 import io
 import json
-import os
 import tempfile
 import tomllib
 import unittest
@@ -12,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dev_tools import __version__
-from dev_tools.cli import cmd_init, cmd_prepare, parser
+from dev_tools.cli import PROJECT_ISOLATION_CONFIG, cmd_init, cmd_prepare, parser
 
 
 class CliTests(unittest.TestCase):
@@ -82,7 +81,11 @@ class CliTests(unittest.TestCase):
                 ["mise", "--yes", "-C", str(root.resolve()), "install"],
             )
             self.assertFalse(run.call_args.kwargs["check"])
-            self.assertEqual(run.call_args.kwargs["env"]["MISE_GLOBAL_CONFIG_FILE"], os.devnull)
+            self.assertEqual(
+                run.call_args.kwargs["env"]["MISE_GLOBAL_CONFIG_FILE"],
+                str(PROJECT_ISOLATION_CONFIG),
+            )
+            self.assertTrue(PROJECT_ISOLATION_CONFIG.is_file())
 
     def test_prepare_refuses_project_without_mise_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

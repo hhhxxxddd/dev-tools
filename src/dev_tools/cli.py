@@ -6,9 +6,12 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from . import __version__
 from .scanner import ScanResult, render_mise, scan_project
+
+PROJECT_ISOLATION_CONFIG = Path(__file__).resolve().parents[2] / "config/project-isolation.toml"
 
 
 def _print_human(result: ScanResult) -> None:
@@ -104,7 +107,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     if args.dry_run:
         command.append("--dry-run")
     environment = os.environ.copy()
-    environment["MISE_GLOBAL_CONFIG_FILE"] = os.devnull
+    environment["MISE_GLOBAL_CONFIG_FILE"] = str(PROJECT_ISOLATION_CONFIG)
     completed = subprocess.run(command, check=False, env=environment)
     return completed.returncode
 
