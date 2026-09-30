@@ -163,3 +163,37 @@ $python = Join-Path "$(mise where python@3.11)" python.exe
 ## License
 
 Licensed under the [MIT License](LICENSE).
+
+## Machine information
+
+Run `dev-tools sysinfo` or `dev-tools sysinfo --json` for read-only platform metadata,
+CPU count, the current Python version, and common command availability on PATH. It does not
+execute discovered tools, access the network, install software, start WSL/services, load shell
+profiles, or scan projects. Windows uses the existing private Python; WSL uses its existing Python.
+
+Optional configuration lives in the ignored `config/sysinfo.local.json` in this checkout.
+Use `DEV_TOOLS_SYSINFO_CONFIG` for a machine-specific location, or `--config PATH` to override it.
+Missing/invalid configuration safely falls back to generic detection without writing a file.
+JSON reports `config_state` as missing, invalid, or loaded. New machines need no personal config.
+Start with the empty `config/sysinfo.example.json` if custom entries are needed.
+
+`directories` entries accept command, description, windows, and wsl; only the current platform's
+directory is checked. `tools` entries accept command and description and are displayed as an index.
+PATH availability does not validate shell functions, versions, updates, or service health.
+SSH, key, proxy, credential, and unknown fields are ignored in both text and JSON outputs.
+Keep secrets out of labels and paths, and never commit local configuration.
+
+The optional `scripts/dev-info.ps1` and `scripts/dev-info` compatibility wrappers forward to
+sysinfo without reading the former control repository. No runtime reinstallation is required.
+
+## Daily repository and software report
+
+`dev-tools report` refreshes Git refs and package indexes, without pull, installation,
+upgrades or accepting new source agreements. Copy `config/report.example.json` to the
+ignored per-machine `config/report.local.json`; set explicit `roots.windows` and
+`roots.wsl`. Discovery is bounded and does not read Codex registrations or trusted paths.
+Use `--json --output PATH` to save structured output, `--timeout 90` for per-command
+limits, or `--no-refresh` to retain cached Git/APT/Scoop data (CLI outdated still queries
+versions). Windows also checks winget, Scoop and the selected WSL distro. WSL runs Linux
+collectors only. Failures are isolated and cached results are marked. `sysinfo` stays
+read-only. Do not place credentials in configuration or reports.

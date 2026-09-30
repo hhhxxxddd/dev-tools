@@ -26,6 +26,8 @@ dev-tools - 按项目发现并准备 Windows/WSL 开发工具版本
   dev-tools project <命令> --help        显示某个项目命令的完整参数
 
 环境检查：
+  dev-tools report [--json]              刷新并报告；不 pull/安装/升级
+  dev-tools sysinfo [--json]             只读查看当前机器与本机开发入口
   dev-tools status                       显示 Windows 与 WSL 的 mise 状态
   dev-tools doctor                       运行 Windows 与 WSL 的 mise 诊断
 
@@ -58,9 +60,11 @@ function Assert-Mise {
 
 function Get-InternalPython {
     Assert-Mise
-    $pythonRoot = "$(& mise where $internalPython 2>$null | Select-Object -First 1)".Trim()
+    $pythonRoots = @(& mise where $internalPython 2>$null)
+    $miseExitCode = $LASTEXITCODE
+    $pythonRoot = "$($pythonRoots | Select-Object -First 1)".Trim()
     $python = if ($pythonRoot) { Join-Path $pythonRoot 'python.exe' } else { $null }
-    if ($LASTEXITCODE -ne 0 -or -not $python -or -not (Test-Path -LiteralPath $python)) {
+    if ($miseExitCode -ne 0 -or -not $python -or -not (Test-Path -LiteralPath $python)) {
         throw 'dev-tools internal Python is missing. Rerun scripts\install.ps1.'
     }
     return $python
@@ -142,6 +146,11 @@ if ($Command -in @('help', '-h', '--help')) {
 }
 if ($Command -in @('version', '-V', '--version')) {
     Invoke-InternalCli -CliArguments @('--version')
+}
+if ($Command -in @('sysinfo', 'report')) {
+    $cliArguments = @($Command)
+    if ($Arguments) { $cliArguments += $Arguments }
+    Invoke-InternalCli -CliArguments $cliArguments
 }
 if ($Command -eq 'project') {
     $cliArguments = @('project') + $Arguments

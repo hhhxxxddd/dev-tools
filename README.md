@@ -156,3 +156,56 @@ $python = Join-Path "$(mise where python@3.11)" python.exe
 ## License
 
 Licensed under the [MIT License](LICENSE).
+
+## 本机速查
+
+`dev-tools sysinfo` 只读查看当前操作系统、CPU 核心、当前 Python 和 PATH 中常见命令的可用性。
+它不运行被发现的工具、不联网、不安装、不启动 WSL/服务、不加载 shell profile，也不扫描项目。
+Windows 使用 dev-tools 已有的私有 Python；WSL 使用现有 Python 3。
+
+```text
+dev-tools sysinfo
+dev-tools sysinfo --json
+dev-tools sysinfo --config <本机配置路径>
+```
+
+可选配置默认为当前检出的 `config/sysinfo.local.json`，已被 Git 忽略；也可用
+`DEV_TOOLS_SYSINFO_CONFIG` 指定每台机器自己的文件，`--config` 优先。配置缺失或无效时，
+安全回退到通用探测，不创建或覆盖文件；JSON 的 `config_state` 为 missing/invalid/loaded。
+新机器无需复制个人机配置。`config/sysinfo.example.json` 提供空的通用结构。
+
+`directories` 条目可含 command、description、windows、wsl；只检查当前侧对应目录是否存在。
+`tools` 条目只含 command、description，作为入口速查，shell 函数及服务健康不在探测范围内。
+通用命令的 `available_on_path` 仅表示 PATH 能定位，不表示版本、服务状态或存在可用更新。
+程序忽略 SSH、密钥、代理、凭据和其他未知字段，普通和 JSON 输出都不会展示这些字段。
+不要把秘密放在目录或工具说明中。本机配置保持本地，不提交。
+
+旧 `dev-info` 可通过 `scripts/dev-info.ps1` 或 WSL `scripts/dev-info` 转发到 sysinfo；
+兼容入口不读取旧控制仓库的配置。无需重新安装运行时。
+
+## 每日仓库与软件报告
+
+`dev-tools report` 默认刷新 Git 远端引用及软件索引并生成报告；不会执行
+Git pull、软件安装/升级，也不会接受新的源协议。`sysinfo` 仍是只读环境速查。
+
+每台机器自行将 `config/report.example.json` 复制为 Git 忽略的
+`config/report.local.json`，在 `roots.windows` / `roots.wsl` 填写自己的项目根目录。
+不读取 Codex trusted paths 或项目登记，也不依赖 codex-chats。只扫描声明目录，
+最大深度 0–5（默认 2），最多 256 个仓库和 10000 个目录；跳过依赖目录、链接和 junction。
+发现仓库后不继续扫描其内部。配置不应包含凭据、SSH 或代理信息。
+
+```text
+dev-tools report
+dev-tools report --json --output report.json
+dev-tools report --no-refresh --json
+dev-tools report --config PATH --timeout 90
+```
+
+`--timeout` 是每条外部命令的超时（秒）。各失败、缺少工具、无上游和无效目录单独报告。
+fetch 或 APT/Scoop 刷新失败时标记 cached；未刷新报告不能代表远端最新状态。
+Windows 入口采集 winget、Scoop、现有 dev-tools status/cli outdated、WSL APT/mise；
+WSL 入口只采集当前 Linux 环境，不自动转发到 Windows。WSL APT 使用非交互 sudo，
+权限不足则报告失败。npm 仅查询 mise 之外的额外全局包。
+`--no-refresh` 不 fetch 或刷新索引，不查询可能自动刷新源的 winget，但仍查询 CLI 最新版本。
+报告含版本与脱敏工具输出；源 URL、主目录和常见敏感值会隐藏。日志不得用于保存凭据。
+配置缺失/无效时跳过仓库扫描并报告配置状态，不创建文件。

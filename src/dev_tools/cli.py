@@ -9,7 +9,9 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .report import collect_report, render_report
 from .scanner import ScanResult, render_mise, scan_project
+from .sysinfo import collect_sysinfo, print_sysinfo
 
 PROJECT_ISOLATION_CONFIG = Path(__file__).resolve().parents[2] / "config/project-isolation.toml"
 
@@ -112,10 +114,37 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     return completed.returncode
 
 
+def cmd_sysinfo(args: argparse.Namespace) -> int:
+    print_sysinfo(collect_sysinfo(args.config), as_json=args.json)
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    value = collect_report(args.config, refresh=not args.no_refresh, timeout=args.timeout)
+    output = json.dumps(value, ensure_ascii=False, indent=2) if args.json else render_report(value)
+    print(output)
+    if args.output:
+        Path(args.output).write_text(output + "\n", encoding="utf-8")
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="dev-tools")
     result.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = result.add_subparsers(dest="command", required=True)
+    report = commands.add_parser("report", help="刷新 Git/软件索引并生成日报；不拉取、安装或升级")
+    report.add_argument("--config", help="每台机器独立的项目根目录 JSON 配置")
+    report.add_argument("--json", action="store_true")
+    report.add_argument(
+        "--no-refresh", action="store_true", help="不 fetch/刷新软件索引；仍查询 CLI 最新版本"
+    )
+    report.add_argument("--timeout", type=int, default=90, choices=range(1, 601), metavar="SECONDS")
+    report.add_argument("--output", help="显式保存报告路径")
+    report.set_defaults(func=cmd_report)
+    sysinfo = commands.add_parser("sysinfo", help="只读查看当前机器与本机开发入口")
+    sysinfo.add_argument("--config", help="指定本机 JSON 配置；不自动创建或改写")
+    sysinfo.add_argument("--json", action="store_true")
+    sysinfo.set_defaults(func=cmd_sysinfo)
     project = commands.add_parser("project", help="扫描并规范项目开发工具版本")
     project_commands = project.add_subparsers(dest="project_command", required=True)
     scan = project_commands.add_parser("scan", help="只扫描项目版本声明")
