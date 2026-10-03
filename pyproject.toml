@@ -7,7 +7,7 @@ name = "personal-dev-tools"
 version = "0.2.0"
 description = "Cross-platform mise workflows and project toolchain discovery."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14.8,<3.15"
 license = "MIT"
 dependencies = []
 
@@ -19,4 +19,4 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py314"

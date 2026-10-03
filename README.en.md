@@ -17,8 +17,8 @@ requested.
   runtimes.
 - Only an explicit `project prepare` call may ask mise to install versions.
 - Windows and WSL share project declarations while keeping native binaries and caches separate.
-- On Windows, `dev-tools` uses a private, globally inactive Python 3.11 for its own scanner. It
-  does not participate in project version selection.
+- `dev-tools` uses platform-native Python 3.14.8 for its own scanner. Its host runtime lookup
+  does not inherit a project's Python version selection.
 - Codex, Claude Code, and CodeGraph are Windows operator CLIs with a separate config and host Node;
   `project prepare` explicitly ignores that config.
 
@@ -49,6 +49,9 @@ dev-tools project prepare --help
 Commands use the current directory when `PATH` is omitted. PowerShell `status` and `doctor`
 check Windows and the `Ubuntu` WSL distribution by default; pass `-Distro` to select another
 distribution. The WSL entrypoint checks the current WSL environment only.
+
+
+The Windows installer links the repository's operator CLI fragment into the personal mise "conf.d/windows-cli-tools" directory instead of copying version declarations. Personal global runtime configuration stays outside the repository. Only legacy global overrides owned by dev-tools are removed; CLI operations and project preparation retain their explicit isolated configurations.
 
 ## Installation
 
@@ -156,7 +159,7 @@ and caches are preserved.
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-$python = Join-Path "$(mise where python@3.11)" python.exe
+$python = Join-Path "$(mise where python@3.14.8)" python.exe
 & $python -m unittest discover -s tests -t . -v
 ```
 

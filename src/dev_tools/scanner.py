@@ -108,7 +108,7 @@ def _local_name(tag: str) -> str:
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except OSError, UnicodeDecodeError, json.JSONDecodeError:
         return {}
     return value if isinstance(value, dict) else {}
 
@@ -117,7 +117,7 @@ def _read_toml(path: Path) -> dict[str, Any]:
     try:
         with path.open("rb") as stream:
             value = tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError):
+    except OSError, tomllib.TOMLDecodeError:
         return {}
     return value if isinstance(value, dict) else {}
 
@@ -223,7 +223,7 @@ def _scan_mise(path: Path, root: Path, evidence: list[Evidence]) -> None:
 def _scan_tool_versions(path: Path, root: Path, evidence: list[Evidence]) -> None:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return
     for line in lines:
         value = line.split("#", 1)[0].strip()
@@ -244,7 +244,7 @@ def _scan_version_file(path: Path, root: Path, evidence: list[Evidence]) -> None
     tool = mapping[path.name]
     try:
         raw = path.read_text(encoding="utf-8").splitlines()[0].split()[0]
-    except (OSError, UnicodeDecodeError, IndexError):
+    except OSError, UnicodeDecodeError, IndexError:
         return
     _add(evidence, tool, raw, _relative(path, root), 90, "exact")
 
@@ -252,7 +252,7 @@ def _scan_version_file(path: Path, root: Path, evidence: list[Evidence]) -> None
 def _scan_sdkman(path: Path, root: Path, evidence: list[Evidence]) -> None:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return
     for line in lines:
         value = line.strip()
@@ -304,7 +304,7 @@ def _resolve_property(raw: str, properties: dict[str, str]) -> str:
 def _scan_pom(path: Path, root: Path, evidence: list[Evidence]) -> None:
     try:
         tree = ET.parse(path)
-    except (OSError, ET.ParseError):
+    except OSError, ET.ParseError:
         return
     properties: dict[str, str] = {}
     for element in tree.iter():
@@ -335,7 +335,7 @@ def _scan_pom(path: Path, root: Path, evidence: list[Evidence]) -> None:
 def _scan_gradle(path: Path, root: Path, evidence: list[Evidence]) -> None:
     try:
         content = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return
     patterns = (
         r"JavaLanguageVersion\.of\(\s*(\d+)\s*\)",
@@ -411,7 +411,7 @@ def _scan_uv_lock(path: Path, root: Path, evidence: list[Evidence]) -> None:
 def _scan_maven_wrapper(path: Path, root: Path, wrappers: dict[str, dict[str, str]]) -> None:
     try:
         content = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return
     match = re.search(r"apache-maven-([0-9][0-9.]+)-bin\.(?:zip|tar\.gz)", content)
     wrappers["maven"] = {

@@ -14,7 +14,7 @@ Python、Maven 和包管理器版本，生成项目级 `mise.toml`，并在明�
 - `scan` 和 `init` 只读取已知元数据，不执行项目代码，也不下载运行时。
 - 只有显式执行 `project prepare` 才会调用 mise 安装版本。
 - Windows 与 WSL 共享项目版本声明，但分别安装平台原生运行时和缓存。
-- `dev-tools` 自身在 Windows 使用一个未全局激活的私有 Python 3.11；它不参与项目选版。
+- `dev-tools` 自身固定使用各平台原生 Python 3.14.8，不继承项目的 Python 版本选择。
 - Codex、Claude Code、CodeGraph 属于 Windows 操作型 CLI，使用独立配置和宿主 Node；
   `project prepare` 会强制忽略这份配置。
 
@@ -142,6 +142,9 @@ wsl-devctl init /mnt/e/Projects/CompanyProjects/order-service \
   --toolchain mise --generate-mise --fix --start
 ```
 
+
+Windows 安装器通过个人 mise 的 "conf.d/windows-cli-tools" 目录联接读取仓库中的操作型 CLI 配置，避免复制后版本声明分叉。个人全局运行时配置保留在仓库外；安装器仅清理此前由 dev-tools 管理的全局配置覆盖。CLI 操作与项目准备仍使用各自的显式隔离配置。
+
 ## 更新、卸载与测试
 
 更新仓库后重新运行对应安装脚本即可刷新入口。卸载入口使用
@@ -149,7 +152,7 @@ wsl-devctl init /mnt/e/Projects/CompanyProjects/order-service \
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-$python = Join-Path "$(mise where python@3.11)" python.exe
+$python = Join-Path "$(mise where python@3.14.8)" python.exe
 & $python -m unittest discover -s tests -t . -v
 ```
 

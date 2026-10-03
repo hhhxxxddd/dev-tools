@@ -7,7 +7,8 @@ profile_path="${HOME}/.profile"
 start_marker="# >>> dev-tools >>>"
 end_marker="# <<< dev-tools <<<"
 
-python3 - "$profile_path" "$start_marker" "$end_marker" <<'PY'
+python_root="$(mise where python@3.14.8)"
+"$python_root/bin/python3" - "$profile_path" "$start_marker" "$end_marker" <<'PY'
 from pathlib import Path
 import re
 import sys

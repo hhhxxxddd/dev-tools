@@ -12,13 +12,15 @@ command -v mise >/dev/null 2>&1 || {
   exit 1
 }
 
-python3 - "$profile_path" "$start_marker" "$end_marker" <<'PY'
+mise --yes install python@3.14.8
+python_root="$(mise where python@3.14.8)"
+"$python_root/bin/python3" - "$profile_path" "$start_marker" "$end_marker" <<'PY'
 from pathlib import Path
 import re
 import sys
 
-if sys.version_info < (3, 11):
-    raise SystemExit("dev-tools requires Python 3.11 or newer")
+if sys.version_info < (3, 14, 8):
+    raise SystemExit("dev-tools requires Python 3.14.8 or newer")
 
 profile, start, end = sys.argv[1:]
 path = Path(profile)

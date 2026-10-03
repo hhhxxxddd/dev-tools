@@ -50,7 +50,7 @@ def collect_sysinfo(config_path: str | Path | None = None) -> dict:
         state = "loaded"
     except FileNotFoundError:
         pass
-    except (OSError, ValueError, TypeError):
+    except OSError, ValueError, TypeError:
         state = "invalid"
         warnings.append("本机配置无法读取或格式无效；已回退到通用只读探测。")
 

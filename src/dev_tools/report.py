@@ -199,7 +199,7 @@ def load_config(config: str | None) -> tuple[dict, str]:
         return value, "loaded"
     except FileNotFoundError:
         return {}, "missing"
-    except (OSError, ValueError, TypeError):
+    except OSError, ValueError, TypeError:
         return {}, "invalid"
 
 
@@ -320,7 +320,7 @@ def collect_report(
                         pass
             else:
                 skip(label + "npm_outdated", "no extra global npm packages outside mise")
-        except (ValueError, TypeError, AttributeError):
+        except ValueError, TypeError, AttributeError:
             skip(label + "npm_outdated", "inventory parse failed")
 
     npm_probe([], installed)
@@ -349,7 +349,7 @@ def collect_report(
                     for item in versions
                 ]
                 result["output"] = f"{len(result['versions'])} installed version records"
-            except (ValueError, TypeError, AttributeError):
+            except ValueError, TypeError, AttributeError:
                 result["status"] = "parse-error"
                 result["output"] = "Cannot parse installed versions"
     for name in ("npm_inventory", "wsl_npm_inventory"):
@@ -361,7 +361,7 @@ def collect_report(
                     for name, item in json.loads(npm["output"]).get("dependencies", {}).items()
                 }
                 npm["output"] = f"{len(npm['versions'])} global packages"
-            except (ValueError, TypeError, AttributeError):
+            except ValueError, TypeError, AttributeError:
                 npm["output"] = "Cannot parse global packages"
     return {
         "collected_at": datetime.now(UTC).isoformat(),

@@ -12,8 +12,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $sourcePath = Join-Path $repoRoot 'src'
-$internalPython = 'python@3.11'
-$cliConfigPath = Join-Path $repoRoot 'config\windows-cli-tools.toml'
+$internalPython = 'python@3.14.8'
+$cliConfigPath = Join-Path $repoRoot 'config\windows-cli-tools\mise.toml'
 
 function Show-Help {
     @'
@@ -99,10 +99,10 @@ function Invoke-CliCommand {
     try {
         $env:MISE_GLOBAL_CONFIG_FILE = $cliConfigPath
         switch ($action) {
-            'status' { & mise ls --current }
-            'install' { & mise --yes install }
-            'outdated' { & mise outdated }
-            'upgrade' { & mise --yes upgrade }
+            'status' { & mise -C $repoRoot ls --current }
+            'install' { & mise --yes -C $repoRoot install }
+            'outdated' { & mise -C $repoRoot outdated }
+            'upgrade' { & mise --yes -C $repoRoot upgrade }
         }
         exit $LASTEXITCODE
     }
