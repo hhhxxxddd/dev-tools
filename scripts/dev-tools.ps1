@@ -32,7 +32,7 @@ dev-tools - 按项目发现并准备 Windows/WSL 开发工具版本
   dev-tools doctor                       运行 Windows 与 WSL 的 mise 诊断
 
 Windows 操作型 CLI：
-  dev-tools cli status                   查看 Codex、Claude Code、CodeGraph
+  dev-tools cli status                   查看 Codex、CodeGraph
   dev-tools cli install                  显式安装缺失的 CLI 及其宿主 Node
   dev-tools cli outdated                 检查这些 CLI 的可更新版本
   dev-tools cli upgrade                  显式更新这些 CLI

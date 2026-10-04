@@ -19,7 +19,7 @@ requested.
 - Windows and WSL share project declarations while keeping native binaries and caches separate.
 - `dev-tools` uses platform-native Python 3.14.8 for its own scanner. Its host runtime lookup
   does not inherit a project's Python version selection.
-- Codex, Claude Code, and CodeGraph are Windows operator CLIs with a separate config and host Node;
+- Codex and CodeGraph are Windows operator CLIs with a separate config and host Node;
   `project prepare` explicitly ignores that config.
 
 ## Command help

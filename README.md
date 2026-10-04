@@ -15,7 +15,7 @@ Python、Maven 和包管理器版本，生成项目级 `mise.toml`，并在明�
 - 只有显式执行 `project prepare` 才会调用 mise 安装版本。
 - Windows 与 WSL 共享项目版本声明，但分别安装平台原生运行时和缓存。
 - `dev-tools` 自身固定使用各平台原生 Python 3.14.8，不继承项目的 Python 版本选择。
-- Codex、Claude Code、CodeGraph 属于 Windows 操作型 CLI，使用独立配置和宿主 Node；
+- Codex、CodeGraph 属于 Windows 操作型 CLI，使用独立配置和宿主 Node；
   `project prepare` 会强制忽略这份配置。
 
 ## 命令帮助

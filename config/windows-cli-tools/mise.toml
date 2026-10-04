@@ -1,7 +1,6 @@
 [tools]
 node = { version = "latest", os = ["windows"] }
 "npm:@openai/codex" = { version = "latest", os = ["windows"] }
-"npm:@anthropic-ai/claude-code" = { version = "latest", os = ["windows"], allow_builds = ["@anthropic-ai/claude-code"] }
 "npm:@colbymchenry/codegraph" = { version = "latest", os = ["windows"] }
 
 [settings.npm]
