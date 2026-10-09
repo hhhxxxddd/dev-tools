@@ -141,6 +141,9 @@ class CliTests(unittest.TestCase):
             self.assertEqual(args.func.__module__, "dev_tools.projects.cli")
 
     def test_list_table_localizes_states_aligns_columns_and_preserves_json(self):
+        environment = "windows" if os.name == "nt" else "wsl"
+        target = "win" if environment == "windows" else environment
+        environment_label = "Windows" if environment == "windows" else "WSL"
         cases = [
             ("a" * 63, ["running"], True, "healthy", None, "运行中", "Running"),
             ("paused", ["stopped"], False, "unknown", None, "已停止", "Stopped"),
@@ -170,7 +173,7 @@ class CliTests(unittest.TestCase):
         projects = [
             {
                 "name": name,
-                "environment": "windows",
+                "environment": environment,
                 "ready": ready,
                 "recovery": recovery,
                 "services": {
@@ -195,7 +198,9 @@ class CliTests(unittest.TestCase):
             ):
                 self.assertEqual(
                     run(
-                        parser().parse_args(["-e", "win", "list", *(["--json"] if as_json else [])])
+                        parser().parse_args(
+                            ["-e", target, "list", *(["--json"] if as_json else [])]
+                        )
                     ),
                     0,
                 )
@@ -214,7 +219,7 @@ class CliTests(unittest.TestCase):
                     self.assertIn("State", header)
                     environment_column = header.index("Environment")
                 for row, case in zip(lines[3:], cases):
-                    self.assertEqual(row.index("Windows"), environment_column)
+                    self.assertEqual(row.index(environment_label), environment_column)
                     self.assertTrue(row.endswith(case[-2] if language == "zh" else case[-1]), row)
                 self.assertIn("broken", lines[3 + len(cases)])
                 self.assertIn(
@@ -225,7 +230,7 @@ class CliTests(unittest.TestCase):
                 )
                 payload = json.loads(invoke(as_json=True))
                 self.assertEqual(payload["projects"][:-1], projects)
-                self.assertEqual(payload["environment"], "windows")
+                self.assertEqual(payload["environment"], environment)
                 self.assertFalse(payload["projects"][-1]["ready"])
 
     def test_empty_list_keeps_table_headers_and_empty_message(self):

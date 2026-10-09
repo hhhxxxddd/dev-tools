@@ -49,3 +49,5 @@ if ($LASTEXITCODE -ne 0 -or -not $mapped) { throw (Get-DevToolsMessage 'Cannot m
 $installer = "$($mapped | Select-Object -First 1)/scripts/install.sh"
 $installerPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($installer))
 Invoke-WslRootShell ('installer=$(printf %s {0} | base64 -d); DEV_TOOLS_TRANSPORT_LANGUAGE={1} bash "$installer"' -f $installerPayload, $Language)
+$windowsSourcePayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($repoRoot))
+Invoke-WslRootShell ('target=/opt/dev-tools/.windows-source; test ! -L "$target"; printf %s {0} | base64 -d > "$target"; chmod 0644 "$target"' -f $windowsSourcePayload)

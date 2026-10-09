@@ -238,9 +238,13 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
     if settings.errors and args.command not in {"config", "help"}:
         raise SettingsError(settings.errors[0], language=settings.language)
     if hasattr(args, "project_command"):
-        code = forward_remote(environment, forwarded, settings=settings)
-        if code is not None:
-            raise SystemExit(code)
+        if args.project_command == "list":
+            if args.all_environments and arguments != forwarded:
+                command_parser.error(t("list --all 不能与 -e/--env 同时使用"))
+        else:
+            code = forward_remote(environment, forwarded, settings=settings)
+            if code is not None:
+                raise SystemExit(code)
     raise SystemExit(args.func(args))
 
 

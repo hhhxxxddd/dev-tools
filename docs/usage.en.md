@@ -84,6 +84,9 @@ mise, Store, Snap and Rustup update queries provide structured updates. Rustup's
 
 ## Lifecycle and platform boundaries
 
+`dev-tools list` queries the current platform read-only. Use `list -e win` / `list -e wsl` for one environment, or `list --all` for Windows and the configured WSL distro. Identical registration names remain separate rows by environment. The caller renders both using its language settings; queries do not update deployments or change running projects.
+`list --all --json` uses environment=all, retains each project's environment in projects, and includes complete and errors. If one query fails, the other environment's projects are retained, complete=false and the exit code is 1. Successful queries return complete=true and exit code 0. Remote queries have a 30-second timeout.
+
 The same Python worker handles dependencies, health, restart policies, monitoring and recovery on both platforms. Dependencies start and become ready first; stop reverses the graph. Failed startup rolls back newly started processes. Native process services without health probes have health unknown; Compose also checks container state and container-reported health.
 
 Start automatically validates and executes the shared preparation plan: prepare native prerequisites and root runtimes, synchronize source, lockfiles and packages, prepare Compose images and Spring classpaths, then start services. While running, declaration, lockfile and configuration changes use the same flow, keeping the monitor alive through failures and retrying after corrections. Starting all services follows newly discovered services; start --service maintains only the selection and its dependencies. Explicit prepare remains available for previews or manual preparation. Stop publishes cancellation first, preventing services from restarting after an update.

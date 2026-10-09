@@ -56,12 +56,15 @@ dev-tools -e wsl start
 
 ```text
 dev-tools list
+dev-tools list --all
 dev-tools status my-app
 dev-tools logs my-app web --follow
 dev-tools stop my-app
 ```
 
 替换示例项目名和服务名；在唯一匹配项目的目录中可省略项目名。预览准备计划用 `dev-tools prepare --dry-run`，手动完整构建用 `dev-tools build`。
+
+`list` 默认列出当前平台，`list -e win` / `list -e wsl` 筛选单个环境，`list --all` 汇总 Windows 和配置的 WSL 发行版。两侧统一显示名称、环境和状态；一侧不可用时保留另一侧结果并报告失败。`--all` 不与 `-e` 同用。
 
 流程写在 `dev-tools.toml`，运行时版本写在根 `mise.toml` / `.mise.toml`；扫描和初始化不执行项目代码或安装运行时。`dependency_mode = "locked"` 可禁止自动修改锁文件。默认中文，通过 `dev-tools config edit` 设置 `language = "en"` 切换英文。
 

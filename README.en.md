@@ -56,12 +56,15 @@ Native WSL registration and lifecycle control require `sudo`. `stop` disables au
 
 ```text
 dev-tools list
+dev-tools list --all
 dev-tools status my-app
 dev-tools logs my-app web --follow
 dev-tools stop my-app
 ```
 
 Replace the sample project and service names; omit the project name in a directory that uniquely matches it. Preview preparation with `dev-tools prepare --dry-run`; build the whole project manually with `dev-tools build`.
+
+`list` defaults to the current platform. Use `list -e win` / `list -e wsl` for one environment, or `list --all` for Windows and the configured WSL distro. Both use the same name, environment and state columns. If one environment is unavailable, results from the other are retained and the failure is reported. Do not combine `--all` with `-e`.
 
 Workflows live in `dev-tools.toml`, runtime versions in root `mise.toml` / `.mise.toml`. Scanning and initialization never execute project code or install runtimes. Set `dependency_mode = "locked"` to disable automatic lockfile changes. Chinese is the default; use `dev-tools config edit` to set `language = "en"` for English.
 

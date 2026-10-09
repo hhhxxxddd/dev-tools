@@ -84,6 +84,9 @@ mise、Store、Snap、Rustup 更新查询输出结构化 updates；Rustup 的更
 
 ## 生命周期与平台边界
 
+`dev-tools list` 只读查询当前平台；`list -e win` / `list -e wsl` 查询单侧，`list --all` 汇总 Windows 和配置的 WSL 发行版，同名注册按环境保留两行。输出由调用端按本机语言统一渲染；查询不会更新部署或改变项目运行状态。
+`list --all --json` 的 environment 为 all，projects 中保留每个项目的环境，并返回 complete 和 errors。一侧查询失败时保留另一侧项目、complete=false、退出码为 1；两侧成功时 complete=true、退出码为 0。远端查询超时为 30 秒。
+
 同一 Python worker 在两侧处理服务依赖、健康检查、重启、监控和恢复。依赖先启动并等待就绪，停止按相反顺序执行；启动失败回滚本次新增的进程。原生进程未声明健康检查时状态为 unknown；Compose 还会检查容器运行状态和容器报告的健康状态。
 
 start 自动校验并执行统一准备计划：准备平台依赖与根级运行时，同步源码、锁文件和包，准备 Compose 镜像与 Spring classpath，再启动服务。运行期间声明、锁文件和配置变化会自动执行相同流程；后台保留监控进程，失败保存进度，修正后重试。默认启动全部服务时会跟进新发现的服务；start --service 只维护所选服务及依赖。显式 prepare 仍可预览或手动准备；stop 先取消运行意图，防止更新结束后重新启动。

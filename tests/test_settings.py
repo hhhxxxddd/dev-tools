@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import tempfile
 import tomllib
 import unittest
@@ -174,13 +175,30 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "config.toml"
             path.write_text('language = "en"\n[wsl]\ndistro = "TestDistro"\n', encoding="utf-8")
+            target = "wsl" if os.name == "nt" else "win"
+            result = subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "schema_version": 3,
+                        "action": "list",
+                        "environment": "windows" if target == "win" else target,
+                        "projects": [],
+                    }
+                ),
+                "",
+            )
             for arguments in (
-                ["--config", str(path), "-e", "wsl", "list"],
-                ["list", "--config=" + str(path), "-ewsl"],
+                ["--config", str(path), "-e", target, "list"],
+                ["list", "--config=" + str(path), "-e" + target],
             ):
-                with patch("dev_tools.runtimes.router.forward_remote", return_value=0) as route:
+                with patch(
+                    "dev_tools.runtimes.router.forward_remote", return_value=result
+                ) as route:
                     self.assertEqual(self.invoke(*arguments)[0], 0)
-                self.assertEqual(route.call_args.args, ("wsl", ["list"]))
+                self.assertEqual(route.call_args.args, (target, ["list", "--json"]))
+                self.assertTrue(route.call_args.kwargs["capture"])
                 self.assertEqual(route.call_args.kwargs["settings"].distro, "TestDistro")
             self.assertEqual(
                 split_config(["scan", "--", "--config=source"]),

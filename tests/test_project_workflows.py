@@ -120,9 +120,9 @@ class ProjectWorkflowTests(unittest.TestCase):
             patch("dev_tools.runtimes.router.forward_remote", return_value=0) as route,
             self.assertRaises(SystemExit) as stopped,
         ):
-            main(["--env", "win", "list", "--json"])
+            main(["--env", "win", "status", "demo", "--json"])
         self.assertEqual(stopped.exception.code, 0)
-        route.assert_called_once_with("win", ["list", "--json"], settings=ANY)
+        route.assert_called_once_with("win", ["status", "demo", "--json"], settings=ANY)
         if sys.platform == "win32":
             self.assertNotIn("dev_tools.runtimes.platforms.wsl", sys.modules)
 

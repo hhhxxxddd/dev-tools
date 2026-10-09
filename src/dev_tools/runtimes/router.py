@@ -69,19 +69,63 @@ def _windows_path(value: str | Path) -> str:
     return result.stdout.strip()
 
 
+def _windows_entry(arguments: list[str]) -> list[str]:
+    source = REPOSITORY / ".windows-source"
+    if source.is_file():
+        root = source.read_text(encoding="utf-8").strip()
+        if not re.match(r"^[A-Za-z]:[\\/]", root):
+            raise ValueError(message("invalid Windows controller source: {path}", path=source))
+        entry = root.rstrip("/\\") + "/scripts/dev-tools.ps1"
+    else:
+        entry = _windows_path(REPOSITORY / "scripts/dev-tools.ps1")
+    if not entry.startswith("\\\\"):
+        return ["-File", entry, "-e", "win", *arguments]
+
+    def quote(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    missing = str(message("Windows dev-tools entrypoint is missing; install dev-tools on Windows"))
+    invocation = " ".join(quote(value) for value in ["-e", "win", *arguments])
+    # Linux-native deployments use the Windows installation rather than executing
+    # an unsigned PowerShell script through a WSL network share.
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
+        "$entry = Get-Command dev-tools -CommandType Application -ErrorAction SilentlyContinue; "
+        f"if (-not $entry) {{ throw {quote(missing)} }}; "
+        f"& $entry.Source {invocation}; exit $LASTEXITCODE"
+    )
+    return ["-Command", script]
+
+
 def forward_remote(
-    environment: str, arguments: list[str], *, settings: Settings | None = None
-) -> int | None:
+    environment: str,
+    arguments: list[str],
+    *,
+    settings: Settings | None = None,
+    capture: bool = False,
+) -> int | subprocess.CompletedProcess[str] | None:
     if any(token in {"--help", "-h"} for token in arguments):
         return None
     native = "win" if os.name == "nt" else "wsl"
     if environment == native:
         return None
     settings = settings or load_settings()
+    options = (
+        {
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "timeout": 30,
+        }
+        if capture
+        else {}
+    )
     if environment == "wsl":
         if shutil.which("wsl.exe") is None:
             raise ValueError(message("WSL is unavailable"))
-        return subprocess.run(
+        result = subprocess.run(
             [
                 "pwsh",
                 "-NoProfile",
@@ -95,7 +139,9 @@ def forward_remote(
                 *arguments,
             ],
             check=False,
-        ).returncode
+            **options,
+        )
+        return result if capture else result.returncode
     if shutil.which("pwsh.exe") is None:
         raise ValueError(message("Windows control requires PowerShell 7 and WSL interop"))
     forwarded = list(arguments)
@@ -122,18 +168,14 @@ def forward_remote(
     environment_variables["WSLENV"] = ":".join(
         [*wslenv, *(name + "/w" for name in sorted(transported))]
     )
-    return subprocess.run(
+    result = subprocess.run(
         [
             "pwsh.exe",
             "-NoProfile",
             "-NonInteractive",
             "-WorkingDirectory",
             _windows_path(Path.cwd()),
-            "-File",
-            _windows_path(REPOSITORY / "scripts/dev-tools.ps1"),
-            "-e",
-            "win",
-            *forwarded,
+            *_windows_entry(forwarded),
         ],
         env=environment_variables,
         # The interop server may outlive this process. Its Linux cwd must not
@@ -141,4 +183,6 @@ def forward_remote(
         # the caller's directory in the actual Windows command.
         cwd=REPOSITORY,
         check=False,
-    ).returncode
+        **options,
+    )
+    return result if capture else result.returncode

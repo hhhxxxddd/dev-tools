@@ -184,5 +184,10 @@
   "dependency resolution changed project declarations": "依赖解析改变了项目声明；请检查后重试",
   "update 安装或更新 WSL 部署；status 查看部署状态": "update 安装或更新 WSL 部署；status 查看部署状态",
   "self --source requires update": "self --source 仅可与 update 一起使用",
-  "build requires preparation; run dev-tools start or prepare": "构建前需要准备环境，请执行 dev-tools start 或 prepare"
+  "build requires preparation; run dev-tools start or prepare": "构建前需要准备环境，请执行 dev-tools start 或 prepare",
+  "could not list projects in {environment}: {detail}": "无法查询 {environment} 的项目列表：{detail}",
+  "invalid project list from {environment}": "{environment} 返回的项目列表无效",
+  "project list query timed out in {environment}": "查询 {environment} 的项目列表超时",
+  "invalid Windows controller source: {path}": "Windows 控制程序源码位置无效：{path}",
+  "Windows dev-tools entrypoint is missing; install dev-tools on Windows": "Windows dev-tools 入口缺失，请先在 Windows 安装 dev-tools"
 }

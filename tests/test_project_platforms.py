@@ -6,15 +6,83 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from dev_tools.projects.config import parse_project
 from dev_tools.projects.models import ProjectBinding
 from dev_tools.projects.registry import read_json, write_json
-from dev_tools.runtimes.router import forward_remote, source_argument, split_environment
+from dev_tools.runtimes.router import (
+    _windows_entry,
+    forward_remote,
+    source_argument,
+    split_environment,
+)
 
 
 class RouterTests(unittest.TestCase):
+    def test_wsl_deployment_uses_recorded_native_windows_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".windows-source").write_text("Z:/controller path\n", encoding="utf-8")
+            with (
+                patch("dev_tools.runtimes.router.REPOSITORY", root),
+                patch("dev_tools.runtimes.router._windows_path") as translate,
+            ):
+                command = _windows_entry(["list", "--json"])
+                self.assertEqual(
+                    command,
+                    [
+                        "-File",
+                        "Z:/controller path/scripts/dev-tools.ps1",
+                        "-e",
+                        "win",
+                        "list",
+                        "--json",
+                    ],
+                )
+                translate.assert_not_called()
+            (root / ".windows-source").write_text("/opt/dev-tools", encoding="utf-8")
+            with patch("dev_tools.runtimes.router.REPOSITORY", root), self.assertRaises(ValueError):
+                _windows_entry(["list", "--json"])
+
+    def test_linux_deployment_queries_native_entrypoint_without_unc_script(self):
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("dev_tools.runtimes.router.REPOSITORY", Path(temporary)),
+            patch(
+                "dev_tools.runtimes.router._windows_path",
+                return_value="\\\\wsl.localhost\\Ubuntu\\opt\\dev-tools\\scripts\\dev-tools.ps1",
+            ),
+        ):
+            command = _windows_entry(["show", "O'Brien $(literal)"])
+        self.assertEqual(command[0], "-Command")
+        self.assertIn("Get-Command dev-tools -CommandType Application", command[1])
+        self.assertIn("'O''Brien $(literal)'", command[1])
+        self.assertNotIn("wsl.localhost", command[1])
+
+    def test_remote_capture_returns_utf8_json_with_bounded_timeout(self):
+        target = "wsl" if os.name == "nt" else "win"
+        result = subprocess.CompletedProcess([], 0, '{"name": "项目"}', "")
+        with (
+            patch("dev_tools.runtimes.router.shutil.which", return_value="available"),
+            patch("dev_tools.runtimes.router._windows_path", return_value="C:/fixture"),
+            patch("dev_tools.runtimes.router.subprocess.run", return_value=result) as execute,
+        ):
+            self.assertIs(
+                forward_remote(
+                    target,
+                    ["list", "--json"],
+                    settings=SimpleNamespace(distro="Configured"),
+                    capture=True,
+                ),
+                result,
+            )
+        self.assertTrue(execute.call_args.kwargs["capture_output"])
+        self.assertEqual(execute.call_args.kwargs["encoding"], "utf-8")
+        self.assertEqual(execute.call_args.kwargs["timeout"], 30)
+        self.assertIn("--json", execute.call_args.args[0])
+
     def test_environment_syntax_is_consistent_before_or_after_command(self):
         for environment in ("win", "wsl"):
             for tokens in (

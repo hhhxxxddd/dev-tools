@@ -224,5 +224,14 @@
   "  锁文件同步 {name}：{command}": "  Lockfile synchronization {name}: {command}",
   "update 安装或更新 WSL 部署；status 查看部署状态": "update installs or updates WSL deployment; status inspects deployment",
   "self --source requires update": "self --source requires update",
-  "build requires preparation; run dev-tools start or prepare": "Build requires preparation; run dev-tools start or prepare"
+  "build requires preparation; run dev-tools start or prepare": "Build requires preparation; run dev-tools start or prepare",
+  "全部环境": "All environments",
+  "汇总 Windows 和 WSL 的全部注册项目": "List all registered projects in Windows and WSL",
+  "list --all 不能与 -e/--env 同时使用": "list --all cannot be combined with -e/--env",
+  "  {environment}：{value}": "  {environment}: {value}",
+  "could not list projects in {environment}: {detail}": "Could not list projects in {environment}: {detail}",
+  "invalid project list from {environment}": "Invalid project list from {environment}",
+  "project list query timed out in {environment}": "Project list query timed out in {environment}",
+  "invalid Windows controller source: {path}": "Invalid Windows controller source: {path}",
+  "Windows dev-tools entrypoint is missing; install dev-tools on Windows": "Windows dev-tools entrypoint is missing; install dev-tools on Windows"
 }

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 
 from ..i18n import error_detail, message, render, t
 from ..presentation import format_table, label
@@ -28,6 +30,70 @@ def engine_for(environment: str, name: str, *, allow_stale: bool = False) -> Pro
             previous or {"schema": 1, "name": name, "toolchain": "system"}, environment
         )
     return ProjectEngine(spec, binding, backend_for(binding))
+
+
+def list_projects(environment: str, settings=None) -> list[dict]:
+    native = "windows" if os.name == "nt" else "wsl"
+    if environment != native:
+        from ..runtimes.router import forward_remote
+
+        try:
+            result = forward_remote(
+                "win" if environment == "windows" else environment,
+                ["list", "--json"],
+                settings=settings,
+                capture=True,
+            )
+        except subprocess.TimeoutExpired:
+            raise ProjectError(
+                message(
+                    "project list query timed out in {environment}", environment=label(environment)
+                )
+            ) from None
+        if result.returncode:
+            raise ProjectError(
+                message(
+                    "could not list projects in {environment}: {detail}",
+                    environment=label(environment),
+                    detail=result.stderr.strip() or str(result.returncode),
+                )
+            )
+        try:
+            payload = json.loads(result.stdout)
+            if (
+                not isinstance(payload, dict)
+                or payload.get("schema_version") != SCHEMA_VERSION
+                or payload.get("action") != "list"
+                or payload.get("environment") != environment
+                or not isinstance(payload.get("projects"), list)
+                or any(
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("name"), str)
+                    or item.get("environment", environment) != environment
+                    for item in payload["projects"]
+                )
+            ):
+                raise ValueError
+        except ValueError:
+            raise ProjectError(
+                message("invalid project list from {environment}", environment=label(environment))
+            ) from None
+        return [{**item, "environment": environment} for item in payload["projects"]]
+    projects = []
+    for name in Registry(environment).names():
+        try:
+            projects.append(engine_for(environment, name).status())
+        except (ProjectError, OSError) as exc:
+            projects.append(
+                {
+                    "name": name,
+                    "environment": environment,
+                    "ready": False,
+                    "error": str(exc),
+                    "error_detail": error_detail(exc),
+                }
+            )
+    return projects
 
 
 def _list_state(project: dict) -> str:
@@ -124,7 +190,15 @@ def emit(payload: dict, as_json: bool) -> None:
                         value=render(project.get("error_detail") or project["error"]),
                     )
                 )
-        if not payload["projects"]:
+        for error in payload.get("errors", []):
+            print(
+                t(
+                    "  {environment}：{value}",
+                    environment=label(error["environment"]),
+                    value=render(error.get("error_detail") or error["error"]),
+                )
+            )
+        if not payload["projects"] and not payload.get("errors"):
             print(t("  暂无已注册项目。"))
     if "runtime_versions" in payload:
         print(t("  运行时版本：") + (", ".join(payload["runtime_versions"]) or t("无")))
@@ -159,8 +233,32 @@ def emit(payload: dict, as_json: bool) -> None:
 def run(args: argparse.Namespace) -> int:
     action = args.project_command
     environment = "windows" if args.env == "win" else args.env
-    registry = Registry(environment)
     payload = {"schema_version": SCHEMA_VERSION, "action": action, "environment": environment}
+    if action == "list":
+        settings = getattr(args, "settings", None)
+        if not args.all_environments:
+            emit({**payload, "projects": list_projects(environment, settings)}, args.json)
+            return 0
+        projects, errors = [], []
+        for target in ("windows", "wsl"):
+            try:
+                projects.extend(list_projects(target, settings))
+            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                errors.append(
+                    {"environment": target, "error": str(exc), "error_detail": error_detail(exc)}
+                )
+        emit(
+            {
+                **payload,
+                "environment": "all",
+                "projects": projects,
+                "errors": errors,
+                "complete": not errors,
+            },
+            args.json,
+        )
+        return 1 if errors else 0
+    registry = Registry(environment)
     if action == "register":
         from pathlib import Path
 
@@ -169,22 +267,6 @@ def run(args: argparse.Namespace) -> int:
             Path(args.path), name=args.name, run_user=args.user, force=args.force
         )
         emit({**payload, "binding": binding.as_dict()}, args.json)
-        return 0
-    if action == "list":
-        projects = []
-        for name in registry.names():
-            try:
-                projects.append(engine_for(environment, name).status())
-            except (ProjectError, OSError) as exc:
-                projects.append(
-                    {
-                        "name": name,
-                        "ready": False,
-                        "error": str(exc),
-                        "error_detail": error_detail(exc),
-                    }
-                )
-        emit({**payload, "projects": projects}, args.json)
         return 0
     if action == "_worker":
         from .worker import run_worker
@@ -280,6 +362,12 @@ def add_commands(commands) -> None:
     register.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
     register.set_defaults(func=run)
     listing = commands.add_parser("list", help=t("列出所选环境的注册项目和状态"))
+    listing.add_argument(
+        "--all",
+        dest="all_environments",
+        action="store_true",
+        help=t("汇总 Windows 和 WSL 的全部注册项目"),
+    )
     listing.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
     listing.set_defaults(func=run)
     for action, description in (

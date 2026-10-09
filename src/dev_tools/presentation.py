@@ -9,6 +9,7 @@ from .i18n import t
 LABELS = {
     "windows": "Windows",
     "wsl": "WSL",
+    "all": "全部环境",
     "register": "注册项目",
     "list": "项目列表",
     "prepare": "准备项目",

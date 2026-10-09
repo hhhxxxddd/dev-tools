@@ -13,7 +13,7 @@ state_root=${DEV_TOOLS_STATE_ROOT:-/var/lib/dev-tools}
   printf 'Installation root must be absolute and separate from the checkout.\n' >&2; exit 1;
 }
 
-for target in "$install_root" "$install_root/src" "$install_root/src/dev_tools" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples" "$install_root/host-mise" "$install_root/.host-python" "$install_root/.release.json" "$install_root/README.md" "$install_root/README.en.md" "$install_root/CHANGELOG.md" "$install_root/AGENTS.md" "$install_root/LICENSE"; do
+for target in "$install_root" "$install_root/src" "$install_root/src/dev_tools" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples" "$install_root/host-mise" "$install_root/.host-python" "$install_root/.windows-source" "$install_root/.release.json" "$install_root/README.md" "$install_root/README.en.md" "$install_root/CHANGELOG.md" "$install_root/AGENTS.md" "$install_root/LICENSE"; do
   [[ ! -L "$target" ]] || { printf 'Refusing symbolic-link installation target: %s\n' "$target" >&2; exit 1; }
 done
 if [[ -f "$install_root/src/dev_tools/__init__.py" ]]; then
