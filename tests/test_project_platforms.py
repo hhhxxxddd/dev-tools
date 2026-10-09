@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from dev_tools.projects.config import parse_project
 from dev_tools.projects.models import ProjectBinding
-from dev_tools.projects.registry import read_json
+from dev_tools.projects.registry import read_json, write_json
 from dev_tools.runtimes.router import forward_remote, source_argument, split_environment
 
 
@@ -65,6 +65,26 @@ class RouterTests(unittest.TestCase):
 
 
 class WindowsAdapterTests(unittest.TestCase):
+    def test_status_batches_process_queries_and_keeps_dead_worker_diagnostics(self):
+        from dev_tools.runtimes.platforms.windows import WindowsBackend
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binding = ProjectBinding("demo", "windows", root, root, root / "state")
+            backend = WindowsBackend(binding)
+            (binding.state / "native").mkdir(parents=True)
+            write_json(binding.state / "workers/api.json", {"phase": "running", "pid": 100})
+            write_json(binding.state / "workers/web.json", {"phase": "running", "pid": 200})
+            with patch.object(
+                backend, "_native", return_value={"api": True, "web": False}
+            ) as query:
+                phases = backend.phases(("api", "web", "__watch"))
+            query.assert_called_once_with("query", binding.state / "native")
+            self.assertEqual(phases["api"]["phase"], "running")
+            self.assertEqual(phases["web"]["phase"], "failed")
+            self.assertIn("unexpectedly", phases["web"]["error"])
+            self.assertEqual(phases["__watch"]["phase"], "stopped")
+
     def test_detached_worker_uses_resolved_controller_storage(self):
         from dev_tools.runtimes.platforms.windows import WindowsBackend
 

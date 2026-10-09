@@ -15,7 +15,7 @@ from .drivers import install_spring_artifact, run_compose, spring_classpath
 from .execution import Executor
 from .maintenance import LOCKFILES, atomic_write, clean_venv_task, discovery_plan
 from .models import ProjectBinding, ProjectError, ProjectSpec, dependency_order, within
-from .planning import PreparationPlan, fingerprint, preparation_plan
+from .planning import PreparationPlan, fingerprint, preparation_plan, preparation_revisions
 from .registry import read_json, write_json
 
 
@@ -68,7 +68,7 @@ class ProjectEngine:
     def save(self, **updates) -> None:
         write_json(self.state_path, {**self.state(), **updates})
 
-    def plan(self) -> PreparationPlan:
+    def plan(self, *, force=False) -> PreparationPlan:
         declared = load_project(self.binding.source, self.binding.environment)
         spec, baseline = discovery_plan(
             declared, self.binding.source, self.state(), self.binding.environment
@@ -80,6 +80,7 @@ class ProjectEngine:
             state=self.state(),
             discovery_baseline=baseline,
             configuration_update=spec.raw != declared.raw,
+            force=force,
         )
 
     def intent(self) -> dict:
@@ -98,9 +99,9 @@ class ProjectEngine:
         if token and self.intent().get("token") != token:
             raise ProjectError(message("project stopped during maintenance"))
 
-    def service_status(self, name: str) -> dict:
+    def service_status(self, name: str, *, worker=None) -> dict:
         service = self.spec.services[name]
-        worker = self.backend.phase(name)
+        worker = self.backend.phase(name) if worker is None else worker
         phase = worker.get("phase", "starting")
         health = _probe(service, self.executor) if phase == "running" else "unknown"
         return {
@@ -116,12 +117,14 @@ class ProjectEngine:
         }
 
     def status(self) -> dict:
-        services = {name: self.service_status(name) for name in self.spec.service_order()}
-        workers = {
-            name: self.backend.phase(name)
-            for name in self.backend.known_workers()
-            if name.startswith("__")
+        known = self.backend.known_workers()
+        names = tuple(dict.fromkeys([*self.spec.service_order(), *known]))
+        phases = self.backend.phases(names)
+        services = {
+            name: self.service_status(name, worker=phases[name])
+            for name in self.spec.service_order()
         }
+        workers = {name: phases[name] for name in known if name.startswith("__")}
         state = self.state()
         recovery = state.get("recovery")
         prepared = state.get("prepared_revision") == fingerprint(self.binding)
@@ -361,7 +364,7 @@ class ProjectEngine:
             self.save(last_project=self.spec.raw)
             self.backend.install_requirements(plan.requirements)
             self._check_intent(intent_token)
-            if self.spec.toolchain == "mise" and plan.runtime_versions:
+            if plan.runtime_install:
                 self.executor.run(
                     [
                         "mise",
@@ -381,12 +384,12 @@ class ProjectEngine:
                 revision = self._resolve_dependencies(plan, revision, intent_token)
             for service in self.spec.services.values():
                 install_spring_artifact(self.executor, service)
-            selected = plan.tasks
+            selected = plan.tasks if structural else plan.pending_tasks
             if structural:
                 selected = self.spec.task_order(
                     tuple(
                         dict.fromkeys(
-                            [*plan.tasks, *[item.structural_task for item in self.spec.builds]]
+                            [*selected, *[item.structural_task for item in self.spec.builds]]
                         )
                     )
                 )
@@ -412,9 +415,12 @@ class ProjectEngine:
                 spring_classpath(self.binding, self.backend, service, reload=structural)
             if revision != fingerprint(self.binding, spec=self.spec):
                 raise ProjectError(message("project declarations changed during preparation tasks"))
+            declarations, installations = preparation_revisions(self.spec, self.binding, plan.tasks)
             self.save(
                 prepared_revision=revision,
-                dependency_revision=fingerprint(self.binding, spec=self.spec, include_locks=False),
+                dependency_revisions=declarations,
+                task_revisions=installations,
+                runtime_versions=list(plan.runtime_versions),
                 discovery_baseline=plan.discovery_baseline,
                 maintenance_error=None,
             )
@@ -431,7 +437,8 @@ class ProjectEngine:
                         )
                     self._start(
                         names,
-                        infrastructure=any(name.startswith("__") for name in active),
+                        infrastructure=bool(intent.get("running"))
+                        or any(name.startswith("__") for name in active),
                         intent_token=intent.get("token"),
                     )
             self.save(recovery=None)
@@ -448,7 +455,7 @@ class ProjectEngine:
             raise
 
     def prepare(self, plan: PreparationPlan | None = None) -> None:
-        plan = plan or self.plan()
+        plan = plan or self.plan(force=True)
         self._validate_plan(plan)
         self.backend.require_control()
         with operation_lock(self.binding.state, timeout=15):
@@ -503,6 +510,9 @@ class ProjectEngine:
             if (
                 self.state().get("recovery")
                 or self.state().get("prepared_revision") != plan.revision
+                or plan.pending_tasks
+                or plan.runtime_install
+                or plan.configuration_update
             ):
                 self._prepare_locked(plan, restore=False, intent_token=token)
             else:
@@ -557,6 +567,17 @@ class ProjectEngine:
                         unresolved=join_messages("; ", plan.unresolved),
                     )
                 )
+            if (
+                (plan.runtime_install and self.spec.toolchain == "mise")
+                or plan.configuration_update
+                or plan.resolution_tasks
+                or plan.requirements.packages
+                or plan.requirements.enable_docker
+                or plan.requirements.docker_group
+            ):
+                raise ProjectError(
+                    message("build requires preparation; run dev-tools start or prepare")
+                )
             recovery = self.state().get("recovery") or {}
             if recovery and recovery.get("operation") != "build":
                 raise ProjectError(message("recovery is pending; run dev-tools prepare"))
@@ -605,7 +626,10 @@ class ProjectEngine:
                     )
                 names = self.spec.task_order(selected)
                 for name in names:
-                    self.executor.task(self.spec.tasks[name])
+                    task = self.spec.tasks[name]
+                    self.executor.task(
+                        clean_venv_task(task, self.binding.workspace) if kind == "branch" else task
+                    )
                 for item in self.spec.services.values():
                     if service is not None and item.name != service:
                         continue
@@ -621,7 +645,16 @@ class ProjectEngine:
                         message("project declarations changed during build; run prepare")
                     )
                 if kind == "branch":
-                    self.save(prepared_revision=plan.revision, recovery=None)
+                    declarations, installations = preparation_revisions(
+                        self.spec, self.binding, plan.tasks
+                    )
+                    self.save(
+                        prepared_revision=plan.revision,
+                        dependency_revisions=declarations,
+                        task_revisions=installations,
+                        runtime_versions=list(plan.runtime_versions),
+                        recovery=None,
+                    )
                 else:
                     self.save(recovery=None)
                 intent = self.intent()

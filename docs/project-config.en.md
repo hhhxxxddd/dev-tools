@@ -63,7 +63,7 @@ Execution also checks resolved paths for escapes from the project.
 
 ## Automatic dependency maintenance
 
-The default is `dependency_mode = "auto"`. Startup and declaration changes while running trigger preparation without a manual prepare command. Known standard npm, pnpm, Yarn, Bun and uv install tasks can generate or update lockfiles before running the original installation task. Lockfile-only changes retain locked versions instead of upgrading to latest. Maven installs from the POM; generated pip workflows recreate the project .venv, while uv sync synchronizes dependencies exactly. Custom scripts keep their commands, and custom package selections or arguments are not rewritten; they must implement their own cleanup semantics.
+The default is `dependency_mode = "auto"`. Startup and declaration changes while running trigger preparation without a manual prepare command. Changes are tracked per module; service parameter edits do not reinstall dependencies. Known standard npm, pnpm, Yarn, Bun and uv install tasks can generate or update lockfiles before running the original installation task. Lockfile-only changes retain locked versions instead of upgrading to latest. Maven installs from the POM; generated pip workflows recreate the project .venv, while uv sync synchronizes dependencies exactly. Custom scripts keep their commands, and custom package selections or arguments are not rewritten; they must implement their own cleanup semantics.
 
 WSL resolves locks in its Linux workspace and copies back only known lockfiles after checking for concurrent source edits. Dependency directories and caches remain native. Updates may briefly stop services. The monitor stays alive after failure and waits for corrections; explicit prepare can retry manually. Set `dependency_mode = "locked"` to require existing locks and prevent automatic resolution or writeback.
 
@@ -240,12 +240,10 @@ Watch must be nonempty and may contain project-relative files or directories. Ex
 
 Source builds keep processes running. Resource/structural builds stop affected services and dependents, then restore them after building.
 Branch builds synchronize source and run preparation tasks and structural builds using prepared runtimes.
-Use `dev-tools build [NAME] --kind source|resource|structural|branch` manually; the default is branch.
-Selecting --service with the default branch kind performs a structural build for that service.
-Without --service, source/resource/structural run the matching tasks from all build policies and their dependencies; only branch automatically includes preparation tasks.
-Source/resource/structural builds (including the default build with --service) preserve the existing preparation fingerprint. They cannot mark unprepared projects or changed dependencies as prepared.
-After lockfiles or declarations change, partial builds cannot mark preparation successful; startup and background maintenance catch up automatically. A full branch build can update the fingerprint after running preparation tasks, but does not install runtimes or the Spring DevTools JAR.
-Compose images are rebuilt only for branch/structural builds without --service.
+Run `dev-tools build [NAME]` for a full build, or add `--service SERVICE` to build one service.
+The monitor classifies source, resource and structural changes automatically. Full builds refresh project packages and run structural tasks; service builds stop and restore affected services and dependents.
+Service builds preserve the preparation fingerprint. After runtime versions change, modules are rediscovered or lock resolution is needed, run `start` or `prepare` first. Builds cannot mark uninstalled runtimes as prepared.
+Compose images are rebuilt only during full builds without a selected service.
 
 ## Validate and modify
 

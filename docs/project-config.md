@@ -63,7 +63,7 @@ WSL 默认排除 build、dist、target 和依赖目录。如果项目将 build �
 
 ## 自动依赖维护
 
-默认 `dependency_mode = "auto"`。启动以及运行期间的声明变化都会触发准备，无需手动 prepare。已知标准 npm、pnpm、Yarn、Bun 和 uv 安装任务可自动生成或更新锁文件，再执行原来的安装任务；仅锁文件变化时保留锁定版本，不主动升级到最新版本。Maven 按 POM 重新安装；自动生成的 pip 流程重建项目内 .venv，uv sync 精确同步依赖。任意自定义脚本仍按原命令执行，额外包选择或自定义参数不会被改写，需要自行实现清理语义。
+默认 `dependency_mode = "auto"`。启动以及运行期间的声明变化都会触发准备，按模块判断依赖变化；修改服务参数不会重新安装依赖，无需手动 prepare。已知标准 npm、pnpm、Yarn、Bun 和 uv 安装任务可自动生成或更新锁文件，再执行原来的安装任务；仅锁文件变化时保留锁定版本，不主动升级到最新版本。Maven 按 POM 重新安装；自动生成的 pip 流程重建项目内 .venv，uv sync 精确同步依赖。任意自定义脚本仍按原命令执行，额外包选择或自定义参数不会被改写，需要自行实现清理语义。
 
 WSL 在 Linux 工作目录中解析锁文件，检查源码未被并发修改后只回写已知锁文件；依赖目录和缓存仍留在目标平台。更新依赖可能短暂停服，失败后监控继续等待修复；显式 prepare 可手动重试。设置 `dependency_mode = "locked"` 可要求已有锁文件，禁止自动解析和回写。
 
@@ -240,12 +240,10 @@ watch 必须非空，可填写相对项目根的文件或目录。extensions/res
 
 源码构建保持进程运行；资源和结构构建停止受影响服务与依赖方，完成后恢复。
 分支构建同步源码、执行准备任务和结构构建，使用已经准备的运行时。
-手动构建为 `dev-tools build [NAME] --kind source|resource|structural|branch`，默认 branch；
-同时指定 --service 和默认 branch 时按该服务的 structural 构建处理。
-省略 --service 时，source/resource/structural 执行全部构建策略中的对应任务及其依赖；只有 branch 自动加入准备任务。
-source/resource/structural（包括指定 --service 的默认构建）保留原有准备指纹，不会把未准备或依赖已变化的项目标为已准备。
-锁文件或项目声明变化后，局部构建不能标记准备成功；start 和后台维护会补齐准备。完整 branch 构建执行准备任务后可以更新准备指纹，但不会安装运行时或 Spring DevTools JAR。
-Compose 镜像只在未指定 --service 的 branch/structural 构建中重新构建。
+手动执行 `dev-tools build [NAME]` 进行完整构建，或用 `--service SERVICE` 只构建指定服务。
+源码、资源和结构变化由后台自动分类，无需手动指定类型。完整构建刷新项目依赖并执行结构构建；指定服务时停止并恢复受影响服务及依赖方。
+服务局部构建保留原有准备指纹。运行时版本变化、模块重新发现或锁文件需要解析时，先执行 `start` 或 `prepare`，构建不会把未安装的版本标为已准备。
+Compose 镜像只在未指定服务的完整构建中重建。
 
 ## 验证与修改流程
 

@@ -33,6 +33,10 @@ $answer = & $Native -Action stop -RequestPath $RequestPath | ConvertFrom-Json
 if ($answer.active) { throw 'Wrong identity reported active' }
 if (-not (Get-Process -Id $global:FixturePid)) { throw 'Unrelated process was killed' }
 @{pid=$global:FixturePid; start_ticks=$ticks} | ConvertTo-Json | Set-Content $RequestPath
+@{pid=$global:FixturePid; start_ticks=$ticks+1} | ConvertTo-Json | Set-Content (Join-Path (Split-Path $RequestPath) 'wrong.json')
+@{command_line='ignored'} | ConvertTo-Json | Set-Content (Join-Path (Split-Path $RequestPath) 'api.launch.json')
+$batch = & $Native -Action query -RequestPath (Split-Path $RequestPath) | ConvertFrom-Json -AsHashtable
+if (-not $batch.identity -or $batch.wrong -or $batch.ContainsKey('api.launch')) { throw 'Batch identity query failed' }
 function taskkill.exe { $global:LASTEXITCODE = 0 }
 try {
     $answer = & $Native -Action stop -RequestPath $RequestPath

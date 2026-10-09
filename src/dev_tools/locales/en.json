@@ -121,15 +121,12 @@
   "查看指定服务的日志": "Show logs for a service",
   "停止服务并注销；默认保留源码、缓存和运行时": "Stop and unregister; preserve source, caches and runtimes by default",
   "查看项目声明和本机绑定": "Show the project declaration and native binding",
-  "将源码同步到原生工作目录": "Synchronize source to the native workspace",
   "修改注册名称并恢复原先运行的服务": "Rename a registration and restore its active services",
   "注册名称；省略时按当前目录唯一匹配": "Registration name; omit to uniquely match the current directory",
   "以 JSON 输出准备计划，须同时指定 --dry-run": "Output the plan as JSON; requires --dry-run",
   "只校验并预览准备计划，不安装或执行项目任务": "Validate and preview the plan without installation or task execution",
   "服务名": "SERVICE",
   "仅操作指定服务；启动时包含其依赖，省略时操作全部服务": "Select a service (including dependencies when starting); default: all services",
-  "构建类型": "KIND",
-  "branch 分支变化（默认）；source 源码变化；resource 资源变化；structural 结构变化": "branch: branch change (default); source: source change; resource: resource change; structural: structural change",
   "服务或任务名": "SERVICE_OR_TASK",
   "服务或监控名称（__sync / __watch）；--task 时填写任务名": "Service or monitor (__sync / __watch); with --task, supply a task name",
   "行数": "LINES",
@@ -218,5 +215,8 @@
   "start 自动准备环境，运行期间跟进依赖变化；mise 的诊断命令为 mise doctor。": "Start prepares automatically and follows dependency changes while running. Use mise doctor to diagnose mise.",
   "自动维护待处理：{error}": "Automatic maintenance pending: {error}",
   "  将更新自动发现的项目配置。": "  Automatically discovered project configuration will be updated.",
-  "  锁文件同步 {name}：{command}": "  Lockfile synchronization {name}: {command}"
+  "  锁文件同步 {name}：{command}": "  Lockfile synchronization {name}: {command}",
+  "update 安装或更新 WSL 部署；status 查看部署状态": "update installs or updates WSL deployment; status inspects deployment",
+  "self --source requires update": "self --source requires update",
+  "build requires preparation; run dev-tools start or prepare": "Build requires preparation; run dev-tools start or prepare"
 }

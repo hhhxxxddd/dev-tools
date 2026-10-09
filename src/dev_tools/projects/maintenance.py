@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import os
+import stat
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -25,10 +27,21 @@ def atomic_write(path: Path, content: bytes) -> None:
     if path.is_symlink():
         raise ProjectError(message("refusing symbolic-link update: {path}", path=path))
     temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    metadata = path.stat() if path.exists() else None
+    owner = metadata or path.parent.stat()
     try:
-        temporary.write_bytes(content)
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+        if os.name == "posix":
+            current = temporary.stat()
+            if (current.st_uid, current.st_gid) != (owner.st_uid, owner.st_gid):
+                os.chown(temporary, owner.st_uid, owner.st_gid)
+        temporary.chmod(stat.S_IMODE(metadata.st_mode) if metadata else 0o644)
         temporary.replace(path)
     finally:
+        if os.name == "nt" and temporary.exists():
+            temporary.chmod(0o600)
         temporary.unlink(missing_ok=True)
 
 

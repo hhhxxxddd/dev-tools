@@ -82,8 +82,14 @@ class Backend:
         return tuple(path.stem for path in sorted((self.binding.state / "workers").glob("*.json")))
 
     def phase(self, worker: str) -> dict:
+        return self._phase(worker, active=self.active(worker))
+
+    def phases(self, workers: tuple[str, ...]) -> dict[str, dict]:
+        return {worker: self.phase(worker) for worker in workers}
+
+    def _phase(self, worker: str, *, active: bool) -> dict:
         record = read_json(self.binding.state / "workers" / f"{worker}.json")
-        if not self.active(worker):
+        if not active:
             return {
                 **record,
                 "phase": "failed"

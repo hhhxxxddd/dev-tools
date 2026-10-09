@@ -2,46 +2,33 @@
 
 [中文](README.md) · [Changelog](CHANGELOG.md) · **v0.4.0**
 
-**Discover project dependencies, reload after code changes, and keep developing after dependency upgrades.**
+**Nearly seamless local development: discover dependencies, reload code changes, and keep going after dependency upgrades.**
 
-dev-tools manages development projects on Windows and WSL. It suits **vibe coding** workflows where AI repeatedly changes code, adds dependencies and switches branches. Let the tool handle environment preparation and services so you can see changes sooner.
+A development project manager for Windows and WSL, suited to **vibe coding** workflows where AI repeatedly changes code, adds dependencies and switches branches. Register and start once, then focus on your code while dev-tools handles dependency synchronization and service recovery.
 
-## Core capabilities
-
-- **Discover dependencies automatically**: read existing version, package manager and build declarations, identify runtimes and Maven module dependencies, and generate configuration you can review.
-- **Reload after code changes**: frontend development servers handle hot updates, Python reloads automatically, and Spring compiles and reloads through DevTools. Branch changes trigger configured rebuilds.
-- **Keep developing after upgrades**: edit dependency declarations directly. The tool synchronizes lockfiles, installs additions or upgrades, removes obsolete dependencies, and restores running services without re-registering or manually running `prepare`.
-
-Supports Node.js, Maven / Spring Boot, Python / uv and existing Docker Compose projects. Windows and WSL share commands while keeping runtimes, dependencies and caches separate.
+- **Discover automatically**: read existing declarations, identify Node.js, Maven / Spring Boot, Python / uv and existing Docker Compose projects, and generate configuration you can review.
+- **Reload changes**: frontend hot updates, Python reloads, and Spring compilation with DevTools reloads; branch changes trigger configured rebuilds.
+- **Follow dependency changes**: synchronize lockfiles per module, install additions or upgrades, remove obsolete packages and restore services while running. No re-registration or manual preparation is needed; customized commands are preserved.
 
 ## Installation
 
-Source installation is currently available. Run in PowerShell:
-
-```powershell
-git clone https://github.com/hhhxxxddd/dev-tools.git
-cd dev-tools
-.\scripts\bootstrap.ps1
-. $PROFILE
-dev-tools help
-```
-
-You need PowerShell 7, Git and WSL with systemd enabled; Ubuntu is the default. Scoop is required if Windows mise is missing. Bootstrap deploys both Windows and WSL.
-
-Once the Release and bucket manifest are published, you can also use Scoop:
+Install the Windows controller through Scoop (available after the first Release is published):
 
 ```powershell
 scoop bucket add dev-tools https://github.com/hhhxxxddd/dev-tools
 scoop install dev-tools/dev-tools
+dev-tools help
 ```
 
-Scoop prepares the Windows controller and its own Python host. If you need WSL, deploy it once from Windows:
+Scoop installs Git, PowerShell 7, mise and the controller's own Python. Project runtimes follow root version declarations; Windows and WSL store dependencies and caches separately.
+
+For WSL, install a distro and enable systemd, then deploy once from Windows:
 
 ```powershell
-dev-tools self install -e wsl
+dev-tools self update -e wsl
 ```
 
-Skip this if source bootstrap already deployed WSL. No second repository clone is needed inside WSL. `dev-tools` and `dev-tools help` prompt when WSL deployment is missing. See the [installation guide](docs/installation.en.md) for single-platform installation, other distributions and updates.
+The same command handles first installation and updates, without cloning again inside WSL. Ubuntu is the default; `dev-tools` and `help` prompt when deployment is missing. See the [installation guide](docs/installation.en.md) for source installation and other distros.
 
 ## Quick start
 
@@ -49,58 +36,51 @@ Enter an existing project directory:
 
 ```text
 cd path/to/my-app
-dev-tools scan
-dev-tools init --dry-run
 dev-tools init
 dev-tools register
 dev-tools start
 ```
 
-Review scan results and generated configuration, then start; `start` prepares the environment automatically. `init` preserves existing files; `scan` and `init` never execute project code or install runtimes. Add missing versions or custom entrypoints to project configuration.
+`init` preserves existing configuration and reports missing exact versions or custom entrypoints; `start` prepares the environment automatically. Then edit code, add, remove or upgrade dependencies, or switch branches. Dependency updates may briefly stop services; reload behavior depends on the framework and configuration.
 
-Omitting `-e` selects the current platform. To control WSL projects from Windows:
+Omit `-e` to use the current platform; control WSL projects from Windows:
 
 ```powershell
 dev-tools -e wsl register .
-dev-tools -e wsl start my-app
+dev-tools -e wsl start
 ```
 
-Replace `my-app` with the registered name; omit it in a directory that uniquely matches a project. Inside native WSL, registration, preparation and lifecycle changes require `sudo`; read-only commands and preparation previews do not.
+Native WSL registration and lifecycle control require `sudo`. `stop` disables automatic maintenance; the next `start` catches up with changes.
 
-## Keep developing
-
-After startup, edit code, add/remove/upgrade dependencies, or switch Git branches. Once files settle, the tool synchronizes dependencies and configuration, then reloads or rebuilds. Configurations generated by `init` keep discovering modules while preserving customized commands. To preview a plan or intervene manually:
+## Everyday use
 
 ```text
-dev-tools prepare my-app --dry-run
+dev-tools list
 dev-tools status my-app
+dev-tools logs my-app web --follow
+dev-tools stop my-app
 ```
 
-Runtime versions belong in root `mise.toml` / `.mise.toml`; automatic installation uses only declared versions. Workflows belong in `dev-tools.toml`. Reload depends on the framework and configuration; dependency updates may briefly stop services. `stop` ends automatic maintenance, and the next `start` catches up. Set `dependency_mode = "locked"` to prevent automatic lockfile changes.
+Replace the sample project and service names; omit the project name in a directory that uniquely matches it. Preview preparation with `dev-tools prepare --dry-run`; build the whole project manually with `dev-tools build`.
 
-## Common commands
+Workflows live in `dev-tools.toml`, runtime versions in root `mise.toml` / `.mise.toml`. Scanning and initialization never execute project code or install runtimes. Set `dependency_mode = "locked"` to disable automatic lockfile changes. Chinese is the default; use `dev-tools config edit` to set `language = "en"` for English.
 
-| Command | Purpose |
-|---|---|
-| `dev-tools list` | View projects and states in a table |
-| `dev-tools status my-app` | Check service status |
-| `dev-tools logs my-app web --follow` | Follow service logs; replace web with the service name |
-| `dev-tools build my-app --kind branch` | Trigger a full branch rebuild manually |
-| `dev-tools stop my-app` | Stop the project |
-| `dev-tools help` | Show all commands |
+## Updates
 
-Chinese is the default. Use `dev-tools config edit` to set `language = "en"` for English; preferences are stored separately on each platform.
+Stop projects on the platform you are updating first:
+
+```powershell
+scoop update
+scoop update dev-tools
+dev-tools self update -e wsl
+```
+
+Update WSL when needed. Both platforms retain registrations, preferences, caches and project runtimes; use `start` to restore services afterward.
 
 ## Documentation and contributing
 
-- [Installation, updates and removal](docs/installation.en.md)
-- [Project configuration and reload policies](docs/project-config.en.md)
-- [Preferences, reports and operation](docs/usage.en.md)
-- [Project examples](examples/README.md)
-- [Development and verification](docs/development.en.md)
+[Installation and removal](docs/installation.en.md) · [Project configuration and reloads](docs/project-config.en.md) · [Operation](docs/usage.en.md) · [Examples](examples/README.md)
 
-Issues and Pull Requests are welcome. Read the [maintenance boundaries](AGENTS.md) before contributing.
-
-## License
+Issues and Pull Requests are welcome; read [development and verification](docs/development.en.md) and the [maintenance boundaries](AGENTS.md) before contributing.
 
 [MIT](LICENSE)

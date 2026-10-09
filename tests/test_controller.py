@@ -44,7 +44,7 @@ class ControllerTests(unittest.TestCase):
                 self.assertEqual(outputs[0], outputs[1])
                 self.assertEqual(outputs[1], outputs[2])
                 self.assertIn("CustomDistro", outputs[0])
-                self.assertIn("dev-tools self install -e wsl", outputs[0])
+                self.assertIn("dev-tools self update -e wsl", outputs[0])
                 self.assertNotRegex(outputs[0], r"[\u4e00-\u9fff]")
                 self.assertEqual(probe.call_count, 3)
                 probe.assert_called_with("CustomDistro")
@@ -84,13 +84,13 @@ class ControllerTests(unittest.TestCase):
             ):
                 self.assertEqual(deployment_status("custom")["state"], "unavailable")
 
-    def test_self_wsl_install_bypasses_project_transport_and_retains_config_scope(self):
+    def test_self_wsl_update_bypasses_project_transport_and_retains_config_scope(self):
         with (
             patch("dev_tools.controller.WINDOWS", True),
             patch("dev_tools.controller._install_wsl", return_value=0) as install,
             patch("dev_tools.runtimes.router.forward_remote") as transport,
         ):
-            self.invoke(["self", "install", "-e", "wsl"])
+            self.invoke(["self", "update", "-e", "wsl"])
             install.assert_called_once()
             transport.assert_not_called()
         for args in (["self", "update", "-e", "wsl"], ["-e", "wsl", "self", "update"]):

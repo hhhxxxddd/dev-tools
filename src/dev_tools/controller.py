@@ -65,9 +65,9 @@ def deployment_notice(settings) -> str:
     status = deployment_status(settings.distro)
     if status["state"] == "installed":
         return ""
-    instruction = "dev-tools self install -e wsl"
+    instruction = "dev-tools self update -e wsl"
     if not WINDOWS:
-        instruction = "sudo dev-tools self install -e wsl"
+        instruction = "sudo dev-tools self update -e wsl"
     if status["state"] == "missing":
         return t(
             "WSL deployment is missing or incomplete ({distro}). Deploy it with: {command}",
@@ -203,7 +203,7 @@ def run(args: argparse.Namespace) -> int:
     if args.json and args.self_action != "status":
         raise ValueError(message("self --json requires status"))
     if args.source and args.self_action == "status":
-        raise ValueError(message("self --source requires install or update"))
+        raise ValueError(message("self --source requires update"))
     if args.self_action == "status":
         value = {"controller_version": __version__, "wsl": deployment_status(args.settings.distro)}
         if args.json:
@@ -242,9 +242,9 @@ def add_commands(catalog) -> None:
     add_environment(command)
     command.add_argument(
         "self_action",
-        choices=("install", "update", "status"),
+        choices=("update", "status"),
         metavar=t("操作"),
-        help=t("install deploys; update refreshes; status inspects deployment state"),
+        help=t("update 安装或更新 WSL 部署；status 查看部署状态"),
     )
     command.add_argument(
         "--source",

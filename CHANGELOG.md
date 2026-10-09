@@ -2,6 +2,11 @@
 
 ## 0.4.0 - 2026-10-09
 
+- 精简 CLI：移除 sync 和公开 build --kind；部署统一为 self update，prepare/build 移至进阶命令。
+- 按模块跟踪依赖解析与安装，服务参数变化不再重装依赖；构建拒绝错误确认未安装的运行时。
+- 修复首次启动失败后的监控恢复、WSL 回写权限和 JSON 混入第三方日志。
+- Windows 状态批量查询进程身份；README 以 Scoop 安装和自动依赖维护为主线。
+
 ### 发行与改进
 
 - start 自动准备项目，运行期间跟进声明、锁文件、根级运行时和工作流变化；后台更新失败保留监控并自动恢复，stop 取消继续运行的意图。
@@ -10,7 +15,7 @@
 - 精简中英文 README，突出依赖发现、热部署和完整命令示例；配置、运行和开发细节移到 docs。
 - 修复两平台打包排序与换行差异，WSL 部署包含 README 引用的更新记录；支持准备草稿后发布并更新 Scoop bucket。
 
-- 增加 self install/update/status：从 Windows 同版本部署 WSL；原生 WSL 可校验最新 Release 后更新；总览帮助提示缺失部署。
+- 增加 self update/status：从 Windows 同版本部署 WSL；原生 WSL 可校验最新 Release 后更新；总览帮助提示缺失部署。
 - 增加可重复构建的版本包、SHA256、Scoop 清单和发行工作流；Scoop shim 替代旧 profile 标记块，更新/卸载检查活动 Windows worker。
 - WSL 更新拒绝覆盖活动 worker 使用的程序；安装和更新保留本机注册、偏好、状态、缓存与项目运行时。
 - list 默认以名称、环境、状态三列表格显示项目，按本机语言配置翻译并对齐中英文列；JSON 输出保持原结构。
@@ -32,7 +37,7 @@
 - Windows/WSL 共用项目声明、发现、准备计划、任务执行、服务生命周期和监控 worker；平台适配器只负责原生存储、用户、同步、进程与 systemd。
 - 用项目根 dev-tools.toml 描述任意命名的任务、服务、依赖图和构建策略；JSON schema 升为 3，项目 TOML schema 为 1。
 - 独立准备混合项目的 Node、Maven/Spring 和 Python 工作流，使用平台原生依赖、虚拟环境与缓存。
-- 静态 scan/init 保留现有声明；只允许显式 prepare 安装根级 mise 运行时、平台依赖和框架产物。
+- 静态 scan/init 保留现有声明；start、prepare 和后台维护通过统一准备流程安装根级 mise 运行时、平台依赖和框架产物。
 - 两侧共用健康检查、准备指纹、操作锁、失败恢复、分支监控和热构建；重命名保留原生存储身份。
 - WSL 使用独立部署、私有 Python 宿主和通用 systemd 模板；不依赖另一个仓库，不读取或迁移旧 wsl-devctl 注册。
 

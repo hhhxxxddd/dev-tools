@@ -144,6 +144,64 @@ class EngineContractTests(unittest.TestCase):
             self.assertFalse(engine.backend.running)
             self.assertEqual(engine.state()["recovery"]["operation"], "start")
 
+    def test_prepare_after_failed_first_start_restores_services_and_monitors(self):
+        for engine in self.both():
+            engine.backend.fail_start = "web"
+            with self.assertRaises(ProjectError):
+                engine.start()
+            engine.backend.fail_start = ""
+            engine.prepare()
+            expected = {"api", "web", "__watch"}
+            if engine.binding.environment == "wsl":
+                expected.add("__sync")
+            self.assertEqual(engine.backend.running, expected)
+            self.assertTrue(engine.status()["ready"])
+
+    def test_runtime_change_cannot_be_committed_as_prepared_by_build(self):
+        for engine in self.both():
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["toolchain"] = "mise"
+            self.change_configuration(engine, raw)
+            mise = engine.binding.source / "mise.toml"
+            mise.write_text('[tools]\nnode = "22.0.0"\n')
+            with patch("dev_tools.projects.planning.shutil.which", return_value="mise"):
+                engine.prepare()
+                before = engine.state()["prepared_revision"]
+                mise.write_text('[tools]\nnode = "24.0.0"\n')
+                with self.assertRaises(ProjectError):
+                    engine.rebuild()
+                self.assertEqual(engine.state()["prepared_revision"], before)
+                self.assertFalse(engine.status()["prepared"])
+                calls = []
+                engine.executor.run = lambda argv, calls=calls, **kwargs: (
+                    calls.append(argv) or subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+                )
+                with patch("dev_tools.projects.monitoring.git_snapshot", return_value={}):
+                    engine.start()
+                self.assertTrue(any("node@24.0.0" in argv for argv in calls))
+                self.assertTrue(engine.status()["ready"])
+
+    def test_service_configuration_change_does_not_run_preparation_tasks(self):
+        for engine in self.both():
+            engine.start()
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["services"]["api"]["command"] = ["fixture", "--log-level", "debug"]
+            self.change_configuration(engine, raw)
+            engine.backend.events.clear()
+            engine.maintain()
+            self.assertFalse(any(event.startswith("task:") for event in engine.backend.events))
+            self.assertTrue(engine.status()["ready"])
+
+    def test_status_uses_one_inventory_when_workers_are_being_created(self):
+        for engine in self.both():
+            engine.start()
+            with patch.object(
+                engine.backend, "known_workers", side_effect=[("__watch",), ("__new",)]
+            ) as inventory:
+                status = engine.status()
+            self.assertEqual(set(status["workers"]), {"__watch"})
+            inventory.assert_called_once()
+
     def test_unresolved_plan_does_not_stop_or_install(self):
         for engine in self.both():
             engine.backend.running.add("api")
@@ -445,6 +503,7 @@ class EngineContractTests(unittest.TestCase):
     def test_stop_intent_during_task_prevents_restore(self):
         for engine in self.both():
             engine.start()
+            (engine.binding.source / "package-lock.json").write_text('{"lockfileVersion":3}')
             engine.executor.mutate = lambda engine=engine: engine.set_intent(running=False)
             with self.assertRaises(ProjectError):
                 engine.maintain()

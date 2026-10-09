@@ -148,6 +148,13 @@ class WindowsBackend(Backend):
         path = self._identity_path(worker)
         return bool(read_json(path)) and bool(self._native("query", path)["active"])
 
+    def phases(self, workers: tuple[str, ...]) -> dict[str, dict]:
+        directory = self.binding.state / "native"
+        activity = self._native("query", directory) if directory.is_dir() else {}
+        return {
+            worker: self._phase(worker, active=bool(activity.get(worker))) for worker in workers
+        }
+
     def stop(self, worker: str) -> None:
         path = self._identity_path(worker)
         if read_json(path):

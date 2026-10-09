@@ -5,7 +5,10 @@ import contextlib
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
+import textwrap
 import tomllib
 import unittest
 from pathlib import Path
@@ -20,6 +23,52 @@ from dev_tools.projects.models import ProjectError
 
 
 class CliTests(unittest.TestCase):
+    def test_removed_command_forms_are_rejected(self):
+        for arguments in (
+            ["sync", "demo"],
+            ["self", "install"],
+            ["build", "demo", "--kind", "source"],
+        ):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
+                parser().parse_args(arguments)
+            self.assertEqual(result.exception.code, 2)
+
+    def test_start_json_keeps_native_process_output_on_stderr(self):
+        code = textwrap.dedent("""\
+            import argparse, copy, json, os, sys, tempfile
+            from pathlib import Path
+            from unittest.mock import patch
+            from dev_tools.projects.cli import run
+            from dev_tools.projects.config import parse_project, render_toml
+            from dev_tools.projects.execution import Executor
+            from tests.test_project_engine import EngineContractTests
+            with tempfile.TemporaryDirectory() as temporary:
+                engine = EngineContractTests().fixture(Path(temporary), "windows")
+                raw = copy.deepcopy(engine.spec.raw)
+                raw.update(tasks={}, builds={}, services={"stack": {"driver": "compose"}})
+                (engine.binding.source / "dev-tools.toml").write_text(render_toml(raw))
+                (engine.binding.source / "compose.yaml").write_text("services: {}")
+                engine._set_spec(parse_project(raw, "windows"))
+                engine.executor = Executor(engine.spec, engine.binding, engine.backend)
+                def resolve(command, **kwargs):
+                    content = "native build progress" if command.argv[-1:] == ("build",) else json.dumps([{"State": "running"}])
+                    return [sys.executable, "-c", "print(" + repr(content) + ")"], engine.binding.source, os.environ.copy()
+                args = argparse.Namespace(project_command="start", env="win", name="demo", service=None, json=True)
+                with patch("dev_tools.projects.cli.engine_for", return_value=engine), patch.object(engine.executor, "resolve", side_effect=resolve), patch("dev_tools.projects.monitoring.git_snapshot", return_value={}):
+                    raise SystemExit(run(args))
+            """)
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=Path(__file__).parents[1],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["completed"])
+        self.assertIn("native build progress", result.stderr)
+
     def test_init_does_not_write_a_partial_config_when_versions_are_unresolved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -246,7 +295,6 @@ class CliTests(unittest.TestCase):
             "unregister",
             "scan",
             "show",
-            "sync",
             "rename",
             "report",
             "sysinfo",

@@ -161,7 +161,6 @@
   "unsafe controller archive member: {path}": "控制程序归档包含不安全路径：{path}",
   "controller deployment requires root; rerun with sudo": "控制程序部署需要 root；请使用 sudo 重新执行",
   "self --json requires status": "self 的 --json 仅用于 status",
-  "self --source requires install or update": "self 的 --source 仅用于 install 或 update",
   "Controller version: {version}": "控制程序版本：{version}",
   "WSL deployment: {state}; version: {version}": "WSL 部署：{state}；版本：{version}",
   "Use Scoop for Windows: scoop install dev-tools / scoop update dev-tools": "Windows 请使用 Scoop：scoop install dev-tools / scoop update dev-tools",
@@ -178,10 +177,12 @@
   "Stop WSL projects before updating the controller: dev-tools -e wsl stop <project>": "更新控制程序前请先停止 WSL 项目：dev-tools -e wsl stop <项目名>",
   "Scoop entrypoint installed. Open a new terminal if an old dev-tools function is still loaded.": "Scoop 入口已安装。如当前终端仍加载旧 dev-tools 函数，请重新打开终端。",
   "No published controller release is available; deploy from Windows or use --source": "尚无已发布的控制程序 Release；请从 Windows 部署或使用 --source 指定源码",
-  "install deploys; update refreshes; status inspects deployment state": "install 部署；update 更新；status 查看部署状态",
   "dependency_mode must be auto or locked": "dependency_mode 必须为 auto 或 locked",
   "discovery must be auto or manual": "discovery 必须为 auto 或 manual",
   "refusing symbolic-link update: {path}": "拒绝更新符号链接：{path}",
   "project stopped during maintenance": "项目已停止，取消自动维护和服务恢复",
-  "dependency resolution changed project declarations": "依赖解析改变了项目声明；请检查后重试"
+  "dependency resolution changed project declarations": "依赖解析改变了项目声明；请检查后重试",
+  "update 安装或更新 WSL 部署；status 查看部署状态": "update 安装或更新 WSL 部署；status 查看部署状态",
+  "self --source requires update": "self --source 仅可与 update 一起使用",
+  "build requires preparation; run dev-tools start or prepare": "构建前需要准备环境，请执行 dev-tools start 或 prepare"
 }

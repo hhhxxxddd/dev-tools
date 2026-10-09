@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +100,7 @@ class Executor:
             cwd=cwd,
             env=environment,
             capture_output=capture,
+            **({} if capture else {"stdout": sys.stderr, "stderr": sys.stderr}),
             text=True,
             encoding="utf-8",
             errors="replace",

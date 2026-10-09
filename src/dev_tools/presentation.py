@@ -17,7 +17,6 @@ LABELS = {
     "restart": "重启项目",
     "status": "项目状态",
     "show": "项目配置与绑定",
-    "sync": "同步源码",
     "build": "构建项目",
     "rename": "重命名项目",
     "unregister": "注销项目",

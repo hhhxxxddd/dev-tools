@@ -92,7 +92,7 @@ printf keep-state > {native}/state/existing
                 ]
                 + [name + "/u" for name in variables]
             ).strip(":")
-            for action in ("install", "update"):
+            for action in ("update", "update"):
                 result = subprocess.run(
                     [
                         "pwsh",

@@ -61,7 +61,7 @@ if ($pathIndex -ge 0) {
         $Arguments[$pathIndex] = ([string]$mapped).Trim()
     }
 }
-$control = $Arguments.Count -gt 0 -and $Arguments[0] -in @('register', 'prepare', 'start', 'stop', 'restart', 'sync', 'build', 'rename', 'unregister') -and
+$control = $Arguments.Count -gt 0 -and $Arguments[0] -in @('register', 'prepare', 'start', 'stop', 'restart', 'build', 'rename', 'unregister') -and
     $Arguments -notcontains '--help' -and $Arguments -notcontains '-h' -and $Arguments -notcontains '--dry-run'
 if ($control -and $Arguments[0] -eq 'register' -and -not ($Arguments | Where-Object { $_ -eq '--user' -or $_.StartsWith('--user=') })) {
     $nativeUser = & wsl.exe -d $Distro --exec id -un

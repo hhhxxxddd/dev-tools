@@ -155,8 +155,9 @@ def smoke() -> dict:
             first = status()
             if not first["ready"] or first["healthy"] is not True:
                 raise AssertionError(first)
-            invoke("build", "--service", "api", "--kind", "source")
+            invoke("build", "--service", "api")
             manual_build = (workspace / "build.txt").read_text()
+            first = status()
             # Each supervisor launched the same worker and watches the same declaration.
             time.sleep(3)
             (source / "source/Fixture.java").write_text(

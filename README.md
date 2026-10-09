@@ -2,46 +2,33 @@
 
 [English](README.en.md) · [更新记录](CHANGELOG.md) · **v0.4.0**
 
-**自动发现项目依赖，改代码后热部署，升级依赖后继续开发。**
+**近乎无感的本地开发部署：自动发现依赖，改代码热部署，依赖升级后接着开发。**
 
-dev-tools 是面向 Windows 和 WSL 的开发项目管理工具，适合让 AI 反复改代码、加依赖、切分支的 **vibe coding** 工作流。把环境准备和服务管理交给工具，让你更快看到修改后的效果。
+面向 Windows 和 WSL 的开发项目管理工具，适合让 AI 反复改代码、加依赖、切分支的 **vibe coding** 工作流。注册并启动一次，之后专心改代码，依赖同步和服务恢复交给 dev-tools。
 
-## 核心能力
-
-- **自动发现依赖**：读取项目已有的版本、包管理器和构建声明，识别运行时与 Maven 模块依赖，生成可检查的开发配置。
-- **改代码后热部署**：前端使用开发服务器热更新，Python 自动重载，Spring 自动编译并通过 DevTools 重载；切换分支后按配置重新构建。
-- **依赖升级后接着开发**：直接修改依赖声明，工具自动同步锁文件、安装新增或升级的包、清理移除的依赖，并恢复运行服务，无需重新注册或手动 `prepare`。
-
-支持 Node.js、Maven / Spring Boot、Python / uv 和已有 Docker Compose 项目。Windows 与 WSL 使用相同命令，各自保存运行时、依赖和缓存。
+- **自动发现**：读取项目已有声明，识别 Node.js、Maven / Spring Boot、Python / uv 和已有 Docker Compose 项目，生成可检查的开发配置。
+- **热部署**：前端热更新、Python 自动重载、Spring 编译与 DevTools 重载；切换分支后按配置重新构建。
+- **跟进依赖变化**：运行期间按模块同步锁文件、安装新增或升级的包、清理移除的依赖并恢复服务。无需重新注册或手动准备，保留手改命令。
 
 ## 安装
 
-目前可从源码安装。在 PowerShell 中执行：
-
-```powershell
-git clone https://github.com/hhhxxxddd/dev-tools.git
-cd dev-tools
-.\scripts\bootstrap.ps1
-. $PROFILE
-dev-tools help
-```
-
-需要 PowerShell 7、Git 和已启用 systemd 的 WSL，默认使用 Ubuntu；Windows 缺少 mise 时需要 Scoop。bootstrap 会部署 Windows 和 WSL 两端。
-
-正式 Release 和 bucket 清单发布后，也可以使用 Scoop：
+通过 Scoop 安装 Windows 端（首次 Release 发布后可用）：
 
 ```powershell
 scoop bucket add dev-tools https://github.com/hhhxxxddd/dev-tools
 scoop install dev-tools/dev-tools
+dev-tools help
 ```
 
-Scoop 准备 Windows 端及工具自身的 Python。需要 WSL 时，从 Windows 部署一次：
+Scoop 安装 Git、PowerShell 7、mise 和控制程序自己的 Python。项目运行时由项目根级版本声明决定，Windows 与 WSL 各自保存依赖和缓存。
+
+需要 WSL 时，先安装发行版并启用 systemd，再从 Windows 部署一次：
 
 ```powershell
-dev-tools self install -e wsl
+dev-tools self update -e wsl
 ```
 
-源码 bootstrap 已完成 WSL 部署时可跳过。无需进入 WSL 再克隆仓库；`dev-tools` 和 `dev-tools help` 会提示缺失的 WSL 部署。单端安装、其他发行版和更新步骤见[安装说明](docs/installation.md)。
+首次部署和后续更新使用同一命令，无需进入 WSL 再克隆仓库。默认发行版为 Ubuntu；进入 `dev-tools` 或 `help` 会提示缺失部署。源码安装和其他发行版见[安装说明](docs/installation.md)。
 
 ## 快速上手
 
@@ -49,58 +36,51 @@ dev-tools self install -e wsl
 
 ```text
 cd path/to/my-app
-dev-tools scan
-dev-tools init --dry-run
 dev-tools init
 dev-tools register
 dev-tools start
 ```
 
-先检查扫描结果和生成配置，再启动；`start` 会自动准备环境。`init` 保留已有配置；`scan` 和 `init` 不执行项目代码或安装运行时。缺失版本或自定义入口需要补充到项目配置。
+`init` 保留已有配置，缺少明确版本或自定义入口时会提示补充；`start` 自动准备环境。随后直接改代码、增删或升级依赖、切换分支即可。依赖更新可能短暂停服，热部署取决于框架和配置。
 
-省略 `-e` 使用当前平台。从 Windows 控制 WSL 项目：
+省略 `-e` 使用当前平台；从 Windows 控制 WSL 项目：
 
 ```powershell
 dev-tools -e wsl register .
-dev-tools -e wsl start my-app
+dev-tools -e wsl start
 ```
 
-`my-app` 替换为实际注册名；在能唯一匹配项目的目录中可省略。原生 WSL 的注册、准备和启停操作需要 `sudo`，只读命令与准备预览不需要。
+原生 WSL 的注册和启停需要 `sudo`。`stop` 停止自动维护，下次 `start` 补齐变化。
 
-## 持续开发
-
-启动后，直接改代码、增删或升级依赖、切换 Git 分支。工具等待文件稳定后自动同步依赖和配置，触发重载或重建。`init` 生成的配置会持续发现模块，保留手改命令。需要查看计划或手动处理时：
+## 日常使用
 
 ```text
-dev-tools prepare my-app --dry-run
+dev-tools list
 dev-tools status my-app
+dev-tools logs my-app web --follow
+dev-tools stop my-app
 ```
 
-运行时版本写在项目根 `mise.toml` / `.mise.toml`，自动安装仅使用其中声明的版本；流程写在 `dev-tools.toml`。热部署取决于框架和配置，依赖更新可能短暂停服。`stop` 停止自动维护，下次 `start` 补齐变化；`dependency_mode = "locked"` 可禁止自动改锁文件。
+替换示例项目名和服务名；在唯一匹配项目的目录中可省略项目名。预览准备计划用 `dev-tools prepare --dry-run`，手动完整构建用 `dev-tools build`。
 
-## 常用命令
+流程写在 `dev-tools.toml`，运行时版本写在根 `mise.toml` / `.mise.toml`；扫描和初始化不执行项目代码或安装运行时。`dependency_mode = "locked"` 可禁止自动修改锁文件。默认中文，通过 `dev-tools config edit` 设置 `language = "en"` 切换英文。
 
-| 命令 | 用途 |
-|---|---|
-| `dev-tools list` | 表格查看项目及状态 |
-| `dev-tools status my-app` | 查看服务状态 |
-| `dev-tools logs my-app web --follow` | 持续查看服务日志，web 为实际服务名 |
-| `dev-tools build my-app --kind branch` | 手动触发完整分支构建 |
-| `dev-tools stop my-app` | 停止项目 |
-| `dev-tools help` | 查看全部命令 |
+## 更新
 
-默认中文，通过 `dev-tools config edit` 设置 `language = "en"` 可切换英文；本机偏好由两端分别保存。
+先停止对应平台的项目，再更新：
+
+```powershell
+scoop update
+scoop update dev-tools
+dev-tools self update -e wsl
+```
+
+WSL 更新按需执行。两端保留项目注册、偏好、缓存和项目运行时，更新后用 `start` 恢复服务。
 
 ## 文档与贡献
 
-- [安装、更新与卸载](docs/installation.md)
-- [项目配置与热部署策略](docs/project-config.md)
-- [配置、报告与运行说明](docs/usage.md)
-- [项目示例](examples/README.md)
-- [开发与验证](docs/development.md)
+[安装与卸载](docs/installation.md) · [项目配置与热部署](docs/project-config.md) · [运行说明](docs/usage.md) · [示例](examples/README.md)
 
-欢迎提交 Issue 和 Pull Request。开发前请阅读[维护约束](AGENTS.md)。
-
-## 许可证
+欢迎提交 Issue 和 Pull Request；开发前请阅读[开发与验证](docs/development.md)和[维护约束](AGENTS.md)。
 
 [MIT](LICENSE)

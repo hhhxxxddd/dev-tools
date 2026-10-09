@@ -61,7 +61,7 @@ def scoop_manifest(version: str, checksum: str) -> dict:
         "description": "Project discovery, preparation and native Windows/WSL development control",
         "homepage": f"https://github.com/{UPSTREAM}",
         "license": "MIT",
-        "depends": ["main/mise", "main/pwsh"],
+        "depends": ["main/git", "main/mise", "main/pwsh"],
         "url": f"{base}/dev-tools-{version}.zip",
         "hash": checksum,
         "bin": [["scripts/scoop-entry.ps1", "dev-tools"]],

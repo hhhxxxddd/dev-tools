@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -14,6 +15,80 @@ from .drivers import maven_wrapper, spring_artifact
 from .maintenance import LOCKFILES, clean_venv_task, resolution_task
 from .models import ProjectBinding, ProjectError, ProjectSpec, TaskSpec, within
 from .toolchain import root_runtime_versions
+
+
+def preparation_revisions(
+    spec: ProjectSpec, binding: ProjectBinding, tasks: tuple[str, ...]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Hash each native preparation scope, without unrelated service configuration."""
+    declarations, installations = {}, {}
+    source = binding.source.resolve()
+    for name in tasks:
+        task = spec.tasks[name]
+        command = task.command.argv[:1]
+        manager = task.manager or (command[0] if command else "")
+        if manager in {"npm", "pnpm", "yarn", "bun", "node", "npx"}:
+            names = {"package.json", "pnpm-workspace.yaml", ".npmrc", ".yarnrc.yml"}
+        elif manager in {"uv", "pip", "python", "python3", "{python}", "{venv_python}"}:
+            names = {"pyproject.toml", "requirements.txt", "uv.toml", ".python-version"}
+        else:
+            names = {
+                "pom.xml",
+                "maven-wrapper.properties",
+                ".mvn/wrapper/maven-wrapper.properties",
+                "mvnw",
+                "mvnw.cmd",
+                "package.json",
+                "pnpm-workspace.yaml",
+                ".npmrc",
+                ".yarnrc.yml",
+                "pyproject.toml",
+                "requirements.txt",
+                "uv.toml",
+                ".python-version",
+            }
+        directory = within(binding.source, task.workdir)
+        paths = set(_find(directory, names))
+        current = directory
+        while True:
+            paths.update(current / item for item in names if (current / item).is_file())
+            if current == source:
+                break
+            current = current.parent
+        paths.update(source / item for item in ("mise.toml", ".mise.toml"))
+        base = hashlib.sha256(json.dumps(task.as_dict(), sort_keys=True).encode())
+        for path in sorted(paths):
+            if path.is_file():
+                relative = path.relative_to(source).as_posix()
+                within(source, relative)
+                base.update(relative.encode())
+                base.update(path.read_bytes())
+        for dependency in task.depends_on:
+            base.update(declarations[dependency].encode())
+        declarations[name] = base.hexdigest()
+        installed = base.copy()
+        lockfiles = LOCKFILES.get(manager, ())
+        if manager not in LOCKFILES and manager not in {
+            "pip",
+            "python",
+            "python3",
+            "{python}",
+            "{venv_python}",
+            "maven",
+            "mvn",
+            "{maven}",
+        }:
+            lockfiles = tuple(filename for files in LOCKFILES.values() for filename in files)
+        for path in sorted(_find(directory, set(lockfiles)) if lockfiles else []):
+            if path.is_file():
+                relative = path.relative_to(source).as_posix()
+                within(source, relative)
+                installed.update(relative.encode())
+                installed.update(path.read_bytes())
+        for dependency in task.depends_on:
+            installed.update(installations[dependency].encode())
+        installations[name] = installed.hexdigest()
+    return declarations, installations
 
 
 def fingerprint(
@@ -42,6 +117,7 @@ def fingerprint(
         "package.json",
         "pnpm-workspace.yaml",
         "pyproject.toml",
+        "uv.toml",
         "uv.lock",
         "requirements.txt",
         "compose.yaml",
@@ -80,6 +156,8 @@ class PreparationPlan:
     resolution_tasks: tuple[TaskSpec, ...] = ()
     discovery_baseline: dict | None = None
     configuration_update: bool = False
+    pending_tasks: tuple[str, ...] = ()
+    runtime_install: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -98,7 +176,7 @@ class PreparationPlan:
                     "cwd": str(within(self.binding.workspace, self.spec.tasks[name].workdir)),
                     **clean_venv_task(self.spec.tasks[name], self.binding.workspace).as_dict(),
                 }
-                for name in self.tasks
+                for name in self.pending_tasks
             ],
             "artifacts": list(self.artifacts),
             "dependency_mode": self.spec.dependency_mode,
@@ -119,6 +197,7 @@ def preparation_plan(
     state: dict | None = None,
     discovery_baseline: dict | None = None,
     configuration_update: bool = False,
+    force: bool = False,
 ) -> PreparationPlan:
     scan = scan_project(binding.source)
     unresolved = [
@@ -189,9 +268,9 @@ def preparation_plan(
                 )
             )
     resolution_tasks = []
-    declarations_changed = (state or {}).get("dependency_revision") != fingerprint(
-        binding, spec=spec, include_locks=False
-    )
+    declarations, installations = preparation_revisions(spec, binding, tasks)
+    previous_declarations = (state or {}).get("dependency_revisions", {})
+    previous_installations = (state or {}).get("task_revisions", {})
     for name in tasks:
         task = spec.tasks[name]
         clean_venv_task(task, binding.workspace)
@@ -204,7 +283,7 @@ def preparation_plan(
                 )
         missing_lock = files and not any((directory / filename).is_file() for filename in files)
         resolver = resolution_task(task) if spec.dependency_mode == "auto" else None
-        if resolver and (declarations_changed or missing_lock):
+        if resolver and (previous_declarations.get(name) != declarations[name] or missing_lock):
             resolution_tasks.append(resolver)
         if missing_lock and not resolver:
             unresolved.append(
@@ -281,4 +360,11 @@ def preparation_plan(
         tuple(resolution_tasks),
         discovery_baseline,
         configuration_update,
+        tasks
+        if force
+        else tuple(
+            name for name in tasks if previous_installations.get(name) != installations[name]
+        ),
+        bool(runtime_versions)
+        and (force or list(runtime_versions) != (state or {}).get("runtime_versions")),
     )

@@ -203,7 +203,7 @@ def run(args: argparse.Namespace) -> int:
     if action == "prepare":
         if args.json and not args.dry_run:
             raise ProjectError(message("prepare 使用 --json 时必须同时指定 --dry-run"))
-        plan = engine.plan()
+        plan = engine.plan(force=True)
         if args.dry_run:
             emit(plan.as_dict(), args.json)
             return 2 if plan.unresolved else 0
@@ -222,12 +222,8 @@ def run(args: argparse.Namespace) -> int:
             {**payload, "binding": engine.binding.as_dict(), "project": engine.spec.raw}, args.json
         )
         return 0
-    elif action == "sync":
-        engine.backend.require_control()
-        with operation_lock(engine.binding.state, timeout=15):
-            engine.backend.sync(engine.spec)
     elif action == "build":
-        engine.rebuild(service=args.service, kind=args.kind)
+        engine.rebuild(service=args.service)
     elif action == "logs":
         engine.logs(args.service, lines=args.lines, follow=args.follow, task=args.task)
         return 0
@@ -296,13 +292,14 @@ def add_commands(commands) -> None:
         ("logs", t("查看指定服务的日志")),
         ("unregister", t("停止服务并注销；默认保留源码、缓存和运行时")),
         ("show", t("查看项目声明和本机绑定")),
-        ("sync", t("将源码同步到原生工作目录")),
         ("rename", t("修改注册名称并恢复原先运行的服务")),
     ):
         command = commands.add_parser(
             action,
             help=description,
-            group=t("进阶命令") if action in {"show", "sync", "rename"} else t("常用命令"),
+            group=t("进阶命令")
+            if action in {"prepare", "build", "show", "rename"}
+            else t("常用命令"),
         )
         command.add_argument(
             "name", nargs="?", metavar=t("项目名"), help=t("注册名称；省略时按当前目录唯一匹配")
@@ -327,16 +324,6 @@ def add_commands(commands) -> None:
                 "--service",
                 metavar=t("服务名"),
                 help=t("仅操作指定服务；启动时包含其依赖，省略时操作全部服务"),
-            )
-        if action == "build":
-            command.add_argument(
-                "--kind",
-                choices=("branch", "source", "resource", "structural"),
-                default="branch",
-                metavar=t("构建类型"),
-                help=t(
-                    "branch 分支变化（默认）；source 源码变化；resource 资源变化；structural 结构变化"
-                ),
             )
         if action == "logs":
             command.add_argument(

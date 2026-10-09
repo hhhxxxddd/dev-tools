@@ -14,7 +14,7 @@ scoop update dev-tools
 scoop uninstall dev-tools
 ```
 
-清单自动安装 `main/pwsh`、`main/mise` 和 Python 3.14.8 控制程序宿主，创建 `dev-tools` shim。无需 Git 克隆或 profile 函数。旧安装器写入的 dev-tools 标记块会被移除；已有终端需重新打开以清除已加载的旧函数。
+清单自动安装 `main/git`、`main/pwsh`、`main/mise` 和 Python 3.14.8 控制程序宿主，创建 `dev-tools` shim。无需 Git 克隆或 profile 函数。旧安装器写入的 dev-tools 标记块会被移除；已有终端需重新打开以清除已加载的旧函数。
 
 更新和卸载前须停止活动的 Windows 项目，例如 `dev-tools -e win stop my-app`。钩子校验 PID 与启动时间，拒绝移除活动 worker 使用的程序。用户偏好、注册、状态、缓存和项目运行时保留；WSL 不随 Scoop 操作更新或卸载。
 
@@ -23,12 +23,11 @@ scoop uninstall dev-tools
 Scoop 安装后，从 Windows 部署一次，后续显式更新：
 
 ```powershell
-dev-tools self install -e wsl
-dev-tools self status --json
 dev-tools self update -e wsl
+dev-tools self status --json
 ```
 
-两个部署命令共用流程，均可重复执行；将本机包的同版本部署到配置的 `[wsl].distro`，无需进入 Linux 克隆仓库。先停止目标发行版中的项目，例如 `dev-tools -e wsl stop my-app`，完成后按需 `start`。安装器拒绝覆盖活动 worker 使用的文件，保留注册、偏好、状态、缓存和项目运行时，不自动准备或启动项目。
+`self update` 同时用于首次部署和更新，可重复执行；将本机包的同版本部署到配置的 `[wsl].distro`，无需进入 Linux 克隆仓库。先停止目标发行版中的项目，例如 `dev-tools -e wsl stop my-app`，完成后按需 `start`。安装器拒绝覆盖活动 worker 使用的文件，保留注册、偏好、状态、缓存和项目运行时，不自动准备或启动项目。
 
 发行版须已安装并启用 systemd。缺少 mise/rsync 时，Debian/Ubuntu 通过 extrepo/APT 安装；其他发行版须先自行安装工具。Linux 程序位于 `/opt/dev-tools`，控制程序宿主位于 `/opt/dev-tools/host-mise`，入口为 `/usr/local/bin/dev-tools`。不共享 Windows 可执行目录和缓存。
 
@@ -41,7 +40,7 @@ sudo dev-tools self update -e wsl
 sudo dev-tools self update -e wsl --source /path/to/dev-tools
 ```
 
-首次 Release 尚未发布时，从 Windows 部署或提供 `--source`。来源须是 origin 为官方仓库的检出目录，或发行流程生成的包。Windows 的 `self install/update -e win` 提示使用 Scoop。`self status --json` 输出稳定字段，不自动同步版本。
+首次 Release 尚未发布时，从 Windows 部署或提供 `--source`。来源须是 origin 为官方仓库的检出目录，或发行流程生成的包。Windows 的 `self update -e win` 提示使用 Scoop。`self status --json` 输出稳定字段，不自动同步版本。
 
 ## 源码安装
 

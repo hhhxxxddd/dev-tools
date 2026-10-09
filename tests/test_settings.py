@@ -207,7 +207,6 @@ class SettingsTests(unittest.TestCase):
                 "logs",
                 "unregister",
                 "show",
-                "sync",
                 "rename",
                 "sysinfo",
                 "report",
