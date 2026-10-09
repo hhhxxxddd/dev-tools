@@ -1,6 +1,6 @@
 # dev-tools
 
-[中文](README.md) · [Changelog](CHANGELOG.md) · [v0.4.0](https://github.com/hhhxxxddd/dev-tools/releases/tag/v0.4.0)
+[中文](README.md) · [Changelog](CHANGELOG.md) · [v0.4.1](https://github.com/hhhxxxddd/dev-tools/releases/tag/v0.4.1)
 
 **Nearly seamless local development: discover dependencies, reload code changes, and keep going after dependency upgrades.**
 

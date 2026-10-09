@@ -52,7 +52,7 @@ sudo dev-tools self update -e wsl --source /path/to/dev-tools
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-python -m dev_tools.release --tag v0.4.0 --output dist
+python -m dev_tools.release --tag v0.4.1 --output dist
 ```
 
 生成 `dev-tools-<版本>.zip`、`SHA256SUMS` 和 `dev-tools.json`。ZIP 含两平台程序、文档、示例和逐文件 SHA256 清单，固定排序、时间和换行，使用无压缩存储以避免两平台压缩库差异，排除缓存与 `*.local.*`。Scoop 清单使用 ZIP 的真实 SHA256。

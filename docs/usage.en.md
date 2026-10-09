@@ -46,7 +46,7 @@ roots = []
 max_depth = 2
 timeout = 90
 refresh = true
-collectors = ["git", "mise", "winget", "scoop", "apt", "npm", "wsl"]
+collectors = ["git", "mise", "winget", "store", "scoop", "apt", "snap", "rustup", "npm", "wsl"]
 ```
 
 See the [annotated template](../config/settings.example.toml).
@@ -68,15 +68,19 @@ dev-tools report --json --output report.json
 | Collector | Behavior |
 |---|---|
 | git | Discover repositories in roots and inspect worktree, branch and remote differences; refresh fetches refs without pulling |
-| mise | Read installed native tool versions; also query the target distro when wsl is enabled |
+| mise | Read installed native versions; refresh uses outdated for updates allowed by current declarations, preserving pins, caches and release-age policy; also query the target distro when wsl is enabled |
 | winget | Query available Windows application updates; skipped without refresh to avoid automatic source updates |
+| store | Query updates for all installed Store apps using Microsoft's Store CLI, without --apply and with only a negative confirmation; retain results as partial if the CLI rejects redirected input; a missing CLI is recorded as missing, and unavailable target versions remain unknown |
 | scoop | Read Windows application status; refresh updates Scoop/bucket indexes without updating installed apps |
 | apt | List upgradable WSL packages; refresh updates APT indexes using noninteractive sudo when not root, recording permission failures |
+| snap | Read installed WSL packages; refresh only queries version and revision updates using refresh --list, without installing |
+| rustup | Query Windows/WSL toolchain and rustup updates, supporting native user Cargo directories without reading shell profiles; recorded separately from the mise installation inventory |
 | npm | Read global packages and query updates for extra packages, excluding mise-managed packages, npm and corepack |
-| wsl | Allow Windows to run enabled mise/APT/npm collectors in the configured distro |
+| wsl | Allow Windows to run enabled mise/APT/Snap/Rustup/npm collectors in the configured distro |
 
 Report refreshes by default and may use the network or update local indexes. It never installs or upgrades software and accepts only built-in collectors.
-`--no-refresh` disables Git fetch and index refresh, but npm update queries may still use the network; remove npm from collectors when those queries are unwanted. npm update queries are skipped when the mise-managed inventory cannot be determined. WSL skips Windows collectors.
+`--no-refresh` disables Git fetch, index refresh and mise/Store/Snap/Rustup update queries, but npm update queries may still use the network; remove npm from collectors when those queries are unwanted. npm update queries are skipped when the mise-managed inventory cannot be determined. WSL skips Windows collectors.
+mise, Store, Snap and Rustup update queries provide structured updates. Rustup's update exit code 100 is not a failure, and partial valid results are retained. Unknown response formats are marked parse-error rather than reported as fully up to date.
 
 ## Lifecycle and platform boundaries
 

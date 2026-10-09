@@ -52,7 +52,7 @@ The controller version must match `pyproject.toml` and the tag. Complete both pl
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-python -m dev_tools.release --tag v0.4.0 --output dist
+python -m dev_tools.release --tag v0.4.1 --output dist
 ```
 
 Outputs are `dev-tools-<version>.zip`, `SHA256SUMS` and `dev-tools.json`. The ZIP includes both platform programs, documentation, examples and a per-file SHA256 inventory. Ordering, timestamps and line endings are fixed; uncompressed entries avoid differences between platform compression libraries. Caches and `*.local.*` are excluded. The Scoop manifest uses the actual ZIP SHA256.

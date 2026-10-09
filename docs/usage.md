@@ -46,7 +46,7 @@ roots = []
 max_depth = 2
 timeout = 90
 refresh = true
-collectors = ["git", "mise", "winget", "scoop", "apt", "npm", "wsl"]
+collectors = ["git", "mise", "winget", "store", "scoop", "apt", "snap", "rustup", "npm", "wsl"]
 ```
 
 完整注释模板见 [settings.example.toml](../config/settings.example.toml)。
@@ -68,15 +68,19 @@ dev-tools report --json --output report.json
 | 采集器 | 行为 |
 |---|---|
 | git | 在 roots 内发现仓库，查看工作区、分支和远端差异；刷新时 fetch 引用，不 pull |
-| mise | 读取当前平台已安装的工具版本；启用 wsl 时也读取目标发行版 |
+| mise | 读取当前平台已安装版本；刷新时用 outdated 查询当前声明允许的更新，遵守版本固定、缓存及发布冷却策略；启用 wsl 时也查询目标发行版 |
 | winget | Windows 查询可更新软件；关闭刷新时跳过，避免软件源自行刷新 |
+| store | Windows 用微软 Store CLI 查询全部已安装商店应用的更新，不使用 --apply，仅提供否定确认；CLI 拒绝非交互输入时保留结果并标记 partial；缺少 CLI 时记录 missing；未提供目标版本时记为未知 |
 | scoop | Windows 查看软件状态；刷新时更新 Scoop/桶索引，不更新已安装应用 |
 | apt | WSL 查看可升级包；刷新时更新 APT 索引，非 root 使用非交互 sudo，权限不足会记录失败 |
+| snap | WSL 读取已安装包，刷新时仅用 refresh --list 查询版本和 revision 更新，不执行安装 |
+| rustup | Windows/WSL 查询工具链和 rustup 自身更新；支持原生用户 Cargo 目录，不读取 shell profile，与 mise 安装清单分别记录 |
 | npm | 读取全局包并查询额外包的更新；排除 mise 管理的包、npm 和 corepack |
-| wsl | 允许 Windows 在配置的发行版中执行已启用的 mise/APT/npm 采集器 |
+| wsl | 允许 Windows 在配置的发行版中执行已启用的 mise/APT/Snap/Rustup/npm 采集器 |
 
 report 默认刷新，可能联网或更新本机索引；不会安装或升级软件，也不接受自定义脚本采集器。
-`--no-refresh` 禁止 Git fetch 和索引刷新，但 npm 更新查询仍可能联网；无需该查询时从 collectors 移除 npm。无法确定 mise 管理的 npm 清单时跳过 npm 更新查询。WSL 跳过 Windows 采集器。
+`--no-refresh` 禁止 Git fetch、索引刷新及 mise/Store/Snap/Rustup 更新查询，但 npm 更新查询仍可能联网；无需该查询时从 collectors 移除 npm。无法确定 mise 管理的 npm 清单时跳过 npm 更新查询。WSL 跳过 Windows 采集器。
+mise、Store、Snap、Rustup 更新查询输出结构化 updates；Rustup 的更新退出码 100 不作为失败，部分有效结果会保留。未知响应格式标记 parse-error，不据此报告全部最新。
 
 ## 生命周期与平台边界
 

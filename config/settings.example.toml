@@ -35,6 +35,6 @@ timeout = 90
 # 默认刷新可能联网并更新索引；CLI --refresh/--no-refresh 仅覆盖本次运行。
 # 关闭刷新后 npm 更新查询仍可能联网，需要时从 collectors 移除 npm。
 refresh = true
-# 仅内置采集器；WSL 忽略 winget/scoop，Windows 可通过 wsl 采集目标发行版。
+# 仅内置采集器；WSL 忽略 winget/store/scoop，Windows 可通过 wsl 采集目标发行版。
 # collectors = [] 完全关闭采集；report 不安装、升级软件或 pull 项目。
-collectors = ["git", "mise", "winget", "scoop", "apt", "npm", "wsl"]
+collectors = ["git", "mise", "winget", "store", "scoop", "apt", "snap", "rustup", "npm", "wsl"]

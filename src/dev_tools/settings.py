@@ -16,7 +16,7 @@ from pathlib import Path
 from .i18n import language_scope, message, render, t
 
 SECTIONS = ("system", "directories", "tools")
-COLLECTORS = ("git", "mise", "winget", "scoop", "apt", "npm", "wsl")
+COLLECTORS = ("git", "mise", "winget", "store", "scoop", "apt", "snap", "rustup", "npm", "wsl")
 COMMAND = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 TEMPLATE = Path(__file__).resolve().parents[2] / "config/settings.example.toml"
 

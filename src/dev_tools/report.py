@@ -13,6 +13,13 @@ from pathlib import Path
 
 from .i18n import language_scope, t
 from .presentation import label as display_label
+from .report_updates import (
+    mise_updates,
+    query_updates,
+    rustup_updates,
+    snap_packages,
+    store_packages,
+)
 from .settings import Settings, load_settings, native_path
 
 SKIP = {".git", "node_modules", ".venv", "venv", "vendor", "dist", "build", "__pycache__"}
@@ -39,7 +46,7 @@ class Runner:
     def __init__(self, timeout: int = 90):
         self.timeout = timeout
 
-    def run(self, command: list[str], *, cwd: Path | None = None) -> dict:
+    def run(self, command: list[str], *, cwd: Path | None = None, input: str | None = None) -> dict:
         started = time.monotonic()
         executable = shutil.which(command[0])
         if not executable and os.name == "nt":
@@ -69,13 +76,15 @@ class Runner:
                 command,
                 cwd=cwd,
                 env=env,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 start_new_session=os.name != "nt",
             )
             try:
-                output, _ = process.communicate(timeout=self.timeout)
+                output, _ = process.communicate(
+                    input=input.encode() if input is not None else None, timeout=self.timeout
+                )
                 status = "ok" if process.returncode == 0 else "failed"
             except subprocess.TimeoutExpired:
                 if os.name == "nt":
@@ -210,8 +219,8 @@ def _collect_report(
     repos, issues = discover(roots, cfg["max_depth"]) if "git" in enabled else ([], [])
     collectors = {}
 
-    def run(name: str, command: list[str]) -> dict:
-        result = runner.run(command)
+    def run(name: str, command: list[str], **kwargs) -> dict:
+        result = runner.run(command, **kwargs)
         collectors[name] = result
         return result
 
@@ -223,6 +232,11 @@ def _collect_report(
     if "mise" in enabled:
         installed = run("mise_installed", ["mise", "ls", "--installed", "--json"])
         run("mise_version", ["mise", "--version"])
+        if refresh:
+            outdated = run("mise_outdated", ["mise", "outdated", "--json"])
+            query_updates(outdated, mise_updates)
+        else:
+            skip("mise_outdated", t("已禁用刷新"))
     wsl_installed = None
     native_wsl = os.name != "nt"
     wsl = [] if native_wsl else ["wsl.exe", "-d", settings.distro, "--exec"]
@@ -235,6 +249,30 @@ def _collect_report(
                 )
             else:
                 skip("winget_upgrades", t("未查询：软件源可能自动刷新"))
+        if "store" in enabled:
+            if refresh:
+                # Supply only a negative answer; never use --apply. Some CLI
+                # versions reject redirected input after completing the query.
+                store = run("store_updates", ["store", "updates"], input="n\n")
+                query_updates(
+                    store,
+                    lambda output: [{**item, "available": None} for item in store_packages(output)],
+                )
+                count = re.search(r"Updates available\s*\((\d+) found\)", store.get("output", ""))
+                if (
+                    count
+                    and store.get("updates") is not None
+                    and len(store["updates"]) != int(count[1])
+                ):
+                    store["status"] = "partial"
+                if (
+                    "Failed to read input in non-interactive mode" in store.get("output", "")
+                    and store.get("updates") is not None
+                ):
+                    store["status"] = "partial"
+                store["coverage_note"] = t("Store CLI 查询全部已安装应用；未提供目标版本时记为未知")
+            else:
+                skip("store_updates", t("已禁用刷新"))
         if "scoop" in enabled:
             if refresh:
                 scoop_refresh = run("scoop_refresh", ["scoop", "update"])
@@ -246,7 +284,12 @@ def _collect_report(
         if "wsl" in enabled and "mise" in enabled:
             run("wsl_mise_version", [*wsl, "mise", "--version"])
             wsl_installed = run("wsl_mise_installed", [*wsl, "mise", "ls", "--installed", "--json"])
-    elif enabled.intersection({"winget", "scoop"}):
+            if refresh:
+                outdated = run("wsl_mise_outdated", [*wsl, "mise", "outdated", "--json"])
+                query_updates(outdated, mise_updates)
+            else:
+                skip("wsl_mise_outdated", t("已禁用刷新"))
+    elif enabled.intersection({"winget", "scoop", "store"}):
         skip("windows_tools", t("Windows 工具信息需要从 Windows 入口收集"))
     apt = {}
     if "apt" in enabled and (native_wsl or "wsl" in enabled):
@@ -271,6 +314,69 @@ def _collect_report(
             apt_refresh["status"] = "partial"
         apt = run("apt_upgradable", [*wsl, "env", "LC_ALL=C", "apt", "list", "--upgradable"])
         apt["freshness"] = "refreshed" if apt_refresh["status"] == "ok" else "cached"
+
+    if "snap" in enabled and (native_wsl or "wsl" in enabled):
+        inventory = run("snap_inventory", [*wsl, "env", "LC_ALL=C", "snap", "list"])
+        if inventory.get("exit_code") == 127:
+            inventory["status"] = "missing"
+        if inventory["status"] == "ok":
+            try:
+                inventory["versions"] = snap_packages(inventory["output"])
+            except ValueError:
+                inventory["status"] = "parse-error"
+        if refresh:
+            snaps = run("snap_updates", [*wsl, "env", "LC_ALL=C", "snap", "refresh", "--list"])
+            if snaps.get("exit_code") == 127:
+                snaps["status"] = "missing"
+            versions = {item["name"]: item for item in inventory.get("versions", [])}
+            query_updates(
+                snaps,
+                lambda output: [
+                    {
+                        "name": item["name"],
+                        "installed": versions.get(item["name"], {}).get("version"),
+                        "available": item["version"],
+                        "installed_revision": versions.get(item["name"], {}).get("revision"),
+                        "available_revision": item["revision"],
+                    }
+                    for item in snap_packages(output)
+                ],
+            )
+            if inventory["status"] != "ok" and snaps["status"] in {"ok", "updates"}:
+                snaps["status"] = "partial"
+        else:
+            skip("snap_updates", t("已禁用刷新"))
+
+    if "rustup" in enabled:
+        if refresh:
+            if os.name == "nt":
+                # Prefer the native executable rather than a mise activation shim.
+                cargo_home = os.environ.get("CARGO_HOME") or os.path.join(
+                    os.path.expanduser("~"), ".cargo"
+                )
+                rustup = type(settings.path)(cargo_home) / "bin" / "rustup.exe"
+                command = [str(rustup) if rustup.is_file() else "rustup", "check"]
+                rust = run("rustup_updates", command)
+                query_updates(rust, rustup_updates, success_codes=(0, 100))
+            if native_wsl or "wsl" in enabled:
+                # No profiles, Windows executables, or installer are invoked.
+                probe = (
+                    'tool="$(command -v rustup || true)"; '
+                    'case "$tool" in /mnt/[a-z]/*) tool=;; esac; '
+                    'if [ -z "$tool" ] && [ -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]; '
+                    'then tool="${CARGO_HOME:-$HOME/.cargo}/bin/rustup"; fi; '
+                    'if [ -z "$tool" ]; then echo "rustup: not found" >&2; exit 127; fi; '
+                    'exec "$tool" check'
+                )
+                name = "rustup_updates" if native_wsl else "wsl_rustup_updates"
+                rust = run(name, [*wsl, "env", "LC_ALL=C", "sh", "-c", probe])
+                if rust.get("exit_code") == 127:
+                    rust["status"] = "missing"
+                query_updates(rust, rustup_updates, success_codes=(0, 100))
+        else:
+            skip("rustup_updates", t("已禁用刷新"))
+            if os.name == "nt" and "wsl" in enabled:
+                skip("wsl_rustup_updates", t("已禁用刷新"))
 
     def npm_probe(prefix: list[str], installed_result: dict, label: str = "") -> None:
         npm = run(label + "npm_inventory", [*prefix, "npm", "list", "-g", "--depth=0", "--json"])
@@ -413,12 +519,17 @@ def _render_report(report: dict) -> str:
     titles = {
         "mise_installed": t("mise 已安装工具"),
         "mise_version": t("mise 版本"),
+        "mise_outdated": t("mise 可更新工具"),
         "winget_upgrades": t("winget 可更新软件"),
+        "store_updates": t("Microsoft Store 可更新应用"),
         "scoop_refresh": t("Scoop 软件索引刷新"),
         "scoop_status": t("Scoop 软件状态"),
         "windows_tools": t("Windows 工具信息"),
         "apt_refresh": t("APT 软件索引刷新"),
         "apt_upgradable": t("APT 可更新软件"),
+        "snap_inventory": t("Snap 已安装软件"),
+        "snap_updates": t("Snap 可更新软件"),
+        "rustup_updates": t("Rustup 可更新工具链"),
         "npm_inventory": t("npm 全局包清单"),
         "npm_outdated": t("npm 可更新全局包"),
     }

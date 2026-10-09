@@ -12,16 +12,19 @@ from dev_tools.report import (
     render_report,
     scrub,
 )
+from dev_tools.report_updates import mise_updates, query_updates, rustup_updates, store_packages
 from dev_tools.settings import SettingsError, load_settings, render_settings
 
 
 class FakeRunner:
     def __init__(self, overrides=None):
         self.calls = []
+        self.options = []
         self.overrides = overrides or {}
 
     def run(self, command, **kwargs):
         self.calls.append(command)
+        self.options.append(kwargs)
         text = " ".join(command)
         for match, result in self.overrides.items():
             if match in text:
@@ -237,6 +240,218 @@ class ReportTests(unittest.TestCase):
         mise = value["collectors"]["mise_installed"]
         self.assertNotIn("private-runtime", str(mise))
         self.assertEqual(mise["versions"][0]["version"], "3.11")
+
+    def test_mise_queries_configured_versions_without_bumping_or_historical_installs(self):
+        runner = FakeRunner(
+            {
+                "mise outdated": {
+                    "status": "ok",
+                    "output": '{"npm:@openai/codex":{"requested":"latest",'
+                    '"current":"0.160.0","latest":"0.161.0","source":{"path":"private"}}}',
+                }
+            }
+        )
+        value = collect_report("/nonexistent/report.json", runner=runner)
+        mise = value["collectors"]["mise_outdated"]
+        self.assertEqual(mise["status"], "updates")
+        self.assertEqual(mise["updates"][0]["installed"], "0.160.0")
+        self.assertEqual(mise["updates"][0]["available"], "0.161.0")
+        self.assertNotIn("source", mise["updates"][0])
+        self.assertIn(["mise", "outdated", "--json"], runner.calls)
+        self.assertFalse(any("--bump" in c or "--inactive" in c for c in runner.calls))
+
+    def test_new_queries_skip_network_when_refresh_is_disabled(self):
+        runner = FakeRunner()
+        value = collect_report("/nonexistent/report.json", refresh=False, runner=runner)
+        for name in ("mise_outdated", "snap_updates", "rustup_updates"):
+            self.assertEqual(value["collectors"][name]["status"], "skipped")
+        self.assertFalse(
+            any("check" in c or "--list" in c or "outdated" in c for c in runner.calls)
+        )
+
+    def test_store_declines_installation_and_keeps_target_unknown(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.toml"
+            path.write_text('[report]\ncollectors = ["store"]\n', encoding="utf-8")
+            settings = load_settings(path)
+            runner = FakeRunner(
+                {
+                    "store updates": {
+                        "status": "ok",
+                        "output": "Updates available (1 found)\n"
+                        "│ Name │ Publisher │ Version │ Date │\n"
+                        "├──────┼───────────┼─────────┼──────┤\n"
+                        "│ Windows Web Experience │ Microsoft │ 1.2.3 │ today │\n"
+                        "│ Pack │ │ │ │\n",
+                    }
+                }
+            )
+            with patch("dev_tools.report.os.name", "nt"):
+                value = collect_report(settings=settings, runner=runner)
+            self.assertEqual(runner.calls, [["store", "updates"]])
+            self.assertEqual(runner.options, [{"input": "n\n"}])
+            result = value["collectors"]["store_updates"]
+            self.assertEqual(result["status"], "updates")
+            self.assertEqual(result["updates"][0]["name"], "Windows Web Experience Pack")
+            self.assertEqual(result["updates"][0]["installed"], "1.2.3")
+            self.assertIsNone(result["updates"][0]["available"])
+
+    def test_store_missing_does_not_claim_all_apps_are_current(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.toml"
+            path.write_text('[report]\ncollectors = ["store"]\n', encoding="utf-8")
+            settings = load_settings(path)
+            runner = FakeRunner({"store updates": {"status": "missing", "output": "missing"}})
+            with patch("dev_tools.report.os.name", "nt"):
+                value = collect_report(settings=settings, runner=runner)
+            self.assertEqual(value["collectors"]["store_updates"]["status"], "missing")
+            self.assertNotIn("updates", value["collectors"]["store_updates"])
+
+    def test_store_incomplete_table_retains_partial_results(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.toml"
+            path.write_text('[report]\ncollectors = ["store"]\n', encoding="utf-8")
+            settings = load_settings(path)
+            runner = FakeRunner(
+                {
+                    "store updates": {
+                        "status": "ok",
+                        "output": "Updates available (2 found)\n│ Name │ Publisher │ Version │\n"
+                        "│ Example │ Microsoft │ 1.2.3 │\n",
+                    }
+                }
+            )
+            with patch("dev_tools.report.os.name", "nt"):
+                value = collect_report(settings=settings, runner=runner)
+            result = value["collectors"]["store_updates"]
+            self.assertEqual(result["status"], "partial")
+            self.assertEqual(result["updates"][0]["installed"], "1.2.3")
+
+    def test_store_confirmation_failure_does_not_hide_valid_query_results(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.toml"
+            path.write_text('[report]\ncollectors = ["store"]\n', encoding="utf-8")
+            settings = load_settings(path)
+            runner = FakeRunner(
+                {
+                    "store updates": {
+                        "status": "ok",
+                        "exit_code": 0,
+                        "output": "Updates available (1 found)\n│ Name │ Publisher │ Version │\n"
+                        "│ Example │ Microsoft │ 1.2.3 │\n"
+                        "Failed to read input in non-interactive mode.",
+                    }
+                }
+            )
+            with patch("dev_tools.report.os.name", "nt"):
+                value = collect_report(settings=settings, runner=runner)
+            result = value["collectors"]["store_updates"]
+            self.assertEqual(result["status"], "partial")
+            self.assertEqual(len(result["updates"]), 1)
+
+    def test_missing_snap_inside_wsl_is_reported_as_missing(self):
+        runner = FakeRunner({"snap": {"status": "failed", "exit_code": 127, "output": "not found"}})
+        value = collect_report("/nonexistent/report.json", runner=runner)
+        for name in ("snap_inventory", "snap_updates"):
+            self.assertEqual(value["collectors"][name]["status"], "missing")
+            self.assertNotIn("updates", value["collectors"][name])
+
+    def test_snap_revision_updates_preserve_installed_and_available_versions(self):
+        runner = FakeRunner(
+            {
+                "snap list": {
+                    "status": "ok",
+                    "output": "Name Version Rev Tracking\ncore22 20260824 2900 latest/stable\n",
+                },
+                "snap refresh --list": {
+                    "status": "ok",
+                    "output": "Name Version Rev Size\ncore22 20260824 2955 70MB\n",
+                },
+            }
+        )
+        value = collect_report("/nonexistent/report.json", runner=runner)
+        snaps = value["collectors"]["snap_updates"]
+        self.assertEqual(snaps["status"], "updates")
+        item = snaps["updates"][0]
+        self.assertEqual(item["installed"], item["available"])
+        self.assertEqual((item["installed_revision"], item["available_revision"]), ("2900", "2955"))
+        self.assertTrue(any(c[-3:] == ["snap", "refresh", "--list"] for c in runner.calls))
+
+    def test_snap_inventory_failure_retains_partial_update_result(self):
+        runner = FakeRunner(
+            {
+                "snap list": {"status": "timeout", "output": ""},
+                "snap refresh --list": {
+                    "status": "ok",
+                    "output": "Name Version Rev Size\ncore22 20260824 2955 70MB\n",
+                },
+            }
+        )
+        value = collect_report("/nonexistent/report.json", runner=runner)
+        snaps = value["collectors"]["snap_updates"]
+        self.assertEqual(snaps["status"], "partial")
+        self.assertIsNone(snaps["updates"][0]["installed"])
+        self.assertEqual(snaps["updates"][0]["available"], "20260824")
+
+    def test_rustup_update_exit_code_and_mixed_failed_results(self):
+        output = (
+            "stable-x86_64-unknown-linux-gnu - update available: "
+            "1.98.1 (old 2026-09-01) -> 1.99.0 (new 2026-09-28)\n"
+            "rustup - up to date : 1.29.1\n"
+        )
+        result = {"status": "failed", "exit_code": 100, "output": output}
+        query_updates(result, rustup_updates, success_codes=(0, 100))
+        self.assertEqual(result["status"], "updates")
+        self.assertEqual(result["updates"][0]["available"], "1.99.0")
+        result = {"status": "failed", "exit_code": 1, "output": output + "error: unavailable"}
+        query_updates(result, rustup_updates, success_codes=(0, 100))
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(len(result["updates"]), 1)
+
+    def test_windows_and_wsl_update_queries_are_isolated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.toml"
+            path.write_text(
+                '[wsl]\ndistro = "TestDistro"\n[report]\n'
+                'collectors = ["mise", "snap", "rustup", "wsl"]\n',
+                encoding="utf-8",
+            )
+            settings = load_settings(path)
+            runner = FakeRunner()
+            with (
+                patch("dev_tools.report.os.name", "nt"),
+                patch.dict("os.environ", {"DEV_TOOLS_DISTRO": ""}),
+            ):
+                value = collect_report(settings=settings, runner=runner)
+            self.assertIn(
+                ["wsl.exe", "-d", "TestDistro", "--exec", "mise", "outdated", "--json"],
+                runner.calls,
+            )
+            self.assertIn("wsl_rustup_updates", value["collectors"])
+            snap = next(c for c in runner.calls if "snap" in c and "--list" in c)
+            self.assertEqual(snap[:4], ["wsl.exe", "-d", "TestDistro", "--exec"])
+            self.assertNotIn("store_updates", value["collectors"])
+
+    def test_unknown_update_responses_are_not_reported_as_current(self):
+        for parser, output in (
+            (mise_updates, "[]"),
+            (mise_updates, '{"node":{"current":"1"}}'),
+            (store_packages, "Service unavailable"),
+            (rustup_updates, "Unexpected response"),
+        ):
+            result = {"status": "ok", "exit_code": 0, "output": output}
+            query_updates(result, parser)
+            self.assertEqual(result["status"], "parse-error")
+            self.assertNotIn("updates", result)
+
+    def test_runner_only_supplies_explicit_noninteractive_input(self):
+        import sys
+
+        result = Runner(5).run(
+            [sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], input="n\n"
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["output"].strip(), "'n\\n'")
 
     def test_utf8_output(self):
         self.assertEqual(decode_output("软件检查".encode()), "软件检查")

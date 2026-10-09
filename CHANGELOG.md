@@ -1,5 +1,12 @@
 # 变更记录
 
+## 0.4.1 - 2026-10-09
+
+- report 增加 Windows/WSL mise 当前声明允许的更新查询，保留版本固定和发布冷却策略。
+- 增加 Microsoft Store、WSL Snap、Windows/WSL Rustup 采集器，记录结构化当前与目标版本；Store 未提供目标版本时保留未知。
+- 正确识别 Rustup 更新退出码 100、Snap revision 更新、工具缺失及解析失败；Store 非交互确认错误保留有效结果并标记 partial。
+- 更新默认采集器、本机配置模板和中英文文档；已有显式 collectors 列表保留原值，新项需手动启用。
+
 ## 0.4.0 - 2026-10-09
 
 - 精简 CLI：移除 sync 和公开 build --kind；部署统一为 self update，prepare/build 移至进阶命令。

@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from dev_tools import __version__
+
 
 @unittest.skipUnless(os.name != "nt" and shutil.which("rsync"), "Linux rsync required")
 class WslInstallerTests(unittest.TestCase):
@@ -108,7 +110,7 @@ class WslInstallerTests(unittest.TestCase):
                 timeout=30,
             )
             self.assertEqual(version.returncode, 0, version.stderr)
-            self.assertIn("0.4.0", version.stdout)
+            self.assertEqual(version.stdout.strip(), "dev-tools " + __version__)
 
 
 if __name__ == "__main__":

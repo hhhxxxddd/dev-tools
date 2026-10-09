@@ -88,7 +88,7 @@ class CliTests(unittest.TestCase):
             (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
         )
 
-        self.assertEqual(__version__, "0.4.0")
+        self.assertEqual(__version__, "0.4.1")
         self.assertEqual(metadata["project"]["version"], __version__)
 
     def test_version_flag_prints_version(self) -> None:
@@ -97,7 +97,7 @@ class CliTests(unittest.TestCase):
             parser().parse_args(["--version"])
 
         self.assertEqual(exit_context.exception.code, 0)
-        self.assertEqual(output.getvalue().strip(), "dev-tools 0.4.0")
+        self.assertEqual(output.getvalue().strip(), "dev-tools " + __version__)
 
     def test_init_creates_parseable_mise_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

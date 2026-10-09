@@ -1,6 +1,6 @@
 # dev-tools
 
-[English](README.en.md) · [更新记录](CHANGELOG.md) · [v0.4.0](https://github.com/hhhxxxddd/dev-tools/releases/tag/v0.4.0)
+[English](README.en.md) · [更新记录](CHANGELOG.md) · [v0.4.1](https://github.com/hhhxxxddd/dev-tools/releases/tag/v0.4.1)
 
 **近乎无感的本地开发部署：自动发现依赖，改代码热部署，依赖升级后接着开发。**
 

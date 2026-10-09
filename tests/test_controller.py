@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError
 
+from dev_tools import __version__
 from dev_tools.cli import main, parser
 from dev_tools.controller import deployment_status, download_release, verify_source
 from dev_tools.release import REPOSITORY, build, payload_files
@@ -163,8 +164,8 @@ class ControllerTests(unittest.TestCase):
     def test_release_build_is_reproducible_and_manifest_uses_its_actual_hash(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            first = build(REPOSITORY, root / "first", "v0.4.0")
-            second = build(REPOSITORY, root / "second", "v0.4.0")
+            first = build(REPOSITORY, root / "first", "v" + __version__)
+            second = build(REPOSITORY, root / "second", "v" + __version__)
             self.assertEqual(first["sha256"], second["sha256"])
             # Git checkouts with Windows line endings must produce the same assets.
             checkout = root / "crlf-checkout"
@@ -172,7 +173,7 @@ class ControllerTests(unittest.TestCase):
                 target = checkout / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content.replace(b"\n", b"\r\n"))
-            converted = build(checkout, root / "converted", "v0.4.0")
+            converted = build(checkout, root / "converted", "v" + __version__)
             self.assertEqual(first["sha256"], converted["sha256"])
             manifest = json.loads((root / "first/dev-tools.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["hash"], first["sha256"])
