@@ -128,6 +128,7 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
             "tasks",
             "services",
             "builds",
+            "sync_include",
         },
         "project",
     )
@@ -324,6 +325,7 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
         branch,
         _strings(raw.get("sync_exclude", []), "sync exclusions"),
         raw,
+        _strings(raw.get("sync_include", []), "sync inclusions"),
     )
     spec.service_order()
     spec.task_order()

@@ -41,11 +41,12 @@ class WslEntrypointTests(unittest.TestCase):
             )
         (root / "mise.toml").write_text('[tools]\npython = "3.11"\n', encoding="utf-8")
         env = os.environ.copy()
+        if without_home:
+            for key in ("HOME", "XDG_CONFIG_HOME", "SUDO_USER"):
+                env.pop(key, None)
         env["PATH"] = str(commands) + os.pathsep + env.get("PATH", "")
         env["TEST_PYTHON_ROOT"] = sys.prefix
         env["DEV_TOOLS_CONFIG"] = str(root / "config.toml")
-        if without_home:
-            env.pop("HOME", None)
         if language:
             (root / "config.toml").write_text(f'language = "{language}"\n', encoding="utf-8")
         return subprocess.run(
@@ -70,7 +71,7 @@ class WslEntrypointTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             result = self.run_entrypoint(Path(temporary), runtime_available=True, without_home=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("system", json.loads(result.stdout))
+        self.assertIn("3.14.8", json.loads(result.stdout)["system"]["python"])
 
     def test_missing_host_reports_installer_without_falling_back(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

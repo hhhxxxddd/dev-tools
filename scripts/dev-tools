@@ -8,8 +8,12 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 internal_python='python@3.14.8'
 
 # Minimal startup preference read when the pinned Python is not available yet.
-startup_home="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
-config_home="${XDG_CONFIG_HOME:-$startup_home/.config}"
+config_home="${XDG_CONFIG_HOME:-}"
+if [[ -z "$config_home" ]]; then
+  native_home="${HOME:-}"
+  [[ -n "$native_home" ]] || native_home=$(getent passwd "$(id -u)" | cut -d: -f6)
+  config_home="$native_home/.config"
+fi
 if [[ ${EUID} -eq 0 && -n ${SUDO_USER:-} && -z ${XDG_CONFIG_HOME:-} ]]; then
   caller_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
   [[ -z "$caller_home" ]] || config_home="$caller_home/.config"

@@ -192,6 +192,7 @@ class WslBackend(Backend):
             "-a",
             "--delete",
             "--delay-updates",
+            *[f"--include={pattern}" for pattern in spec.sync_include],
             *[f"--exclude={pattern}" for pattern in (*EXCLUDES, *spec.sync_exclude)],
             str(self.binding.source) + "/",
             str(self.binding.workspace) + "/",

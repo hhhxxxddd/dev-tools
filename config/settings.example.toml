@@ -8,7 +8,8 @@ language = "zh"
 editor = []
 
 [wsl]
-# 同时用于 Windows -> WSL 项目控制和 Windows report；不是安装器的目标参数。
+# 用于 Windows -> WSL 项目控制、self 部署和 Windows report。
+# 源码 bootstrap 的首次安装目标由 -Distro 指定。
 # DEV_TOOLS_DISTRO 可以临时覆盖。
 distro = "Ubuntu"
 

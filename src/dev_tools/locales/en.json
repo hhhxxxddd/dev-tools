@@ -209,5 +209,9 @@
   "目录无法读取": "Directory unreadable",
   "是": "Yes",
   "否": "No",
-  "暂无日志。": "No logs yet."
+  "暂无日志。": "No logs yet.",
+  "未就绪": "Not ready",
+  "部分运行": "Partially running",
+  "待恢复": "Recovery pending",
+  "  {name}：{value}": "  {name}: {value}"
 }

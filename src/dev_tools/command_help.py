@@ -21,12 +21,21 @@ class LocalizedHelpFormatter(argparse.RawDescriptionHelpFormatter):
 
 
 class LocalizedArgumentParser(argparse.ArgumentParser):
+    deployment_notice = None
+
     def __init__(self, *args, **kwargs):
         add_help = kwargs.pop("add_help", True)
         kwargs.setdefault("formatter_class", LocalizedHelpFormatter)
         super().__init__(*args, add_help=False, **kwargs)
         if add_help:
             self.add_argument("-h", "--help", action="help", help=t("显示帮助并退出"))
+
+    def print_help(self, file=None):
+        super().print_help(file)
+        if self.deployment_notice:
+            notice = self.deployment_notice()
+            if notice:
+                self._print_message("\n" + notice + "\n", file or sys.stdout)
 
     def error(self, message):
         # argparse exposes only the formatted diagnostic to error(). Match its own

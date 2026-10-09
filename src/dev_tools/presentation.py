@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import unicodedata
+
 from .i18n import t
 
 LABELS = {
@@ -29,6 +31,9 @@ LABELS = {
     "starting": "启动中",
     "running": "运行中",
     "restarting": "重启中",
+    "not-ready": "未就绪",
+    "partially-running": "部分运行",
+    "recovery-pending": "待恢复",
     "stopped": "已停止",
     "healthy": "正常",
     "unhealthy": "异常",
@@ -68,3 +73,24 @@ def label(value: str | bool | None) -> str:
     if value is False:
         return t("否")
     return t(LABELS.get(value, value))
+
+
+def format_table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
+    def width(value: str) -> int:
+        return sum(
+            0
+            if unicodedata.combining(char)
+            else 2
+            if unicodedata.east_asian_width(char) in "WF"
+            else 1
+            for char in value
+        )
+
+    widths = [max(width(row[index]) for row in [headers, *rows]) for index in range(len(headers))]
+
+    def line(row):
+        return "  ".join(
+            value + " " * (size - width(value)) for value, size in zip(row, widths, strict=True)
+        ).rstrip()
+
+    return "\n".join([line(headers), line(tuple("-" * size for size in widths)), *map(line, rows)])

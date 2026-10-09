@@ -212,6 +212,7 @@ class SettingsTests(unittest.TestCase):
                 "sysinfo",
                 "report",
                 "help",
+                "self",
             ):
                 args = ["--config", str(path), "help", *([topic] if topic else [])]
                 code, output, _ = self.invoke(*args)

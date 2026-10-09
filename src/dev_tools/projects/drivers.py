@@ -50,7 +50,13 @@ def maven_runtime(
     wrapper = maven_wrapper(binding.source, workdir, backend.wrapper_filename)
     root = (binding.source if source else binding.workspace).resolve()
     executable = str(root / wrapper.relative_to(binding.source.resolve())) if wrapper else "mvn"
-    option = f'-Dmaven.repo.local="{repository}"'
+    # POSIX Maven launchers expand MAVEN_OPTS without re-parsing shell quotes.
+    # Quotes there become part of the Java property and create a relative cache.
+    option = (
+        f"-Dmaven.repo.local={repository}"
+        if binding.environment == "wsl"
+        else f'-Dmaven.repo.local="{repository}"'
+    )
     return executable, {
         "MAVEN_OPTS": (os.environ.get("MAVEN_OPTS", "") + " " + option).strip(),
         "DEV_TOOLS_MAVEN_REPOSITORY": str(repository),

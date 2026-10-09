@@ -44,12 +44,17 @@ timeout = 30
 | toolchain | mise | mise 使用根级显式版本；system 使用已有系统工具 |
 | rebuild_on_branch | true | 分支或 HEAD 变化稳定后触发准备任务和结构构建 |
 | sync_exclude | [] | WSL 同步排除模式，用于保留自定义原生输出 |
+| sync_include | [] | 优先于排除规则的 WSL 同步包含模式，只用于需要同步的源码 |
 | tasks | 空表 | 命名任务 |
 | services | 空表 | 命名服务 |
 | builds | 空表 | 按服务命名的构建监控策略 |
 
 项目、任务和服务名称为 1～63 个字符，以小写字母或数字开头，其余可以为小写字母、数字、点、下划线或连字符；Windows 保留设备名不允许使用。
 未知字段、不存在的依赖和循环依赖会被拒绝。
+
+WSL 默认排除 build、dist、target 和依赖目录。如果项目将 build 用作源码目录，可以显式设置
+`sync_include = ["/frontend/build/***"]`；前导 / 表示相对项目根目录，*** 包含目录及其全部内容。
+不要包含 Windows 安装目录、虚拟环境或依赖缓存。
 
 工作目录、Compose 文件、Python 根目录和 classpath 模块都使用项目内相对路径，不接受绝对路径或 ..。
 执行时还会检查解析后的路径是否越出项目。

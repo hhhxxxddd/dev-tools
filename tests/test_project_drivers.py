@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -97,6 +98,27 @@ class DriverTests(unittest.TestCase):
         ):
             with self.assertRaises(ProjectError):
                 artifact_jar(Path("native"), coordinate)
+
+    @unittest.skipUnless(os.name != "nt" and shutil.which("sh"), "POSIX shell required")
+    def test_wsl_repository_option_survives_maven_launcher_expansion(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            binding, backend = self.fixture(Path(temporary).resolve())
+            binding = replace(binding, environment="wsl")
+            with patch.dict(os.environ, {"MAVEN_OPTS": "-Xmx256m"}):
+                _, env = maven_runtime(
+                    binding, backend, ".", {"java": {"maven": {"repository": "user"}}}
+                )
+            result = subprocess.run(
+                ["sh", "-c", 'printf "%s\\n" $MAVEN_OPTS'],
+                env={**os.environ, **env},
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.assertEqual(
+                result.stdout.splitlines(),
+                ["-Xmx256m", "-Dmaven.repo.local=" + env["DEV_TOOLS_MAVEN_REPOSITORY"]],
+            )
 
     def test_wrapper_resolution_accepts_equivalent_source_and_workspace_paths(self):
         with tempfile.TemporaryDirectory() as temporary:

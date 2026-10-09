@@ -1,0 +1,96 @@
+name: Release controller and Scoop bucket
+on:
+  push:
+    tags: ['v*']
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14.8'
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          install: false
+      - name: Prepare controller host and verify Windows
+        shell: pwsh
+        run: |
+          ./scripts/install.ps1 -NoProfile
+          $env:PYTHONPATH = "$PWD/src"
+          python -m unittest discover -v tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install ruff
+          ruff check src tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ruff format --check src tests
+          exit $LASTEXITCODE
+  release:
+    needs: windows
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14.8'
+      - name: Verify and build
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -v tests
+          python -m pip install ruff
+          ruff check src tests
+          ruff format --check src tests
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            python -m dev_tools.release --tag "$GITHUB_REF_NAME"
+          else
+            python -m dev_tools.release
+          fi
+      - name: Publish immutable version assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          if gh release view "$GITHUB_REF_NAME" --json isDraft > "$RUNNER_TEMP/release.json"; then
+            if python -c 'import json, sys; sys.exit(not json.load(open(sys.argv[1]))["isDraft"])' "$RUNNER_TEMP/release.json"; then
+              gh release upload "$GITHUB_REF_NAME" dist/dev-tools-*.zip dist/SHA256SUMS dist/dev-tools.json --clobber
+              gh release edit "$GITHUB_REF_NAME" --draft=false --notes-file "$notes"
+            else
+              mkdir "$RUNNER_TEMP/published-assets"
+              gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/published-assets" --pattern 'dev-tools-*.zip' --pattern SHA256SUMS --pattern dev-tools.json
+              for asset in dist/dev-tools-*.zip dist/SHA256SUMS dist/dev-tools.json; do
+                cmp "$asset" "$RUNNER_TEMP/published-assets/$(basename "$asset")"
+              done
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" dist/dev-tools-*.zip dist/SHA256SUMS dist/dev-tools.json --verify-tag --notes-file "$notes"
+          fi
+      - name: Update bucket on default branch
+        if: startsWith(github.ref, 'refs/tags/v') && github.event.release.prerelease != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp dist/dev-tools.json "$RUNNER_TEMP/dev-tools.json"
+          git fetch origin "$DEFAULT_BRANCH"
+          git checkout -B bucket-update "origin/$DEFAULT_BRANCH"
+          cp "$RUNNER_TEMP/dev-tools.json" bucket/dev-tools.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bucket/dev-tools.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Update Scoop manifest for $GITHUB_REF_NAME"
+          git push origin "HEAD:$DEFAULT_BRANCH"

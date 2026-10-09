@@ -1,8 +1,19 @@
 # 变更记录
 
-## 未发布
+## 0.4.0 - 2026-10-09
 
+### 发行与改进
+
+- 精简中英文 README，突出依赖发现、热部署和完整命令示例；配置、运行和开发细节移到 docs。
+- 修复两平台打包排序与换行差异，WSL 部署包含 README 引用的更新记录；支持准备草稿后发布并更新 Scoop bucket。
+
+- 增加 self install/update/status：从 Windows 同版本部署 WSL；原生 WSL 可校验最新 Release 后更新；总览帮助提示缺失部署。
+- 增加可重复构建的版本包、SHA256、Scoop 清单和发行工作流；Scoop shim 替代旧 profile 标记块，更新/卸载检查活动 Windows worker。
+- WSL 更新拒绝覆盖活动 worker 使用的程序；安装和更新保留本机注册、偏好、状态、缓存与项目运行时。
+- list 默认以名称、环境、状态三列表格显示项目，按本机语言配置翻译并对齐中英文列；JSON 输出保持原结构。
 - 修复局部构建误更新准备指纹的问题：source/resource/structural 和指定服务的默认构建保留原状态，依赖变化后仍要求 prepare；完整 branch 构建继续执行准备任务并更新指纹。
+- 增加 sync_include，在保留原生依赖和输出的同时允许同步同名源码目录，例如 frontend/build。
+- 修复 POSIX Maven 将仓库参数中的引号当成路径内容的问题。
 - 修复未指定服务的 source/resource/structural 构建误用准备任务和结构构建任务；Compose 镜像只在 branch/structural 构建中重建。
 - prepare 恢复活动服务时补齐当前声明中的传递依赖，依赖启动失败仍保留恢复记录。
 - 合并两份根级 mise 配置的工具清单，继续拒绝同优先级版本冲突。
@@ -12,8 +23,6 @@
 - WSL 入口在 systemd 未设置 HOME 时从账户信息定位本机配置。
 - Windows 后台 worker 沿用控制进程解析后的注册和状态目录，避免 MSIX 宿主与原生后台进程的目录差异导致启动失败。
 - WSL 真实生命周期测试使用独立的临时服务名，避免与已安装的 systemd 服务模板冲突。
-
-## 0.4.0 - 2026-10-09
 
 ### 统一项目核心
 
@@ -29,7 +38,7 @@
 - 项目命令提升到顶层，环境参数使用 -e win/wsl，省略时选择当前平台；跨环境调用转换路径并保留当前目录。
 - 支持在唯一匹配的项目目录及子目录中省略名称；提供 list、show、rename、unregister，构建入口统一为 build。
 - PowerShell/Bash 共用命令定义和完整帮助；status 专用于项目状态，机器信息使用 sysinfo。
-- 移除操作型 CLI 安装/更新管理及机器级 doctor/status 包装，安装器仅准备控制程序宿主和入口，不管理用户全局 mise 默认配置。
+- 移除旧机器级 doctor/status 包装；self 和安装器只部署控制程序宿主与入口，不管理用户全局 mise 默认配置。
 - 增加用户本机 TOML 配置和 config/edit/check；sysinfo、report、WSL 发行版与编辑器统一从配置解析。
 - 默认中文，语言仅通过配置切换 zh/en；默认编辑器为 Windows 记事本和 WSL vi。
 - 中英帮助与诊断集中管理；跨环境传递显示语言，保留第三方输出、JSON 字段和状态标识。

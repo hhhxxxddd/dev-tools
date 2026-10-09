@@ -9,9 +9,14 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from dev_tools import __version__
 from dev_tools.cli import cmd_init, main, parser
+from dev_tools.i18n import language_scope, message
+from dev_tools.projects.cli import run
+from dev_tools.projects.models import ProjectError
 
 
 class CliTests(unittest.TestCase):
@@ -85,6 +90,105 @@ class CliTests(unittest.TestCase):
             self.assertTrue(args.dry_run)
             self.assertTrue(args.json)
             self.assertEqual(args.func.__module__, "dev_tools.projects.cli")
+
+    def test_list_table_localizes_states_aligns_columns_and_preserves_json(self):
+        cases = [
+            ("a" * 63, ["running"], True, "healthy", None, "运行中", "Running"),
+            ("paused", ["stopped"], False, "unknown", None, "已停止", "Stopped"),
+            ("starting", ["starting"], False, "unknown", None, "启动中", "Starting"),
+            ("failed", ["failed"], False, "unknown", None, "失败", "Failed"),
+            (
+                "mixed",
+                ["running", "stopped"],
+                False,
+                "unknown",
+                None,
+                "部分运行",
+                "Partially running",
+            ),
+            ("unhealthy", ["running"], False, "unhealthy", None, "异常", "Unhealthy"),
+            ("stale", ["running"], False, "healthy", None, "未就绪", "Not ready"),
+            (
+                "recovering",
+                ["stopped"],
+                False,
+                "unknown",
+                {"operation": "prepare"},
+                "待恢复",
+                "Recovery pending",
+            ),
+        ]
+        projects = [
+            {
+                "name": name,
+                "environment": "windows",
+                "ready": ready,
+                "recovery": recovery,
+                "services": {
+                    str(index): {"phase": phase, "health": health}
+                    for index, phase in enumerate(phases)
+                },
+            }
+            for name, phases, ready, health, recovery, _, _ in cases
+        ]
+        names = [project["name"] for project in projects] + ["broken"]
+
+        def invoke(as_json=False):
+            output = io.StringIO()
+            engines = [SimpleNamespace(status=lambda value=value: value) for value in projects]
+            engines.append(
+                ProjectError(message("project is not registered: {name}", name="broken"))
+            )
+            with (
+                patch("dev_tools.projects.cli.Registry.names", return_value=names),
+                patch("dev_tools.projects.cli.engine_for", side_effect=engines),
+                contextlib.redirect_stdout(output),
+            ):
+                self.assertEqual(
+                    run(
+                        parser().parse_args(["-e", "win", "list", *(["--json"] if as_json else [])])
+                    ),
+                    0,
+                )
+            return output.getvalue()
+
+        for language in ("zh", "en"):
+            with self.subTest(language=language), language_scope(language):
+                lines = invoke().splitlines()
+                header = lines[1]
+                if language == "zh":
+                    self.assertIn("名称", header)
+                    self.assertIn("状态", header)
+                    environment_column = header.replace("名称", "NNNN").index("环境")
+                else:
+                    self.assertIn("Name", header)
+                    self.assertIn("State", header)
+                    environment_column = header.index("Environment")
+                for row, case in zip(lines[3:], cases):
+                    self.assertEqual(row.index("Windows"), environment_column)
+                    self.assertTrue(row.endswith(case[-2] if language == "zh" else case[-1]), row)
+                self.assertIn("broken", lines[3 + len(cases)])
+                self.assertIn(
+                    "检查失败" if language == "zh" else "Check failed", lines[3 + len(cases)]
+                )
+                self.assertIn(
+                    "项目尚未注册" if language == "zh" else "project is not registered", lines[-1]
+                )
+                payload = json.loads(invoke(as_json=True))
+                self.assertEqual(payload["projects"][:-1], projects)
+                self.assertEqual(payload["environment"], "windows")
+                self.assertFalse(payload["projects"][-1]["ready"])
+
+    def test_empty_list_keeps_table_headers_and_empty_message(self):
+        with (
+            patch("dev_tools.projects.cli.Registry.names", return_value=()),
+            contextlib.redirect_stdout(output := io.StringIO()),
+            language_scope("en"),
+        ):
+            self.assertEqual(run(parser().parse_args(["list"])), 0)
+        self.assertIn("Name", output.getvalue())
+        self.assertIn("Environment", output.getvalue())
+        self.assertIn("No registered projects", output.getvalue())
 
     def test_environment_defaults_to_native_and_removed_forms_are_rejected(self):
         args = parser().parse_args(["list"])

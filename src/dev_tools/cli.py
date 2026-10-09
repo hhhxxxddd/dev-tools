@@ -8,6 +8,8 @@ from pathlib import Path
 
 from . import __version__
 from .command_help import CommandCatalog, LocalizedArgumentParser, add_config, add_environment
+from .controller import add_commands as add_controller_commands
+from .controller import deployment_notice
 from .i18n import language_scope, message, render, t
 from .presentation import label
 from .project_models import ScanResult
@@ -219,6 +221,7 @@ def parser() -> argparse.ArgumentParser:
         help=t("mise 使用项目根版本声明（默认）；system 使用已有系统工具"),
     )
     add_commands(commands)
+    add_controller_commands(commands)
     commands.finish()
     return result
 
@@ -227,6 +230,7 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
     from .runtimes.router import forward_remote
 
     command_parser = parser()
+    command_parser.deployment_notice = lambda: deployment_notice(settings)
     args = command_parser.parse_args(arguments or ["help"])
     args.settings = settings
     if args.command in {"config", "sysinfo", "report"} and arguments != forwarded:

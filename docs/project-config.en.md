@@ -44,12 +44,17 @@ Use sudo for native WSL mutations; previews do not require sudo.
 | toolchain | mise | mise uses explicit root versions; system uses existing system tools |
 | rebuild_on_branch | true | Run preparation tasks and structural builds after branch/HEAD transitions settle |
 | sync_exclude | [] | WSL sync exclusion patterns that preserve custom native outputs |
+| sync_include | [] | WSL inclusion patterns evaluated before exclusions, for source files that must be synced |
 | tasks | Empty table | Named tasks |
 | services | Empty table | Named services |
 | builds | Empty table | Build monitoring policies named after services |
 
 Project, task and service names contain 1–63 characters, start with a lowercase letter or digit, and otherwise allow lowercase letters, digits, dots, underscores and hyphens. Windows reserved device names are rejected.
 Unknown fields, missing dependencies and dependency cycles are rejected.
+
+WSL excludes build, dist, target and dependency directories by default. If a project uses build for source files,
+set `sync_include = ["/frontend/build/***"]` explicitly. A leading / anchors the pattern at the project root;
+*** includes the directory and all its contents. Do not include Windows installations, virtual environments or dependency caches.
 
 Workdirs, Compose files, Python roots and classpath modules must be project-relative. Absolute paths and .. are rejected.
 Execution also checks resolved paths for escapes from the project.

@@ -4,7 +4,7 @@ import argparse
 import json
 
 from ..i18n import error_detail, message, render, t
-from ..presentation import label
+from ..presentation import format_table, label
 from ..runtimes.platforms.factory import backend_for
 from ..runtimes.platforms.layout import require_registration_control
 from ..runtimes.platforms.locking import operation_lock
@@ -28,6 +28,25 @@ def engine_for(environment: str, name: str, *, allow_stale: bool = False) -> Pro
             previous or {"schema": 1, "name": name, "toolchain": "system"}, environment
         )
     return ProjectEngine(spec, binding, backend_for(binding))
+
+
+def _list_state(project: dict) -> str:
+    if project.get("error") or project.get("error_detail"):
+        return "error"
+    if project.get("recovery"):
+        return "recovery-pending"
+    services = project.get("services", {}).values()
+    phases = {service["phase"] for service in services}
+    if not phases or phases == {"stopped"}:
+        return "stopped"
+    for phase in ("failed", "restarting", "starting"):
+        if phase in phases:
+            return phase
+    if any(service["health"] == "unhealthy" for service in services):
+        return "unhealthy"
+    if phases == {"running"}:
+        return "running" if project["ready"] else "not-ready"
+    return "partially-running" if "running" in phases else "unknown"
 
 
 def emit(payload: dict, as_json: bool) -> None:
@@ -81,15 +100,28 @@ def emit(payload: dict, as_json: bool) -> None:
                     )
                 )
     if "projects" in payload:
-        for project in payload["projects"]:
-            print(
-                t(
-                    "  {name}：服务就绪 {ready} {value}",
-                    name=project["name"],
-                    ready=label(project["ready"]),
-                    value=render(project.get("error_detail") or project.get("error", "")),
-                ).rstrip()
+        print(
+            format_table(
+                (t("Name"), t("Environment"), t("State")),
+                [
+                    (
+                        project["name"],
+                        label(project.get("environment", payload["environment"])),
+                        label(_list_state(project)),
+                    )
+                    for project in payload["projects"]
+                ],
             )
+        )
+        for project in payload["projects"]:
+            if project.get("error") or project.get("error_detail"):
+                print(
+                    t(
+                        "  {name}：{value}",
+                        name=project["name"],
+                        value=render(project.get("error_detail") or project["error"]),
+                    )
+                )
         if not payload["projects"]:
             print(t("  暂无已注册项目。"))
     if "runtime_versions" in payload:

@@ -124,14 +124,24 @@ class WslAdapterTests(unittest.TestCase):
                     "name": "demo",
                     "toolchain": "system",
                     "sync_exclude": ["build.txt"],
+                    "sync_include": ["/frontend/build/***"],
                 },
                 "wsl",
             )
             (binding.source / "file.txt").write_text("first")
             (binding.source / "node_modules").mkdir()
             (binding.source / "node_modules/windows.exe").write_text("never copy")
+            (binding.source / "frontend/build").mkdir(parents=True)
+            (binding.source / "frontend/build/vite.ts").write_text("source configuration")
+            (binding.source / "build").mkdir()
+            (binding.source / "build/windows.exe").write_text("never copy")
             backend.sync(spec)
             self.assertFalse((binding.workspace / "node_modules").exists())
+            self.assertFalse((binding.workspace / "build").exists())
+            self.assertEqual(
+                (binding.workspace / "frontend/build/vite.ts").read_text(),
+                "source configuration",
+            )
             (binding.workspace / "node_modules").mkdir()
             (binding.workspace / "node_modules/native").write_text("keep")
             (binding.workspace / "build.txt").write_text("native build output")

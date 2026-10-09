@@ -154,6 +154,7 @@ class ProjectSpec:
     rebuild_on_branch: bool = True
     sync_exclude: tuple[str, ...] = ()
     raw: dict[str, Any] = field(default_factory=dict)
+    sync_include: tuple[str, ...] = ()
 
     def service_order(self) -> tuple[str, ...]:
         return dependency_order({name: item.depends_on for name, item in self.services.items()})

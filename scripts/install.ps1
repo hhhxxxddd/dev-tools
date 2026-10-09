@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string] $Distro = 'Ubuntu'
+    [string] $Distro = 'Ubuntu',
+    [switch] $NoProfile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,6 +26,8 @@ Write-Host 'Installing the private Python runtime used by dev-tools...'
 if ($LASTEXITCODE -ne 0) {
     throw "mise failed to install dev-tools internal Python (exit $LASTEXITCODE)."
 }
+
+if ($NoProfile) { return }
 
 $profileDirectory = Split-Path -Parent $profilePath
 if (-not (Test-Path -LiteralPath $profileDirectory)) {
