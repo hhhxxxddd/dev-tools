@@ -1,6 +1,6 @@
 # dev-tools
 
-[中文](README.md) · [Changelog](CHANGELOG.md) · **v0.4.0**
+[中文](README.md) · [Changelog](CHANGELOG.md) · [v0.4.0](https://github.com/hhhxxxddd/dev-tools/releases/tag/v0.4.0)
 
 **Nearly seamless local development: discover dependencies, reload code changes, and keep going after dependency upgrades.**
 
@@ -12,7 +12,7 @@ A development project manager for Windows and WSL, suited to **vibe coding** wor
 
 ## Installation
 
-Install the Windows controller through Scoop (available after the first Release is published):
+On Windows, install with Scoop:
 
 ```powershell
 scoop bucket add dev-tools https://github.com/hhhxxxddd/dev-tools

@@ -1,6 +1,6 @@
 # dev-tools
 
-[English](README.en.md) · [更新记录](CHANGELOG.md) · **v0.4.0**
+[English](README.en.md) · [更新记录](CHANGELOG.md) · [v0.4.0](https://github.com/hhhxxxddd/dev-tools/releases/tag/v0.4.0)
 
 **近乎无感的本地开发部署：自动发现依赖，改代码热部署，依赖升级后接着开发。**
 
@@ -12,7 +12,7 @@
 
 ## 安装
 
-通过 Scoop 安装 Windows 端（首次 Release 发布后可用）：
+Windows 推荐通过 Scoop 安装：
 
 ```powershell
 scoop bucket add dev-tools https://github.com/hhhxxxddd/dev-tools
