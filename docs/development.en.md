@@ -39,6 +39,6 @@ uvx ruff format --check src tests
 
 Entrypoint changes also require checking `scripts/dev-tools.ps1` and `scripts/dev-tools`. Parse every PowerShell installer before testing bootstrap changes. Maintenance boundaries are in [AGENTS.md](../AGENTS.md).
 
-Real verification scripts use temporary registrations, state and caches: `tests/integration/lifecycle_smoke.py` checks HTTP services, hot builds, recovery and rename; `toolchain_smoke.py` uses installed Java/Node/Python/Maven; `transport_smoke.py` checks bidirectional paths, implicit names, help, preferences and language from Windows. WSL lifecycle tests require root and systemd. Toolchain tests add no runtime versions; transport tests require both entrypoints installed.
+Real verification scripts use temporary registrations, state and caches: `tests/integration/lifecycle_smoke.py` checks automatic preparation, service additions/removals, HTTP services, hot builds, recovery and rename; `dependency_smoke.py` uses local npm packages to verify package additions, upgrades, removals, lockfile writeback and catching up after stop without downloading third-party packages; `toolchain_smoke.py` uses installed Java/Node/Python/Maven; `transport_smoke.py` checks bidirectional paths, implicit names, help, preferences and language from Windows. WSL lifecycle tests require root and systemd. Toolchain tests add no runtime versions; transport tests require both entrypoints installed.
 
 [MIT License](../LICENSE)

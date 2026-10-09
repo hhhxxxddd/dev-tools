@@ -101,6 +101,11 @@ class Registry:
                         message("source is already registered as: {existing}", existing=existing)
                     )
         write_json(self.path(alias), {"schema_version": SCHEMA_VERSION, **binding.as_dict()})
+        if spec.discovery == "auto":
+            from .maintenance import discovery_plan
+
+            _, baseline = discovery_plan(spec, source, {}, self.environment)
+            write_json(binding.state / "project.json", {"discovery_baseline": baseline})
         return binding
 
     def load(self, name: str) -> ProjectBinding:

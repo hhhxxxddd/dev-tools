@@ -8,8 +8,11 @@ import time
 from pathlib import Path
 from threading import Event
 
+from ..i18n import t
 from ..scanner import IGNORED_DIRECTORIES
-from .models import BuildSpec, ProjectError, within
+from .config import load_project
+from .models import BuildSpec, within
+from .planning import fingerprint
 
 
 def file_snapshot(root: Path, policy: BuildSpec) -> dict[str, tuple[int, int]]:
@@ -106,16 +109,18 @@ def sync_loop(engine, stop: Event, ready=lambda: None) -> None:
         current = git_snapshot(engine.executor)
         state = engine.state()
         previous = state.get("git", {})
-        if (
-            state.get("recovery")
-            or current.get("busy")
-            or (engine.spec.rebuild_on_branch and current != previous)
-        ):
-            continue
         try:
+            if (
+                state.get("recovery")
+                or current.get("busy")
+                or (engine.spec.rebuild_on_branch and current != previous)
+                or state.get("prepared_revision") != fingerprint(engine.binding, spec=engine.spec)
+            ):
+                continue
             with operation_lock(engine.binding.state):
+                engine._set_spec(load_project(engine.binding.source, engine.binding.environment))
                 engine.backend.sync(engine.spec)
-        except ProjectError as exc:
+        except (ValueError, OSError) as exc:
             if "operation is in progress" not in str(exc):
                 print(str(exc), flush=True)
 
@@ -127,39 +132,68 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
     }
     observed_git = git_snapshot(engine.executor)
     observed_files = snapshots
+    observed_revision = fingerprint(engine.binding, spec=engine.spec)
     settled_since = time.monotonic()
     retry_after = 0.0
     ready()
     while not stop.wait(0.5):
+        if engine.intent() and not engine.intent().get("running"):
+            return
         current_git = git_snapshot(engine.executor)
-        current_files = {
-            policy.service: file_snapshot(engine.binding.source, policy)
-            for policy in engine.spec.builds
-        }
+        try:
+            current_revision = fingerprint(engine.binding, spec=engine.spec)
+            current_files = {
+                policy.service: file_snapshot(engine.binding.source, policy)
+                for policy in engine.spec.builds
+            }
+        except (ValueError, OSError) as exc:
+            if time.monotonic() >= retry_after:
+                print(t("自动维护待处理：{error}", error=str(exc)), flush=True)
+                retry_after = time.monotonic() + 30
+            continue
         if current_git.get("busy"):
             settled_since = time.monotonic()
             continue
-        if current_git != observed_git or current_files != observed_files:
+        if (
+            current_git != observed_git
+            or current_files != observed_files
+            or current_revision != observed_revision
+        ):
             observed_git, observed_files = current_git, current_files
+            observed_revision = current_revision
             settled_since = time.monotonic()
+            retry_after = 0.0
             continue
         if time.monotonic() - settled_since < 1.5 or time.monotonic() < retry_after:
             continue
         state = engine.state()
         recovery = state.get("recovery") or {}
-        if recovery and recovery.get("operation") != "build":
-            continue
         try:
-            if (engine.spec.rebuild_on_branch and current_git != state.get("git", {})) or (
-                recovery.get("operation") == "build" and recovery.get("service") is None
+            branch_changed = engine.spec.rebuild_on_branch and current_git != state.get("git", {})
+            if (
+                current_revision != state.get("prepared_revision")
+                or recovery.get("operation") in {"prepare", "start"}
+                or branch_changed
             ):
+                engine.maintain(structural=bool(branch_changed))
+                engine.save(git=current_git)
+                snapshots = {
+                    policy.service: current_files.get(
+                        policy.service, file_snapshot(engine.binding.source, policy)
+                    )
+                    for policy in engine.spec.builds
+                }
+                observed_files = snapshots
+                observed_revision = fingerprint(engine.binding, spec=engine.spec)
+                settled_since = time.monotonic()
+            elif recovery.get("operation") == "build" and recovery.get("service") is None:
                 engine.rebuild(kind="branch", lock_timeout=0)
                 engine.save(git=current_git)
                 snapshots = current_files
             else:
                 for policy in engine.spec.builds:
                     kind = change_kind(
-                        snapshots[policy.service], current_files[policy.service], policy
+                        snapshots.get(policy.service, {}), current_files[policy.service], policy
                     )
                     if recovery.get("service") == policy.service:
                         kind = recovery.get("kind", kind)
@@ -167,7 +201,7 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
                         engine.rebuild(service=policy.service, kind=kind, lock_timeout=0)
                         snapshots[policy.service] = current_files[policy.service]
             retry_after = 0.0
-        except (ProjectError, OSError) as exc:
+        except (ValueError, OSError) as exc:
             if "operation is in progress" not in str(exc):
-                print(f"build pending: {exc}", flush=True)
+                print(t("自动维护待处理：{error}", error=str(exc)), flush=True)
                 retry_after = time.monotonic() + 30

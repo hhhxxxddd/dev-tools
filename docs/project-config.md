@@ -32,7 +32,7 @@ tcp = 5173
 timeout = 30
 ```
 
-在 Windows 执行 `dev-tools register`、`dev-tools prepare --dry-run --json`，检查后执行 prepare 和 start。
+在 Windows 执行 `dev-tools register`、`dev-tools prepare --dry-run --json`，检查后执行 start，自动准备环境。
 原生 WSL 修改操作使用 sudo；预览无需 sudo。
 
 ## 根字段
@@ -42,6 +42,8 @@ timeout = 30
 | schema | 必须为整数 1 | 声明格式版本 |
 | name | 必填 | 项目默认注册名 |
 | toolchain | mise | mise 使用根级显式版本；system 使用已有系统工具 |
+| dependency_mode | auto | 自动同步已知包管理器锁文件；locked 禁止自动改锁文件 |
+| discovery | manual；init 生成 auto | 持续发现模块并保留手改配置，或只使用手写声明 |
 | rebuild_on_branch | true | 分支或 HEAD 变化稳定后触发准备任务和结构构建 |
 | sync_exclude | [] | WSL 同步排除模式，用于保留自定义原生输出 |
 | sync_include | [] | 优先于排除规则的 WSL 同步包含模式，只用于需要同步的源码 |
@@ -58,6 +60,16 @@ WSL 默认排除 build、dist、target 和依赖目录。如果项目将 build �
 
 工作目录、Compose 文件、Python 根目录和 classpath 模块都使用项目内相对路径，不接受绝对路径或 ..。
 执行时还会检查解析后的路径是否越出项目。
+
+## 自动依赖维护
+
+默认 `dependency_mode = "auto"`。启动以及运行期间的声明变化都会触发准备，无需手动 prepare。已知标准 npm、pnpm、Yarn、Bun 和 uv 安装任务可自动生成或更新锁文件，再执行原来的安装任务；仅锁文件变化时保留锁定版本，不主动升级到最新版本。Maven 按 POM 重新安装；自动生成的 pip 流程重建项目内 .venv，uv sync 精确同步依赖。任意自定义脚本仍按原命令执行，额外包选择或自定义参数不会被改写，需要自行实现清理语义。
+
+WSL 在 Linux 工作目录中解析锁文件，检查源码未被并发修改后只回写已知锁文件；依赖目录和缓存仍留在目标平台。更新依赖可能短暂停服，失败后监控继续等待修复；显式 prepare 可手动重试。设置 `dependency_mode = "locked"` 可要求已有锁文件，禁止自动解析和回写。
+
+`init` 生成的配置含 `discovery = "auto"`：注册时记录自动发现基线，后续新增、删除模块会合并到任务、服务和构建图中；只更新仍与原生成值相同的字段，保留手改命令和主动删除的条目。已有自定义配置默认 `discovery = "manual"`，不会改写；首次改为 auto 时先采用当前配置并建立基线。自动配置更新会重新序列化 TOML，保留字段值，但不保留原注释和排版。
+
+无法推断的入口、冲突以及新语言缺少根级 mise 版本声明时会提示解决，不猜测工具版本或业务服务。`scan`、`init` 和 `prepare --dry-run` 仍只分析，不执行安装。
 
 ## 命令与平台覆盖
 
@@ -179,7 +191,7 @@ Maven 选项需分别配置在相关任务与服务上。repository 支持：
 
 Spring devtools 是 group:artifact:version 坐标，示例版本应与目标项目的 Spring Boot 元数据匹配。
 自动发现无法确定版本时生成 unresolved 诊断；需要解决后才能 prepare。
-JAR 仅由显式 prepare 补齐，构建和启动不下载。
+JAR 由统一准备流程补齐，start 和后台依赖维护可自动准备；普通局部构建不下载。
 
 classpath_modules 是相对项目根的已编译输出目录。
 classpath_entries 可筛选这些目录中的第一层目录名称；[] 表示不筛选。
@@ -200,7 +212,7 @@ pull = false
 ```
 
 files 相对服务 workdir，默认 ["compose.yaml"]；profiles 指定 Compose profile。
-显式 prepare 根据 pull/build 准备镜像，默认不 pull、执行 build；start 使用准备好的镜像。
+统一准备流程根据 pull/build 准备镜像，默认不 pull、执行 build；start 可自动补齐准备。
 存储身份产生稳定的 Compose project name。
 Windows 需要已配置的原生 Docker 引擎；WSL prepare 可以补齐所请求的 Docker/Compose。
 Redis/MySQL 等业务服务应写在项目自己的 Compose 声明中，不由扫描器推断。
@@ -232,7 +244,7 @@ watch 必须非空，可填写相对项目根的文件或目录。extensions/res
 同时指定 --service 和默认 branch 时按该服务的 structural 构建处理。
 省略 --service 时，source/resource/structural 执行全部构建策略中的对应任务及其依赖；只有 branch 自动加入准备任务。
 source/resource/structural（包括指定 --service 的默认构建）保留原有准备指纹，不会把未准备或依赖已变化的项目标为已准备。
-锁文件或项目声明变化后，局部构建不能替代 prepare；完整 branch 构建执行准备任务后可以更新准备指纹，但不会安装运行时或 Spring DevTools JAR。
+锁文件或项目声明变化后，局部构建不能标记准备成功；start 和后台维护会补齐准备。完整 branch 构建执行准备任务后可以更新准备指纹，但不会安装运行时或 Spring DevTools JAR。
 Compose 镜像只在未指定 --service 的 branch/structural 构建中重新构建。
 
 ## 验证与修改流程

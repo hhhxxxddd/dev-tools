@@ -14,14 +14,16 @@ Pure discovery/workflow modules are separate from platform runtime adapters.
   package scripts, wrappers, or downloaded content.
 - Preserve an existing root `mise.toml` or `.mise.toml`. Report equal-priority conflicts instead of
   guessing or overwriting.
-- Do not install or upgrade runtimes during `scan` or `init`. Only the explicit
-  `prepare` command may install versions, and only from the target project's root mise
-  configuration.
+- Do not install or upgrade runtimes during `scan` or `init`. Explicit `prepare`,
+  `start` and active-project maintenance share one preparation plan. Install versions
+  only from the target project's root mise configuration. `stop` cancels maintenance.
 - The separate wsl-devctl repository is a business reference, not a runtime dependency.
   Do not import its modules or read/migrate its registrations.
-- Route native operations explicitly through `-e win|wsl`; only prepare
-  installs runtimes or framework artifacts. Configured branch rebuilds may refresh project packages
-  using already prepared runtimes. Keep Unix-only imports inside the WSL adapter.
+- Route native operations explicitly through `-e win|wsl`; runtime and framework installation
+  must use the shared preparation engine. Keep Unix-only imports inside the WSL adapter.
+- Active registered projects synchronize declared dependency additions, changes and removals.
+  Resolve lockfiles in native workspaces and copy only validated lockfiles back to source.
+  Preserve custom workflows; automatic rediscovery uses an explicit generated-config mode.
 - Do not infer or install Redis/MySQL or other business services. Use one preparation plan for
   validation and execution, including independent tasks for mixed-language projects.
 

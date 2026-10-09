@@ -4,14 +4,17 @@ import json
 import socket
 import time
 import urllib.request
+import uuid
 from collections import deque
 
 from ..i18n import error_detail, join_messages, message, t
 from ..runtimes.platforms.locking import operation_lock
 from . import SCHEMA_VERSION
+from .config import CONFIG_NAME, load_project, render_toml
 from .drivers import install_spring_artifact, run_compose, spring_classpath
 from .execution import Executor
-from .models import ProjectBinding, ProjectError, ProjectSpec, dependency_order
+from .maintenance import LOCKFILES, atomic_write, clean_venv_task, discovery_plan
+from .models import ProjectBinding, ProjectError, ProjectSpec, dependency_order, within
 from .planning import PreparationPlan, fingerprint, preparation_plan
 from .registry import read_json, write_json
 
@@ -66,7 +69,34 @@ class ProjectEngine:
         write_json(self.state_path, {**self.state(), **updates})
 
     def plan(self) -> PreparationPlan:
-        return preparation_plan(self.spec, self.binding, self.backend)
+        declared = load_project(self.binding.source, self.binding.environment)
+        spec, baseline = discovery_plan(
+            declared, self.binding.source, self.state(), self.binding.environment
+        )
+        return preparation_plan(
+            spec,
+            self.binding,
+            self.backend,
+            state=self.state(),
+            discovery_baseline=baseline,
+            configuration_update=spec.raw != declared.raw,
+        )
+
+    def intent(self) -> dict:
+        return read_json(self.binding.state / "intent.json")
+
+    def set_intent(self, *, running: bool, selected=None) -> dict:
+        intent = {"running": running, "selected": selected, "token": uuid.uuid4().hex}
+        write_json(self.binding.state / "intent.json", intent)
+        return intent
+
+    def _set_spec(self, spec: ProjectSpec) -> None:
+        self.spec = spec
+        self.executor.spec = spec
+
+    def _check_intent(self, token: str | None) -> None:
+        if token and self.intent().get("token") != token:
+            raise ProjectError(message("project stopped during maintenance"))
 
     def service_status(self, name: str) -> dict:
         service = self.spec.services[name]
@@ -95,9 +125,9 @@ class ProjectEngine:
         state = self.state()
         recovery = state.get("recovery")
         prepared = state.get("prepared_revision") == fingerprint(self.binding)
-        expected = ({"__sync"} if self.binding.source != self.binding.workspace else set()) | (
-            {"__watch"} if self.spec.builds or self.spec.rebuild_on_branch else set()
-        )
+        expected = ({"__sync"} if self.binding.source != self.binding.workspace else set()) | {
+            "__watch"
+        }
         ready = (
             bool(services)
             and prepared
@@ -117,6 +147,7 @@ class ProjectEngine:
             "workers": workers,
             "recovery": recovery,
             "prepared": prepared,
+            "maintenance_error": state.get("maintenance_error"),
         }
 
     def _active(self) -> tuple[str, ...]:
@@ -173,13 +204,16 @@ class ProjectEngine:
             time.sleep(0.2)
         raise ProjectError(message("service {name} did not become ready before timeout", name=name))
 
-    def _start(self, names: tuple[str, ...], *, infrastructure: bool = False) -> None:
+    def _start(
+        self, names: tuple[str, ...], *, infrastructure: bool = False, intent_token=None
+    ) -> None:
         names = dependency_order(
             {name: service.depends_on for name, service in self.spec.services.items()}, names
         )
         started = []
         try:
             for name in names:
+                self._check_intent(intent_token)
                 if not self.backend.active(name):
                     service = self.spec.services[name]
                     if service.driver == "process" and service.health.get("tcp"):
@@ -200,9 +234,9 @@ class ProjectEngine:
                 workers = []
                 if self.binding.source != self.binding.workspace:
                     workers.append("__sync")
-                if self.spec.builds or self.spec.rebuild_on_branch:
-                    workers.append("__watch")
+                workers.append("__watch")
                 for name in workers:
+                    self._check_intent(intent_token)
                     if not self.backend.active(name):
                         started.append(name)
                         self.backend.start(name)
@@ -236,17 +270,7 @@ class ProjectEngine:
             )
             raise
 
-    def _prepared(self) -> None:
-        state = self.state()
-        if state.get("recovery"):
-            raise ProjectError(message("recovery is pending; run dev-tools prepare"))
-        if state.get("prepared_revision") != fingerprint(self.binding):
-            raise ProjectError(
-                message("project declarations changed or are unprepared; run dev-tools prepare")
-            )
-
-    def prepare(self, plan: PreparationPlan | None = None) -> None:
-        plan = plan or self.plan()
+    def _validate_plan(self, plan: PreparationPlan) -> None:
         if plan.unresolved:
             raise ProjectError(
                 message(
@@ -254,103 +278,249 @@ class ProjectEngine:
                     unresolved=join_messages("; ", plan.unresolved),
                 )
             )
-        self.backend.require_control()
-        with operation_lock(self.binding.state, timeout=15):
-            if plan.revision != fingerprint(self.binding):
-                raise ProjectError(
-                    message(
-                        "project declarations changed after planning; create a new prepare plan"
-                    )
-                )
-            recovery = self.state().get("recovery") or {}
-            active = tuple(dict.fromkeys([*self._active(), *recovery.get("restore_workers", [])]))
-            self.save(
-                recovery={
-                    "operation": "prepare",
-                    "restore_workers": list(active),
-                    "completed_tasks": [],
-                }
+        if plan.revision != fingerprint(self.binding, spec=plan.spec):
+            raise ProjectError(
+                message("project declarations changed after planning; create a new prepare plan")
             )
-            completed = []
-            try:
-                self._stop(active)
-                self.save(last_project=self.spec.raw)
-                self.backend.install_requirements(plan.requirements)
-                if self.spec.toolchain == "mise" and plan.runtime_versions:
-                    self.executor.run(
-                        [
-                            "mise",
-                            "--yes",
-                            "-C",
-                            str(self.binding.source),
-                            "install",
-                            *plan.runtime_versions,
-                        ],
-                        cwd=self.binding.source,
+
+    def _resolve_dependencies(self, plan, revision: str, intent_token) -> str:
+        declarations = fingerprint(self.binding, spec=self.spec, include_locks=False)
+        native_declarations = fingerprint(
+            self.binding, spec=self.spec, root=self.binding.workspace, include_locks=False
+        )
+        for task in plan.resolution_tasks:
+            self._check_intent(intent_token)
+            self.executor.task(task)
+        if native_declarations != fingerprint(
+            self.binding, spec=self.spec, root=self.binding.workspace, include_locks=False
+        ):
+            raise ProjectError(message("dependency resolution changed project declarations"))
+        if self.binding.source == self.binding.workspace:
+            if declarations != fingerprint(self.binding, spec=self.spec, include_locks=False):
+                raise ProjectError(message("project declarations changed during prepare"))
+        elif plan.resolution_tasks:
+            if revision != fingerprint(self.binding, spec=self.spec):
+                raise ProjectError(message("project declarations changed during prepare"))
+            # The only files copied back are known lockfiles from reviewed resolver steps.
+            updates = {}
+            for task in plan.resolution_tasks:
+                for filename in LOCKFILES[task.manager]:
+                    native = within(self.binding.workspace, task.workdir) / filename
+                    within(
+                        self.binding.workspace,
+                        native.relative_to(self.binding.workspace).as_posix(),
                     )
-                self.backend.sync(self.spec)
-                if plan.revision != fingerprint(self.binding):
+                    if native.is_symlink():
+                        raise ProjectError(
+                            message("refusing symbolic-link update: {path}", path=native)
+                        )
+                    if native.is_file():
+                        source = within(self.binding.source, task.workdir) / filename
+                        within(
+                            self.binding.source, source.relative_to(self.binding.source).as_posix()
+                        )
+                        updates[source] = native.read_bytes()
+            for source, content in updates.items():
+                self._check_intent(intent_token)
+                if revision != fingerprint(self.binding, spec=self.spec):
                     raise ProjectError(message("project declarations changed during prepare"))
-                for service in self.spec.services.values():
-                    install_spring_artifact(self.executor, service)
-                for name in plan.tasks:
-                    self.executor.task(self.spec.tasks[name])
-                    completed.append(name)
-                    self.save(
-                        recovery={
-                            "operation": "prepare",
-                            "restore_workers": list(active),
-                            "completed_tasks": completed,
-                        }
-                    )
-                for service in self.spec.services.values():
-                    if service.driver == "compose":
-                        options = service.options.get("compose", {})
-                        if options.get("pull", False):
-                            run_compose(self.executor, service, "pull")
-                        if options.get("build", True):
-                            run_compose(self.executor, service, "build")
-                    spring_classpath(self.binding, self.backend, service)
-                if plan.revision != fingerprint(self.binding):
-                    raise ProjectError(
-                        message("project declarations changed during preparation tasks")
-                    )
-                self.save(prepared_revision=plan.revision)
-                self._start(
-                    tuple(name for name in active if name in self.spec.services),
-                    infrastructure=any(name.startswith("__") for name in active),
+                atomic_write(source, content)
+                revision = fingerprint(self.binding, spec=self.spec)
+        return fingerprint(self.binding, spec=self.spec)
+
+    def _prepare_locked(
+        self,
+        plan: PreparationPlan,
+        *,
+        preserve_watch=False,
+        restore=True,
+        intent_token=None,
+        structural=False,
+    ) -> None:
+        self._validate_plan(plan)
+        recovery = self.state().get("recovery") or {}
+        active = tuple(dict.fromkeys([*self._active(), *recovery.get("restore_workers", [])]))
+        completed = []
+        revision = plan.revision
+        self.save(
+            recovery={
+                "operation": "prepare",
+                "restore_workers": list(active),
+                "completed_tasks": [],
+            }
+        )
+        try:
+            self._check_intent(intent_token)
+            self._stop(tuple(name for name in active if not (preserve_watch and name == "__watch")))
+            self._set_spec(plan.spec)
+            if revision != fingerprint(self.binding, spec=self.spec):
+                raise ProjectError(message("project declarations changed during prepare"))
+            if plan.configuration_update:
+                atomic_write(self.binding.source / CONFIG_NAME, render_toml(self.spec.raw).encode())
+                revision = fingerprint(self.binding, spec=self.spec)
+            self.save(last_project=self.spec.raw)
+            self.backend.install_requirements(plan.requirements)
+            self._check_intent(intent_token)
+            if self.spec.toolchain == "mise" and plan.runtime_versions:
+                self.executor.run(
+                    [
+                        "mise",
+                        "--yes",
+                        "-C",
+                        str(self.binding.source),
+                        "install",
+                        *plan.runtime_versions,
+                    ],
+                    cwd=self.binding.source,
                 )
-                self.save(recovery=None)
-            except (ProjectError, OSError) as exc:
+            self._check_intent(intent_token)
+            self.backend.sync(self.spec)
+            if revision != fingerprint(self.binding, spec=self.spec):
+                raise ProjectError(message("project declarations changed during prepare"))
+            if plan.resolution_tasks:
+                revision = self._resolve_dependencies(plan, revision, intent_token)
+            for service in self.spec.services.values():
+                install_spring_artifact(self.executor, service)
+            selected = plan.tasks
+            if structural:
+                selected = self.spec.task_order(
+                    tuple(
+                        dict.fromkeys(
+                            [*plan.tasks, *[item.structural_task for item in self.spec.builds]]
+                        )
+                    )
+                )
+            for name in selected:
+                self._check_intent(intent_token)
+                self.executor.task(clean_venv_task(self.spec.tasks[name], self.binding.workspace))
+                completed.append(name)
                 self.save(
                     recovery={
                         "operation": "prepare",
                         "restore_workers": list(active),
                         "completed_tasks": completed,
-                        "error": str(exc),
-                        "error_detail": error_detail(exc),
                     }
                 )
+            for service in self.spec.services.values():
+                self._check_intent(intent_token)
+                if service.driver == "compose":
+                    options = service.options.get("compose", {})
+                    if options.get("pull", False):
+                        run_compose(self.executor, service, "pull")
+                    if options.get("build", True):
+                        run_compose(self.executor, service, "build")
+                spring_classpath(self.binding, self.backend, service, reload=structural)
+            if revision != fingerprint(self.binding, spec=self.spec):
+                raise ProjectError(message("project declarations changed during preparation tasks"))
+            self.save(
+                prepared_revision=revision,
+                dependency_revision=fingerprint(self.binding, spec=self.spec, include_locks=False),
+                discovery_baseline=plan.discovery_baseline,
+                maintenance_error=None,
+            )
+            if restore:
+                intent = self.intent()
+                if not intent or intent.get("running"):
+                    names = tuple(name for name in active if name in self.spec.services)
+                    if intent.get("running"):
+                        selected = intent.get("selected")
+                        names = (
+                            self.spec.service_order()
+                            if selected is None
+                            else tuple(name for name in selected if name in self.spec.services)
+                        )
+                    self._start(
+                        names,
+                        infrastructure=any(name.startswith("__") for name in active),
+                        intent_token=intent.get("token"),
+                    )
+            self.save(recovery=None)
+        except (ProjectError, OSError) as exc:
+            self.save(
+                recovery={
+                    "operation": "prepare",
+                    "restore_workers": list(active),
+                    "completed_tasks": completed,
+                    "error": str(exc),
+                    "error_detail": error_detail(exc),
+                }
+            )
+            raise
+
+    def prepare(self, plan: PreparationPlan | None = None) -> None:
+        plan = plan or self.plan()
+        self._validate_plan(plan)
+        self.backend.require_control()
+        with operation_lock(self.binding.state, timeout=15):
+            intent = self.intent()
+            self._prepare_locked(
+                plan, intent_token=intent.get("token") if intent.get("running") else None
+            )
+
+    def maintain(self, *, structural=False) -> None:
+        self.backend.require_control()
+        with operation_lock(self.binding.state):
+            intent = self.intent()
+            if intent and not intent.get("running"):
+                return
+            try:
+                self._prepare_locked(
+                    self.plan(),
+                    preserve_watch=True,
+                    intent_token=intent.get("token"),
+                    structural=structural,
+                )
+            except (ValueError, OSError) as exc:
+                self.save(maintenance_error=error_detail(exc))
                 raise
 
     def start(self, selected: tuple[str, ...] | None = None) -> None:
         self.backend.require_control()
         with operation_lock(self.binding.state, timeout=15):
-            self._prepared()
-            graph = {name: service.depends_on for name, service in self.spec.services.items()}
+            plan = self.plan()
+            self._validate_plan(plan)
+            graph = {name: service.depends_on for name, service in plan.spec.services.items()}
             names = dependency_order(graph, selected)
             if not names:
                 raise ProjectError(message("no runtime services are declared"))
+            previous = self.intent()
+            desired = (
+                None
+                if selected is None or previous.get("running") and previous.get("selected") is None
+                else list(
+                    dict.fromkeys(
+                        [
+                            *[name for name in previous.get("selected") or [] if name in graph],
+                            *names,
+                        ]
+                    )
+                )
+            )
+            intent = self.set_intent(running=True, selected=desired)
+            token = intent["token"]
+            if (
+                self.state().get("recovery")
+                or self.state().get("prepared_revision") != plan.revision
+            ):
+                self._prepare_locked(plan, restore=False, intent_token=token)
+            else:
+                self._set_spec(plan.spec)
+            names = (
+                self.spec.service_order() if desired is None else dependency_order(graph, desired)
+            )
+            self._check_intent(token)
             self.backend.sync(self.spec)
             for name in names:
                 spring_classpath(self.binding, self.backend, self.spec.services[name])
             from .monitoring import git_snapshot
 
-            self.save(git=git_snapshot(self.executor))
-            self._start(names, infrastructure=True)
+            self.save(git=git_snapshot(self.executor), last_project=self.spec.raw)
+            self._start(names, infrastructure=True, intent_token=token)
 
     def stop(self) -> None:
         self.backend.require_control()
+        # Publish cancellation before waiting for a long package/build operation.
+        self.set_intent(running=False)
         with operation_lock(self.binding.state, timeout=15):
             self._stop(tuple(dict.fromkeys([*self.backend.known_workers(), *self.spec.services])))
             recovery = self.state().get("recovery")
@@ -358,12 +528,8 @@ class ProjectEngine:
                 self.save(recovery={**recovery, "restore_workers": []})
 
     def restart(self) -> None:
-        self.backend.require_control()
-        with operation_lock(self.binding.state, timeout=15):
-            self._prepared()
-            self._stop(self._active())
-            self.backend.sync(self.spec)
-            self._start(self.spec.service_order(), infrastructure=True)
+        self.stop()
+        self.start()
 
     def rebuild(
         self, *, service: str | None = None, kind: str = "branch", lock_timeout: float = 15
@@ -455,7 +621,9 @@ class ProjectEngine:
                     self.save(prepared_revision=plan.revision, recovery=None)
                 else:
                     self.save(recovery=None)
-                self._start(stop)
+                intent = self.intent()
+                if not intent or intent.get("running"):
+                    self._start(stop, intent_token=intent.get("token"))
             except (ProjectError, OSError) as exc:
                 self.save(recovery={**record, "error": str(exc), "error_detail": error_detail(exc)})
                 raise

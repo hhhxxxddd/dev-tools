@@ -48,6 +48,7 @@ def discover_project(
         "schema": 1,
         "name": name or project_name(root),
         "toolchain": toolchain,
+        "discovery": "auto",
         "rebuild_on_branch": True,
         "tasks": {},
         "services": {},

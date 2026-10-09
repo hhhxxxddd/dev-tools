@@ -234,6 +234,7 @@ class ProjectCoreTests(unittest.TestCase):
                 {
                     "schema": 1,
                     "name": "demo",
+                    "dependency_mode": "locked",
                     "tasks": {
                         "node": {"command": ["npm", "ci"], "manager": "npm", "workdir": "web"}
                     },

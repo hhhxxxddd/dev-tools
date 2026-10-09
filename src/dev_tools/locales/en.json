@@ -213,5 +213,10 @@
   "未就绪": "Not ready",
   "部分运行": "Partially running",
   "待恢复": "Recovery pending",
-  "  {name}：{value}": "  {name}: {value}"
+  "  {name}：{value}": "  {name}: {value}",
+  "自动准备并启动项目服务和监控": "Automatically prepare and start project services and monitors",
+  "start 自动准备环境，运行期间跟进依赖变化；mise 的诊断命令为 mise doctor。": "Start prepares automatically and follows dependency changes while running. Use mise doctor to diagnose mise.",
+  "自动维护待处理：{error}": "Automatic maintenance pending: {error}",
+  "  将更新自动发现的项目配置。": "  Automatically discovered project configuration will be updated.",
+  "  锁文件同步 {name}：{command}": "  Lockfile synchronization {name}: {command}"
 }

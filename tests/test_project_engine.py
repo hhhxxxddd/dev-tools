@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -48,6 +50,8 @@ class FakeBackend(Backend):
 
     def sync(self, spec):
         self.events.append("sync")
+        if self.binding.source != self.binding.workspace:
+            shutil.copytree(self.binding.source, self.binding.workspace, dirs_exist_ok=True)
 
 
 class FakeExecutor:
@@ -56,11 +60,17 @@ class FakeExecutor:
         self.binding = backend.binding
         self.fail = ""
         self.mutate = None
+        self.on_task = None
+
+    def run(self, argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
 
     def task(self, task):
         self.backend.events.append("task:" + task.name)
         if self.mutate:
             self.mutate()
+        if self.on_task:
+            self.on_task(task)
         if task.name == self.fail:
             raise ProjectError("task failure")
 
@@ -270,16 +280,15 @@ class EngineContractTests(unittest.TestCase):
                     self.assertFalse(engine.status()["prepared"])
                     self.assertIsNone(engine.state().get("prepared_revision"))
                     self.assertIsNone(engine.state()["recovery"])
-                    with self.assertRaises(ProjectError):
-                        engine.start()
-                    self.assertFalse(engine.backend.running)
-                    engine.prepare()
+                    engine.start()
+                    self.assertIn("task:install", engine.backend.events)
+                    self.assertTrue(engine.status()["ready"])
                     revision = engine.state()["prepared_revision"]
                     engine.rebuild(service=service, kind=kind)
                     self.assertEqual(engine.state()["prepared_revision"], revision)
                     self.assertTrue(engine.status()["prepared"])
 
-    def test_partial_builds_preserve_stale_preparation_until_prepare(self):
+    def test_partial_builds_preserve_stale_preparation_until_start(self):
         for service, kind in self.partial_builds():
             for engine in self.both():
                 with self.subTest(
@@ -305,11 +314,8 @@ class EngineContractTests(unittest.TestCase):
                         [event for event in engine.backend.events if event.startswith("task:")],
                         ["task:compile"],
                     )
-                    events = engine.backend.events.copy()
-                    with self.assertRaises(ProjectError):
-                        engine.start()
-                    self.assertEqual(engine.backend.events, events)
-                    engine.prepare()
+                    engine.start()
+                    self.assertIn("task:install", engine.backend.events)
                     self.assertEqual(
                         engine.state()["prepared_revision"], fingerprint(engine.binding)
                     )
@@ -379,16 +385,164 @@ class EngineContractTests(unittest.TestCase):
             self.assertNotIn("idle", engine.backend.running)
             self.assertIsNone(engine.state()["recovery"])
 
-    def test_changed_manifest_blocks_start_and_planned_prepare(self):
+    def test_changed_manifest_rejects_old_plan_but_start_automatically_prepares(self):
         for engine in self.both():
             engine.prepare()
             plan = engine.plan()
             (engine.binding.source / "package-lock.json").write_text("{}")
             with self.assertRaises(ProjectError):
-                engine.start()
-            with self.assertRaises(ProjectError):
                 engine.prepare(plan)
             self.assertFalse(engine.backend.running)
+            engine.start()
+            self.assertTrue(engine.status()["ready"])
+
+    def change_configuration(self, engine, raw):
+        (engine.binding.source / "dev-tools.toml").write_text(render_toml(raw), encoding="utf-8")
+
+    def test_maintenance_reloads_services_and_preserves_coordinator(self):
+        for engine in self.both():
+            engine.start()
+            engine.backend.events.clear()
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["services"].pop("web")
+            raw["services"]["added"] = {"command": ["fixture"], "depends_on": ["api"]}
+            self.change_configuration(engine, raw)
+            engine.maintain()
+            self.assertEqual(
+                engine.backend.running,
+                {"api", "added", "__watch"}
+                | ({"__sync"} if engine.binding.environment == "wsl" else set()),
+            )
+            self.assertNotIn("stop:__watch", engine.backend.events)
+            self.assertLess(
+                engine.backend.events.index("start:api"), engine.backend.events.index("start:added")
+            )
+            self.assertTrue(engine.status()["ready"])
+
+    def test_selected_start_does_not_activate_new_unrelated_services(self):
+        for engine in self.both():
+            engine.start(("api",))
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["services"]["idle"] = {"command": ["fixture"]}
+            self.change_configuration(engine, raw)
+            engine.maintain()
+            self.assertNotIn("web", engine.backend.running)
+            self.assertNotIn("idle", engine.backend.running)
+            self.assertIn("api", engine.backend.running)
+
+    def test_failed_automatic_preparation_keeps_watch_and_restores_on_retry(self):
+        for engine in self.both():
+            engine.start()
+            (engine.binding.source / "package-lock.json").write_text("{}")
+            engine.executor.fail = "install"
+            with self.assertRaises(ProjectError):
+                engine.maintain()
+            self.assertEqual(engine.backend.running, {"__watch"})
+            engine.executor.fail = ""
+            engine.maintain()
+            self.assertTrue(engine.status()["ready"])
+
+    def test_stop_intent_during_task_prevents_restore(self):
+        for engine in self.both():
+            engine.start()
+            engine.executor.mutate = lambda engine=engine: engine.set_intent(running=False)
+            with self.assertRaises(ProjectError):
+                engine.maintain()
+            self.assertFalse({"api", "web"}.intersection(engine.backend.running))
+            engine.executor.mutate = None
+            engine.stop()
+            engine.maintain()
+            self.assertFalse(engine.backend.running)
+            engine.start(("api",))
+            self.assertIn("api", engine.backend.running)
+
+    def test_invalid_configuration_does_not_quiesce_running_services(self):
+        for engine in self.both():
+            engine.start()
+            (engine.binding.source / "dev-tools.toml").write_text("[broken")
+            engine.backend.events.clear()
+            with self.assertRaises(ValueError):
+                engine.maintain()
+            self.assertTrue({"api", "web", "__watch"} <= engine.backend.running)
+            self.assertEqual(engine.backend.events, [])
+
+    def test_lock_resolution_copies_back_only_validated_locks_and_follows_declarations(self):
+        for engine in self.both():
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["tasks"]["install"] = {"command": ["npm", "ci"], "manager": "npm"}
+            self.change_configuration(engine, raw)
+            manifest = engine.binding.source / "package.json"
+            manifest.write_text('{"name":"fixture","version":"1.0.0"}')
+
+            def resolve(task, engine=engine):
+                if task.name == "resolve-install":
+                    (engine.binding.workspace / "package-lock.json").write_text(
+                        '{"lockfileVersion":3}'
+                    )
+
+            engine.executor.on_task = resolve
+            with patch("dev_tools.projects.planning.shutil.which", return_value="npm"):
+                plan = engine.plan()
+                self.assertEqual([task.name for task in plan.resolution_tasks], ["resolve-install"])
+                self.assertFalse((engine.binding.source / "package-lock.json").exists())
+                engine.start()
+                self.assertEqual(
+                    (engine.binding.source / "package-lock.json").read_text(),
+                    '{"lockfileVersion":3}',
+                )
+                self.assertFalse(engine.plan().resolution_tasks)
+                (engine.binding.source / "package-lock.json").write_text(
+                    '{"lockfileVersion":3,"changed":true}'
+                )
+                self.assertFalse(engine.plan().resolution_tasks)
+                engine.maintain()
+                manifest.write_text('{"name":"fixture","version":"2.0.0"}')
+                self.assertTrue(engine.plan().resolution_tasks)
+                engine.maintain()
+                self.assertTrue(engine.status()["ready"])
+
+    def test_resolver_rejects_manifest_mutation_before_accepting_locks(self):
+        for engine in self.both():
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["tasks"]["install"] = {"command": ["npm", "ci"], "manager": "npm"}
+            self.change_configuration(engine, raw)
+            (engine.binding.source / "package.json").write_text('{"name":"fixture"}')
+
+            def mutate(task, engine=engine):
+                if task.name == "resolve-install":
+                    (engine.binding.workspace / "package.json").write_text('{"name":"changed"}')
+                    (engine.binding.workspace / "package-lock.json").write_text("{}")
+
+            engine.executor.on_task = mutate
+            with (
+                patch("dev_tools.projects.planning.shutil.which", return_value="npm"),
+                self.assertRaises(ProjectError),
+            ):
+                engine.start()
+                self.assertFalse(engine.state().get("prepared_revision"))
+                if engine.binding.environment == "wsl":
+                    self.assertFalse((engine.binding.source / "package-lock.json").exists())
+
+    def test_wsl_resolution_does_not_overwrite_concurrent_source_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            engine = self.fixture(Path(temporary), "wsl")
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["tasks"]["install"] = {"command": ["npm", "ci"], "manager": "npm"}
+            self.change_configuration(engine, raw)
+            source_lock = engine.binding.source / "package-lock.json"
+
+            def concurrent_edit(task):
+                if task.name == "resolve-install":
+                    (engine.binding.workspace / "package-lock.json").write_text("{}")
+                    source_lock.write_text('{"user":"edit"}')
+
+            engine.executor.on_task = concurrent_edit
+            with (
+                patch("dev_tools.projects.planning.shutil.which", return_value="npm"),
+                self.assertRaises(ProjectError),
+            ):
+                engine.start()
+            self.assertEqual(source_lock.read_text(), '{"user":"edit"}')
 
     def test_task_cannot_commit_a_changed_declaration_as_prepared(self):
         for engine in self.both():

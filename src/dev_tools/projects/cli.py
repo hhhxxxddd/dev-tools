@@ -33,7 +33,7 @@ def engine_for(environment: str, name: str, *, allow_stale: bool = False) -> Pro
 def _list_state(project: dict) -> str:
     if project.get("error") or project.get("error_detail"):
         return "error"
-    if project.get("recovery"):
+    if project.get("recovery") or project.get("maintenance_error"):
         return "recovery-pending"
     services = project.get("services", {}).values()
     phases = {service["phase"] for service in services}
@@ -85,6 +85,8 @@ def emit(payload: dict, as_json: bool) -> None:
         )
         for name, value in payload["services"].items():
             print(f"  {name}：{label(value['phase'])}（{label(value['health'])}）")
+        if payload.get("maintenance_error"):
+            print(t("自动维护待处理：{error}", error=render(payload["maintenance_error"])))
         if payload.get("recovery"):
             recovery = payload["recovery"]
             print(t("  待恢复操作：{value}", value=label(recovery.get("operation", "unknown"))))
@@ -126,6 +128,10 @@ def emit(payload: dict, as_json: bool) -> None:
             print(t("  暂无已注册项目。"))
     if "runtime_versions" in payload:
         print(t("  运行时版本：") + (", ".join(payload["runtime_versions"]) or t("无")))
+        if payload.get("configuration_update"):
+            print(t("  将更新自动发现的项目配置。"))
+        for task in payload.get("resolution_tasks", []):
+            print(t("  锁文件同步 {name}：{command}", name=task["name"], command=task["command"]))
         for task in payload["tasks"]:
             print(
                 t(
@@ -282,7 +288,7 @@ def add_commands(commands) -> None:
     listing.set_defaults(func=run)
     for action, description in (
         ("prepare", t("准备项目运行时、依赖和构建；--dry-run 预览计划")),
-        ("start", t("启动已准备的项目服务和监控")),
+        ("start", t("自动准备并启动项目服务和监控")),
         ("stop", t("停止项目服务和监控")),
         ("restart", t("重启项目服务和监控")),
         ("status", t("查看项目准备情况、服务状态和健康检查")),

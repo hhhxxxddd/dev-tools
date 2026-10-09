@@ -4,6 +4,9 @@
 
 ### 发行与改进
 
+- start 自动准备项目，运行期间跟进声明、锁文件、根级运行时和工作流变化；后台更新失败保留监控并自动恢复，stop 取消继续运行的意图。
+- 默认自动解析已知标准包管理器锁文件，WSL 只回写通过并发检查的锁文件；支持 dependency_mode=locked。init 生成 discovery=auto，持续增删模块并保留手改字段。
+
 - 精简中英文 README，突出依赖发现、热部署和完整命令示例；配置、运行和开发细节移到 docs。
 - 修复两平台打包排序与换行差异，WSL 部署包含 README 引用的更新记录；支持准备草稿后发布并更新 Scoop bucket。
 
@@ -11,7 +14,7 @@
 - 增加可重复构建的版本包、SHA256、Scoop 清单和发行工作流；Scoop shim 替代旧 profile 标记块，更新/卸载检查活动 Windows worker。
 - WSL 更新拒绝覆盖活动 worker 使用的程序；安装和更新保留本机注册、偏好、状态、缓存与项目运行时。
 - list 默认以名称、环境、状态三列表格显示项目，按本机语言配置翻译并对齐中英文列；JSON 输出保持原结构。
-- 修复局部构建误更新准备指纹的问题：source/resource/structural 和指定服务的默认构建保留原状态，依赖变化后仍要求 prepare；完整 branch 构建继续执行准备任务并更新指纹。
+- 修复局部构建误更新准备指纹的问题：source/resource/structural 和指定服务的默认构建保留原状态，依赖变化后仍需完整准备，由 start 或后台自动补齐；完整 branch 构建继续执行准备任务并更新指纹。
 - 增加 sync_include，在保留原生依赖和输出的同时允许同步同名源码目录，例如 frontend/build。
 - 修复 POSIX Maven 将仓库参数中的引号当成路径内容的问题。
 - 修复未指定服务的 source/resource/structural 构建误用准备任务和结构构建任务；Compose 镜像只在 branch/structural 构建中重建。

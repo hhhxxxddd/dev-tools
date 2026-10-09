@@ -155,6 +155,8 @@ class ProjectSpec:
     sync_exclude: tuple[str, ...] = ()
     raw: dict[str, Any] = field(default_factory=dict)
     sync_include: tuple[str, ...] = ()
+    dependency_mode: str = "auto"
+    discovery: str = "manual"
 
     def service_order(self) -> tuple[str, ...]:
         return dependency_order({name: item.depends_on for name, item in self.services.items()})

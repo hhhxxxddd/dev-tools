@@ -129,6 +129,8 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
             "services",
             "builds",
             "sync_include",
+            "dependency_mode",
+            "discovery",
         },
         "project",
     )
@@ -316,6 +318,12 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
     branch = raw.get("rebuild_on_branch", True)
     if not isinstance(branch, bool):
         raise ProjectError(message("rebuild_on_branch must be boolean"))
+    dependency_mode = raw.get("dependency_mode", "auto")
+    discovery = raw.get("discovery", "manual")
+    if not isinstance(dependency_mode, str) or dependency_mode not in {"auto", "locked"}:
+        raise ProjectError(message("dependency_mode must be auto or locked"))
+    if not isinstance(discovery, str) or discovery not in {"auto", "manual"}:
+        raise ProjectError(message("discovery must be auto or manual"))
     spec = ProjectSpec(
         name,
         tasks,
@@ -326,6 +334,8 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
         _strings(raw.get("sync_exclude", []), "sync exclusions"),
         raw,
         _strings(raw.get("sync_include", []), "sync inclusions"),
+        dependency_mode,
+        discovery,
     )
     spec.service_order()
     spec.task_order()

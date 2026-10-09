@@ -148,8 +148,7 @@ def smoke() -> dict:
                 raise AssertionError(plan)
             binding = plan["binding"]
             workspace = Path(binding["workspace"])
-            invoke("start", name, expected=1)
-            invoke("prepare")
+            invoke("start", name)
             if not (workspace / "prepared.txt").is_file():
                 raise AssertionError("preparation task did not execute in native workspace")
             invoke("start")
@@ -180,6 +179,39 @@ def smoke() -> dict:
                 or rebuilt["services"]["api"]["pid"] == first["services"]["api"]["pid"]
             ):
                 raise AssertionError(rebuilt)
+            # A running project reconciles changed declarations without a prepare command.
+            raw["services"]["added"] = {
+                "command": [sys.executable, "-I", "-c", "import time; time.sleep(300)"],
+                "restart": "never",
+            }
+            (source / "dev-tools.toml").write_text(render_toml(raw), encoding="utf-8")
+            deadline = time.monotonic() + 40
+            while time.monotonic() < deadline:
+                updated = status()
+                if updated["ready"] and updated["services"].get("added", {}).get("ready"):
+                    break
+                time.sleep(0.5)
+            else:
+                raise AssertionError(updated)
+            raw["services"].pop("added")
+            (source / "dev-tools.toml").write_text(render_toml(raw), encoding="utf-8")
+            deadline = time.monotonic() + 40
+            while time.monotonic() < deadline:
+                updated = status()
+                if (
+                    updated["ready"]
+                    and "added" not in updated["services"]
+                    and "added"
+                    not in {
+                        path.stem
+                        for path in (Path(binding["state"]) / "workers").glob("*.json")
+                        if json.loads(path.read_text()).get("phase") == "running"
+                    }
+                ):
+                    break
+                time.sleep(0.5)
+            else:
+                raise AssertionError(updated)
             # A failed prepare leaves services stopped and remembers the active set.
             (source / "fail.flag").write_text("fail")
             failure = invoke("prepare", name, expected=1)
@@ -204,6 +236,8 @@ def smoke() -> dict:
                 "schema_version": plan["schema_version"],
                 "services": list(first["services"]),
                 "prepare_recovery": True,
+                "automatic_prepare": True,
+                "automatic_reconfiguration": True,
                 "hot_build": True,
                 "resource_restart": True,
                 "rename": True,

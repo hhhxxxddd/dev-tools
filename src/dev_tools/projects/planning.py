@@ -11,25 +11,30 @@ from . import SCHEMA_VERSION
 from .config import CONFIG_NAME, load_project
 from .detection import _find
 from .drivers import maven_wrapper, spring_artifact
-from .models import ProjectBinding, ProjectError, ProjectSpec, within
+from .maintenance import LOCKFILES, clean_venv_task, resolution_task
+from .models import ProjectBinding, ProjectError, ProjectSpec, TaskSpec, within
 from .toolchain import root_runtime_versions
 
-LOCKFILES = {
-    "npm": ("package-lock.json", "npm-shrinkwrap.json"),
-    "pnpm": ("pnpm-lock.yaml",),
-    "yarn": ("yarn.lock",),
-    "bun": ("bun.lock", "bun.lockb"),
-    "uv": ("uv.lock",),
-}
 
-
-def fingerprint(binding: ProjectBinding) -> str:
-    source = binding.source.resolve()
+def fingerprint(
+    binding: ProjectBinding,
+    *,
+    spec: ProjectSpec | None = None,
+    root=None,
+    include_locks: bool = True,
+) -> str:
+    source = (root or binding.source).resolve()
     digest = hashlib.sha256()
     names = {
         CONFIG_NAME,
         "mise.toml",
         ".mise.toml",
+        ".nvmrc",
+        ".node-version",
+        ".python-version",
+        ".tool-versions",
+        ".npmrc",
+        ".yarnrc.yml",
         "pom.xml",
         "maven-wrapper.properties",
         "mvnw",
@@ -45,9 +50,11 @@ def fingerprint(binding: ProjectBinding) -> str:
         "docker-compose.yml",
         *[name for files in LOCKFILES.values() for name in files],
     }
+    if not include_locks:
+        names.difference_update(name for files in LOCKFILES.values() for name in files)
     paths = set(_find(source, names))
     if (source / CONFIG_NAME).is_file():
-        spec = load_project(source, binding.environment)
+        spec = spec or load_project(source, binding.environment)
         for item in [*spec.tasks.values(), *spec.services.values()]:
             directory = within(source, item.workdir)
             paths.update(directory / name for name in names if (directory / name).is_file())
@@ -70,6 +77,9 @@ class PreparationPlan:
     artifacts: tuple[dict[str, str], ...]
     unresolved: tuple[str, ...]
     revision: str
+    resolution_tasks: tuple[TaskSpec, ...] = ()
+    discovery_baseline: dict | None = None
+    configuration_update: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -86,17 +96,30 @@ class PreparationPlan:
                 {
                     "name": name,
                     "cwd": str(within(self.binding.workspace, self.spec.tasks[name].workdir)),
-                    **self.spec.tasks[name].as_dict(),
+                    **clean_venv_task(self.spec.tasks[name], self.binding.workspace).as_dict(),
                 }
                 for name in self.tasks
             ],
             "artifacts": list(self.artifacts),
+            "dependency_mode": self.spec.dependency_mode,
+            "resolution_tasks": [
+                task.as_dict() | {"name": task.name} for task in self.resolution_tasks
+            ],
+            "configuration_update": self.configuration_update,
             "unresolved": list(self.unresolved),
             "ready": not self.unresolved,
         }
 
 
-def preparation_plan(spec: ProjectSpec, binding: ProjectBinding, backend) -> PreparationPlan:
+def preparation_plan(
+    spec: ProjectSpec,
+    binding: ProjectBinding,
+    backend,
+    *,
+    state: dict | None = None,
+    discovery_baseline: dict | None = None,
+    configuration_update: bool = False,
+) -> PreparationPlan:
     scan = scan_project(binding.source)
     unresolved = [
         message("{location}: {detail}", location=item.source, detail=item.message)
@@ -165,11 +188,25 @@ def preparation_plan(spec: ProjectSpec, binding: ProjectBinding, backend) -> Pre
                     workdir=item.workdir,
                 )
             )
+    resolution_tasks = []
+    declarations_changed = (state or {}).get("dependency_revision") != fingerprint(
+        binding, spec=spec, include_locks=False
+    )
     for name in tasks:
         task = spec.tasks[name]
+        clean_venv_task(task, binding.workspace)
         files = LOCKFILES.get(task.manager, ())
         directory = within(binding.source, task.workdir)
-        if files and not any((directory / filename).is_file() for filename in files):
+        for filename in files:
+            if (directory / filename).is_symlink():
+                unresolved.append(
+                    message("refusing symbolic-link update: {path}", path=directory / filename)
+                )
+        missing_lock = files and not any((directory / filename).is_file() for filename in files)
+        resolver = resolution_task(task) if spec.dependency_mode == "auto" else None
+        if resolver and (declarations_changed or missing_lock):
+            resolution_tasks.append(resolver)
+        if missing_lock and not resolver:
             unresolved.append(
                 message(
                     "{name}: {manager} requires a lockfile in {workdir}",
@@ -240,5 +277,8 @@ def preparation_plan(spec: ProjectSpec, binding: ProjectBinding, backend) -> Pre
         requirements,
         tuple(artifacts),
         tuple(dict.fromkeys(unresolved)),
-        fingerprint(binding),
+        fingerprint(binding, spec=spec),
+        tuple(resolution_tasks),
+        discovery_baseline,
+        configuration_update,
     )

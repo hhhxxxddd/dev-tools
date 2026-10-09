@@ -178,5 +178,10 @@
   "Stop WSL projects before updating the controller: dev-tools -e wsl stop <project>": "更新控制程序前请先停止 WSL 项目：dev-tools -e wsl stop <项目名>",
   "Scoop entrypoint installed. Open a new terminal if an old dev-tools function is still loaded.": "Scoop 入口已安装。如当前终端仍加载旧 dev-tools 函数，请重新打开终端。",
   "No published controller release is available; deploy from Windows or use --source": "尚无已发布的控制程序 Release；请从 Windows 部署或使用 --source 指定源码",
-  "install deploys; update refreshes; status inspects deployment state": "install 部署；update 更新；status 查看部署状态"
+  "install deploys; update refreshes; status inspects deployment state": "install 部署；update 更新；status 查看部署状态",
+  "dependency_mode must be auto or locked": "dependency_mode 必须为 auto 或 locked",
+  "discovery must be auto or manual": "discovery 必须为 auto 或 manual",
+  "refusing symbolic-link update: {path}": "拒绝更新符号链接：{path}",
+  "project stopped during maintenance": "项目已停止，取消自动维护和服务恢复",
+  "dependency resolution changed project declarations": "依赖解析改变了项目声明；请检查后重试"
 }

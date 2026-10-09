@@ -39,6 +39,6 @@ uvx ruff format --check src tests
 
 入口改动还应验证 `scripts/dev-tools.ps1` 与 `scripts/dev-tools`；bootstrap 改动先解析所有 PowerShell 安装脚本。维护约束见 [AGENTS.md](../AGENTS.md)。
 
-真实验证脚本以临时注册、状态和缓存运行：`tests/integration/lifecycle_smoke.py` 检查 HTTP 服务、热构建、恢复和重命名；`toolchain_smoke.py` 使用已安装的 Java/Node/Python/Maven；`transport_smoke.py` 从 Windows 检查双向路径、隐式名称、帮助、配置和语言传递。WSL 生命周期测试需要 root 和 systemd，工具链测试不安装新版本；双向测试需要两侧入口已安装。
+真实验证脚本以临时注册、状态和缓存运行：`tests/integration/lifecycle_smoke.py` 检查自动准备、服务增删、HTTP 服务、热构建、恢复和重命名；`dependency_smoke.py` 使用本地 npm 包验证依赖新增、升级、移除、锁文件回写和停止后补齐，不下载第三方包；`toolchain_smoke.py` 使用已安装的 Java/Node/Python/Maven；`transport_smoke.py` 从 Windows 检查双向路径、隐式名称、帮助、配置和语言传递。WSL 生命周期测试需要 root 和 systemd，工具链测试不安装新版本；双向测试需要两侧入口已安装。
 
 [MIT License](../LICENSE)

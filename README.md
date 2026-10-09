@@ -10,7 +10,7 @@ dev-tools 是面向 Windows 和 WSL 的开发项目管理工具，适合让 AI �
 
 - **自动发现依赖**：读取项目已有的版本、包管理器和构建声明，识别运行时与 Maven 模块依赖，生成可检查的开发配置。
 - **改代码后热部署**：前端使用开发服务器热更新，Python 自动重载，Spring 自动编译并通过 DevTools 重载；切换分支后按配置重新构建。
-- **依赖升级后接着开发**：更新依赖声明、锁文件及必要的工具版本配置，再执行 `prepare`，沿用原注册和工作目录重新准备环境，成功后恢复原来运行的服务。
+- **依赖升级后接着开发**：直接修改依赖声明，工具自动同步锁文件、安装新增或升级的包、清理移除的依赖，并恢复运行服务，无需重新注册或手动 `prepare`。
 
 支持 Node.js、Maven / Spring Boot、Python / uv 和已有 Docker Compose 项目。Windows 与 WSL 使用相同命令，各自保存运行时、依赖和缓存。
 
@@ -53,18 +53,15 @@ dev-tools scan
 dev-tools init --dry-run
 dev-tools init
 dev-tools register
-dev-tools prepare --dry-run
-dev-tools prepare
 dev-tools start
 ```
 
-先检查扫描结果和生成配置，再准备并启动项目。`init` 保留已有配置；`scan` 和 `init` 不执行项目代码或安装运行时。缺失版本或自定义入口需要补充到项目配置。
+先检查扫描结果和生成配置，再启动；`start` 会自动准备环境。`init` 保留已有配置；`scan` 和 `init` 不执行项目代码或安装运行时。缺失版本或自定义入口需要补充到项目配置。
 
 省略 `-e` 使用当前平台。从 Windows 控制 WSL 项目：
 
 ```powershell
 dev-tools -e wsl register .
-dev-tools -e wsl prepare my-app
 dev-tools -e wsl start my-app
 ```
 
@@ -72,15 +69,14 @@ dev-tools -e wsl start my-app
 
 ## 持续开发
 
-启动后，直接改代码或切换 Git 分支，工具会按项目配置同步源码、触发重载或重新构建。依赖升级后无需重新注册项目，更新声明和锁文件后执行：
+启动后，直接改代码、增删或升级依赖、切换 Git 分支。工具等待文件稳定后自动同步依赖和配置，触发重载或重建。`init` 生成的配置会持续发现模块，保留手改命令。需要查看计划或手动处理时：
 
 ```text
 dev-tools prepare my-app --dry-run
-dev-tools prepare my-app
 dev-tools status my-app
 ```
 
-运行时版本写在项目根 `mise.toml` / `.mise.toml`，安装、构建和启动流程写在 `dev-tools.toml`。热部署能力取决于框架和项目配置，部分重建会短暂停服；新增运行时版本由显式 `prepare` 安装。
+运行时版本写在项目根 `mise.toml` / `.mise.toml`，自动安装仅使用其中声明的版本；流程写在 `dev-tools.toml`。热部署取决于框架和配置，依赖更新可能短暂停服。`stop` 停止自动维护，下次 `start` 补齐变化；`dependency_mode = "locked"` 可禁止自动改锁文件。
 
 ## 常用命令
 

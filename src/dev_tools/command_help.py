@@ -131,7 +131,7 @@ class CommandCatalog:
                 t("用法：dev-tools help <命令> 或 dev-tools <命令> --help"),
                 t("示例：dev-tools -e wsl list；dev-tools prepare demo --dry-run"),
                 t("项目名可省略：当前目录必须唯一匹配已注册项目的源码或工作目录（含子目录）。"),
-                t("项目运行时仅由 prepare 安装；mise 的诊断命令为 mise doctor。"),
+                t("start 自动准备环境，运行期间跟进依赖变化；mise 的诊断命令为 mise doctor。"),
             )
         )
         self.root.epilog = "\n".join(lines)
