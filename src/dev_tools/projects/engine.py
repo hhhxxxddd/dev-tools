@@ -477,13 +477,15 @@ class ProjectEngine:
     def start(self, selected: tuple[str, ...] | None = None) -> None:
         self.backend.require_control()
         with operation_lock(self.binding.state, timeout=15):
+            previous = self.intent()
             plan = self.plan()
             self._validate_plan(plan)
             graph = {name: service.depends_on for name, service in plan.spec.services.items()}
             names = dependency_order(graph, selected)
             if not names:
                 raise ProjectError(message("no runtime services are declared"))
-            previous = self.intent()
+            if self.intent() != previous:
+                raise ProjectError(message("project stopped during maintenance"))
             desired = (
                 None
                 if selected is None or previous.get("running") and previous.get("selected") is None
@@ -522,6 +524,7 @@ class ProjectEngine:
         # Publish cancellation before waiting for a long package/build operation.
         self.set_intent(running=False)
         with operation_lock(self.binding.state, timeout=15):
+            self.set_intent(running=False)
             self._stop(tuple(dict.fromkeys([*self.backend.known_workers(), *self.spec.services])))
             recovery = self.state().get("recovery")
             if recovery:

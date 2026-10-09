@@ -95,6 +95,7 @@ def smoke() -> dict:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                errors="replace",  # wsl.exe can mix UTF-16 diagnostics with native UTF-8 stderr.
                 timeout=60,
                 check=False,
             )
@@ -133,6 +134,7 @@ def smoke() -> dict:
                         capture_output=True,
                         text=True,
                         encoding="utf-8",
+                        errors="replace",
                         timeout=30,
                         check=False,
                     )

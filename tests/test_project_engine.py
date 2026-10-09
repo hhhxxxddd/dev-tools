@@ -456,6 +456,22 @@ class EngineContractTests(unittest.TestCase):
             engine.start(("api",))
             self.assertIn("api", engine.backend.running)
 
+    def test_stop_during_start_planning_cannot_be_overwritten(self):
+        for engine in self.both():
+            plan = engine.plan()
+
+            def stopped_plan(engine=engine, plan=plan):
+                engine.set_intent(running=False)
+                return plan
+
+            with (
+                patch.object(engine, "plan", side_effect=stopped_plan),
+                self.assertRaises(ProjectError),
+            ):
+                engine.start()
+            self.assertFalse(engine.intent()["running"])
+            self.assertFalse(engine.backend.events)
+
     def test_invalid_configuration_does_not_quiesce_running_services(self):
         for engine in self.both():
             engine.start()
