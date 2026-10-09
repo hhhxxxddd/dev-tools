@@ -64,7 +64,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="docs/releases/$GITHUB_REF_NAME.md"
+          notes="$RUNNER_TEMP/release-notes.md"
+          sed -E "s@\]\(\.\./\.\./([^)]*)\)@](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/\1)@g; s@\]\(\.\./([^)]*)\)@](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/\1)@g" "docs/releases/$GITHUB_REF_NAME.md" > "$notes"
           if gh release view "$GITHUB_REF_NAME" --json isDraft > "$RUNNER_TEMP/release.json"; then
             if python -c 'import json, sys; sys.exit(not json.load(open(sys.argv[1]))["isDraft"])' "$RUNNER_TEMP/release.json"; then
               gh release upload "$GITHUB_REF_NAME" dist/dev-tools-*.zip dist/SHA256SUMS dist/dev-tools.json --clobber
