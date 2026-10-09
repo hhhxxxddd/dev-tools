@@ -6,5 +6,7 @@ __pycache__/
 dist/
 build/
 
-# Machine-local sysinfo overrides and backups.
+# Machine-local overrides and backups; native preferences live outside the checkout.
 *.local.*
+.host-python
+host-mise/

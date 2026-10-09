@@ -1,0 +1,242 @@
+from __future__ import annotations
+
+import hashlib
+import shutil
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from ..i18n import message
+from ..scanner import scan_project
+from . import SCHEMA_VERSION
+from .config import CONFIG_NAME, load_project
+from .detection import _find
+from .drivers import maven_wrapper, spring_artifact
+from .models import ProjectBinding, ProjectError, ProjectSpec, within
+from .toolchain import root_runtime_versions
+
+LOCKFILES = {
+    "npm": ("package-lock.json", "npm-shrinkwrap.json"),
+    "pnpm": ("pnpm-lock.yaml",),
+    "yarn": ("yarn.lock",),
+    "bun": ("bun.lock", "bun.lockb"),
+    "uv": ("uv.lock",),
+}
+
+
+def fingerprint(binding: ProjectBinding) -> str:
+    digest = hashlib.sha256()
+    names = {
+        CONFIG_NAME,
+        "mise.toml",
+        ".mise.toml",
+        "pom.xml",
+        "maven-wrapper.properties",
+        "mvnw",
+        "mvnw.cmd",
+        "package.json",
+        "pnpm-workspace.yaml",
+        "pyproject.toml",
+        "uv.lock",
+        "requirements.txt",
+        "compose.yaml",
+        "compose.yml",
+        "docker-compose.yaml",
+        "docker-compose.yml",
+        *[name for files in LOCKFILES.values() for name in files],
+    }
+    paths = set(_find(binding.source, names))
+    if (binding.source / CONFIG_NAME).is_file():
+        spec = load_project(binding.source, binding.environment)
+        for item in [*spec.tasks.values(), *spec.services.values()]:
+            directory = within(binding.source, item.workdir)
+            paths.update(directory / name for name in names if (directory / name).is_file())
+    for path in sorted(paths):
+        if path.is_file():
+            within(binding.source, path.relative_to(binding.source).as_posix())
+            digest.update(path.relative_to(binding.source).as_posix().encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+@dataclass(frozen=True)
+class PreparationPlan:
+    binding: ProjectBinding
+    spec: ProjectSpec
+    tasks: tuple[str, ...]
+    required_tools: tuple[str, ...]
+    runtime_versions: tuple[str, ...]
+    requirements: Any
+    artifacts: tuple[dict[str, str], ...]
+    unresolved: tuple[str, ...]
+    revision: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "action": "prepare",
+            "name": self.binding.name,
+            "environment": self.binding.environment,
+            "binding": self.binding.as_dict(),
+            "revision": self.revision,
+            "required_tools": list(self.required_tools),
+            "runtime_versions": list(self.runtime_versions),
+            "platform_requirements": asdict(self.requirements),
+            "tasks": [
+                {
+                    "name": name,
+                    "cwd": str(within(self.binding.workspace, self.spec.tasks[name].workdir)),
+                    **self.spec.tasks[name].as_dict(),
+                }
+                for name in self.tasks
+            ],
+            "artifacts": list(self.artifacts),
+            "unresolved": list(self.unresolved),
+            "ready": not self.unresolved,
+        }
+
+
+def preparation_plan(spec: ProjectSpec, binding: ProjectBinding, backend) -> PreparationPlan:
+    scan = scan_project(binding.source)
+    unresolved = [
+        message("{location}: {detail}", location=item.source, detail=item.message)
+        for item in scan.diagnostics
+    ]
+    unresolved.extend(
+        message("conflicting {tool} versions", tool=item.tool) for item in scan.conflicts
+    )
+    requirements = backend.requirements(spec)
+    unresolved.extend(requirements.unresolved)
+    selected = tuple(
+        dict.fromkeys(
+            [name for name, task in spec.tasks.items() if task.role == "prepare"]
+            + [name for service in spec.services.values() for name in service.prepare]
+        )
+    )
+    tasks = spec.task_order(selected)
+    tools: set[str] = set()
+    artifacts = []
+    for item in [*spec.tasks.values(), *spec.services.values()]:
+        tools.update(item.tools)
+        standard = {
+            "npm": "node",
+            "npx": "node",
+            "mvn": "maven",
+            "{maven}": "java",
+            "{python}": "python",
+            "{venv_python}": "python",
+            "node": "node",
+            "java": "java",
+            "uv": "uv",
+            "python": "python",
+            "python3": "python",
+            "pnpm": "pnpm",
+            "yarn": "yarn",
+            "bun": "bun",
+        }
+        if item.command.argv and item.command.argv[0] in standard:
+            tools.add(standard[item.command.argv[0]])
+        if item.command.argv and item.command.argv[0] in {"uv", "pnpm", "yarn", "bun"}:
+            tools.add("python" if item.command.argv[0] == "uv" else "node")
+        if item.command.shell and (
+            item.command.shell not in backend.native_shells
+            or shutil.which(item.command.shell) is None
+        ):
+            unresolved.append(
+                message(
+                    "{name}: shell {shell} is unavailable on {environment}; use a platform override",
+                    name=item.name,
+                    shell=item.command.shell,
+                    environment=binding.environment,
+                )
+            )
+        if "{maven}" in item.command.argv and not maven_wrapper(
+            binding.source, item.workdir, backend.wrapper_filename
+        ):
+            tools.add("maven")
+        if item.command.argv and item.command.argv[0] in {"mvn", "{maven}"}:
+            tools.add("java")
+        within(binding.source, item.workdir)
+        if not within(binding.source, item.workdir).is_dir():
+            unresolved.append(
+                message(
+                    "{name}: workdir does not exist in source: {workdir}",
+                    name=item.name,
+                    workdir=item.workdir,
+                )
+            )
+    for name in tasks:
+        task = spec.tasks[name]
+        files = LOCKFILES.get(task.manager, ())
+        directory = within(binding.source, task.workdir)
+        if files and not any((directory / filename).is_file() for filename in files):
+            unresolved.append(
+                message(
+                    "{name}: {manager} requires a lockfile in {workdir}",
+                    name=name,
+                    manager=task.manager,
+                    workdir=task.workdir,
+                )
+            )
+    for service in spec.services.values():
+        try:
+            artifact = spring_artifact(binding, backend, service)
+            if artifact:
+                artifacts.append(
+                    {"service": service.name, "coordinate": artifact[0], "path": str(artifact[1])}
+                )
+        except ProjectError as exc:
+            unresolved.append(exc.args[0])
+        if service.driver == "compose":
+            for filename in service.options.get("compose", {}).get("files", ["compose.yaml"]):
+                if not within(within(binding.source, service.workdir), filename).is_file():
+                    unresolved.append(
+                        message(
+                            "{name}: missing Compose file: {filename}",
+                            name=service.name,
+                            filename=filename,
+                        )
+                    )
+    ports = [
+        service.health["tcp"] for service in spec.services.values() if service.health.get("tcp")
+    ]
+    if len(ports) != len(set(ports)):
+        unresolved.append(message("services declare duplicate TCP ports; configure separate ports"))
+    runtime_versions = ()
+    if spec.toolchain == "mise":
+        try:
+            runtime_versions = root_runtime_versions(binding.source)
+        except (ProjectError, ValueError) as exc:
+            unresolved.append(exc.args[0])
+        if not scan.existing_config:
+            unresolved.append(message("root mise configuration is missing; run dev-tools init"))
+        unresolved.extend(
+            message("{tool}: {reason}", tool=item.tool, reason=item.reason)
+            for item in scan.unresolved
+        )
+        for name in sorted(tools - set(scan.root_tools)):
+            unresolved.append(message("root mise config has no declaration for: {name}", name=name))
+        if shutil.which("mise") is None:
+            unresolved.append(message("mise is unavailable; run the dev-tools installer"))
+    else:
+        commands = {
+            "java": "java",
+            "node": "node",
+            "python": backend.python_command,
+            "maven": "mvn",
+        }
+        for name in sorted(tools):
+            if shutil.which(commands.get(name, name)) is None:
+                unresolved.append(
+                    message("system tool {name} is unavailable; declare it with mise", name=name)
+                )
+    return PreparationPlan(
+        binding,
+        spec,
+        tasks,
+        tuple(sorted(tools)),
+        runtime_versions,
+        requirements,
+        tuple(artifacts),
+        tuple(dict.fromkeys(unresolved)),
+        fingerprint(binding),
+    )

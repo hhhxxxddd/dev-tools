@@ -1,0 +1,39 @@
+# dev-tools 本机配置；与项目的 dev-tools.toml、mise.toml 分开。
+# 修改后在下次调用时生效。language 仅支持 zh / en，默认中文。
+# 查看生效值及来源：dev-tools config；校验：dev-tools config check。
+language = "zh"
+# 留空：VISUAL > EDITOR > 平台默认编辑器（Windows 记事本、WSL vi）。
+# editor = ["code", "--wait"]
+# 编辑器需要预先安装；配置中每一项是一个参数。
+editor = []
+
+[wsl]
+# 同时用于 Windows -> WSL 项目控制和 Windows report；不是安装器的目标参数。
+# DEV_TOOLS_DISTRO 可以临时覆盖。
+distro = "Ubuntu"
+
+[sysinfo]
+# 可单独关闭任一部分；[] 不执行相应探测。sysinfo 不执行被发现的工具。
+sections = ["system", "directories", "tools"]
+# false 隐藏缺失的工具和目录。
+show_missing = true
+# 省略 tools 使用平台默认清单；填写后整份替换；[] 禁用工具探测。
+# tools = [{ command = "git", description = { zh = "版本控制", en = "Version control" } }]
+# 目录为本机路径；相对路径按本配置文件所在目录解析。
+# command 是可选展示标签，不创建或执行该入口。
+directories = []
+# directories = [{ command = "pro", path = "~/projects", description = "项目目录" }]
+
+[report]
+# 只扫描这里声明的仓库根目录；相对路径按本配置文件所在目录解析。
+# [] 不扫描 Git 仓库；例如 roots = ["~/projects"]。
+roots = []
+# 最大扫描深度 0～5；单项收集超时 1～600 秒。
+max_depth = 2
+timeout = 90
+# 默认刷新可能联网并更新索引；CLI --refresh/--no-refresh 仅覆盖本次运行。
+# 关闭刷新后 npm 更新查询仍可能联网，需要时从 collectors 移除 npm。
+refresh = true
+# 仅内置采集器；WSL 忽略 winget/scoop，Windows 可通过 wsl 采集目标发行版。
+# collectors = [] 完全关闭采集；report 不安装、升级软件或 pull 项目。
+collectors = ["git", "mise", "winget", "scoop", "apt", "npm", "wsl"]

@@ -1,13 +1,10 @@
 [CmdletBinding()]
 param(
-    [string] $Distro = 'Ubuntu',
-    [switch] $InstallWslDevctl,
-    [string] $WslDevctlPath
+    [string] $Distro = 'Ubuntu'
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$parentRoot = Split-Path -Parent $repoRoot
 
 function Invoke-Native {
     param(
@@ -69,6 +66,14 @@ function Invoke-WslInstaller {
     )
 }
 
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw 'Git is required to verify this checkout before bootstrap.'
+}
+$origin = (& git -C $repoRoot remote get-url origin 2>$null)
+if ($LASTEXITCODE -ne 0 -or [string]$origin -notmatch '^(?:git@github\.com:|https://github\.com/)hhhxxxddd/dev-tools(?:\.git)?$') {
+    throw 'Refusing to bootstrap an unverified dev-tools checkout.'
+}
+
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'WSL is not available on this Windows installation.'
 }
@@ -100,77 +105,23 @@ if ! command -v extrepo >/dev/null 2>&1; then
 fi
 extrepo enable mise
 apt-get update
-env DEBIAN_FRONTEND=noninteractive apt-get install -y mise python3
+env DEBIAN_FRONTEND=noninteractive apt-get install -y mise
 '@
     Invoke-WslRootShell -Script $installMise
 }
 
-if (-not (Test-WslCommand python3)) {
-    Write-Host "Installing Python 3 in WSL distro $Distro for the dev-tools installer..."
-    $installPython = @'
-set -euo pipefail
-apt-get update
-env DEBIAN_FRONTEND=noninteractive apt-get install -y python3
-'@
-    Invoke-WslRootShell -Script $installPython
-}
-
 Write-Host 'Installing the PowerShell dev-tools entrypoint...'
-$enableWslDevctlForwarder = $InstallWslDevctl -or (Test-WslCommand wsl-devctl)
-$installArguments = @{
-    Distro = $Distro
-    EnableWslDevctlForwarder = [bool] $enableWslDevctlForwarder
-}
-& (Join-Path $PSScriptRoot 'install.ps1') @installArguments
+& (Join-Path $PSScriptRoot 'install.ps1') -Distro $Distro
 
+if (-not (Test-WslCommand rsync)) {
+    Invoke-WslRootShell -Script 'apt-get update && env DEBIAN_FRONTEND=noninteractive apt-get install -y rsync'
+}
 $wslRepoRoot = Convert-ToWslPath $repoRoot
 Write-Host "Installing the dev-tools entrypoint in WSL distro $Distro..."
 Invoke-WslInstaller -WslRepositoryPath $wslRepoRoot
-
-if ($InstallWslDevctl) {
-    $resolvedWslDevctl = if ($WslDevctlPath) {
-        [IO.Path]::GetFullPath($WslDevctlPath)
-    } else {
-        Join-Path $parentRoot 'wsl-devctl'
-    }
-    if (-not (Test-Path -LiteralPath $resolvedWslDevctl)) {
-        Write-Host "Cloning wsl-devctl into: $resolvedWslDevctl"
-        if (Get-Command gh -ErrorAction SilentlyContinue) {
-            Invoke-Native -FilePath gh -Arguments @(
-                'repo', 'clone', 'hhhxxxddd/wsl-devctl', $resolvedWslDevctl
-            )
-        } elseif (Get-Command git -ErrorAction SilentlyContinue) {
-            Invoke-Native -FilePath git -Arguments @(
-                'clone', 'https://github.com/hhhxxxddd/wsl-devctl.git', $resolvedWslDevctl
-            )
-        } else {
-            throw 'Neither gh nor git is available to clone wsl-devctl.'
-        }
-    }
-    $installer = Join-Path $resolvedWslDevctl 'scripts\install.sh'
-    if (-not (Test-Path -LiteralPath $installer)) {
-        throw "The selected directory is not a wsl-devctl checkout: $resolvedWslDevctl"
-    }
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        throw 'Git is required to verify the wsl-devctl checkout origin.'
-    }
-    $origin = (& git -C $resolvedWslDevctl remote get-url origin 2>$null).Trim()
-    if (
-        $LASTEXITCODE -ne 0 -or
-        $origin -notmatch '^(?:git@github\.com:|https://github\.com/)hhhxxxddd/wsl-devctl(?:\.git)?$'
-    ) {
-        throw "Refusing to execute an unverified wsl-devctl checkout: $resolvedWslDevctl"
-    }
-    $wslDevctlRoot = Convert-ToWslPath $resolvedWslDevctl
-    Write-Host "Installing wsl-devctl in WSL distro $Distro..."
-    Invoke-WslInstaller -WslRepositoryPath $wslDevctlRoot
-}
 
 Write-Host ''
 Write-Host 'Bootstrap complete.' -ForegroundColor Green
 Write-Host 'Restart PowerShell or run: . $PROFILE'
 Write-Host 'Command overview: dev-tools help'
-Write-Host 'Verify mise on Windows and WSL with: dev-tools status'
-if ($InstallWslDevctl) {
-    Write-Host 'Chinese help is available with: wsl-devctl help'
-}
+Write-Host 'Machine information: dev-tools sysinfo; mise diagnostics: mise doctor'

@@ -1,0 +1,18 @@
+# 复制为项目根 dev-tools.toml；根据实际应用修改模块名。
+# Python 版本由根级 mise 文件声明，.venv 由 prepare 任务创建。
+schema = 1
+name = "generic"
+toolchain = "mise"
+rebuild_on_branch = true
+
+[tasks.venv]
+command = ["{python}", "-m", "venv", ".venv"]
+tools = ["python"]
+
+[services.app]
+command = ["{venv_python}", "-m", "app"]
+prepare = ["venv"]
+tools = ["python"]
+
+[services.app.python]
+root = "."

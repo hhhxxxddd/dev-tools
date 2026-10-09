@@ -9,6 +9,63 @@ from dev_tools.scanner import render_mise, scan_project
 
 
 class ScannerTests(unittest.TestCase):
+    def test_unsafe_ranges_are_reported_without_selecting_a_version(self) -> None:
+        for tool, raw in (
+            ("node", "<20"),
+            ("node", "^18 || >=22"),
+            ("node", ">=22,<20"),
+            ("python", "<3.12"),
+        ):
+            with self.subTest(tool=tool, raw=raw), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                if tool == "node":
+                    (root / "package.json").write_text(json.dumps({"engines": {tool: raw}}))
+                else:
+                    (root / "pyproject.toml").write_text(f'[project]\nrequires-python="{raw}"\n')
+                result = scan_project(root)
+                self.assertNotIn(tool, result.tools)
+                self.assertEqual(result.unresolved[0].raw, raw)
+
+    def test_lower_bound_and_caret_do_not_select_versions_below_the_minimum(self) -> None:
+        for raw, expected in (
+            (">=22.1.5 <23", "22.1.5"),
+            ("^22.1.0", "22.1"),
+            ("^0.0.0", "0.0.0"),
+            (">=22,<22.5", "22.0.0"),
+        ):
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / "package.json").write_text(json.dumps({"engines": {"node": raw}}))
+                self.assertEqual(scan_project(root).tools["node"].version, expected)
+
+    def test_required_tools_without_versions_are_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "package.json").write_text('{"scripts":{"dev":"vite"}}')
+            (root / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n")
+            (root / "uv.lock").write_text('version=1\nrequires-python=">=3.12"\n')
+            result = scan_project(root)
+            self.assertEqual({item.tool for item in result.unresolved}, {"node", "pnpm", "uv"})
+            self.assertEqual(result.as_dict()["schema_version"], 3)
+
+    def test_explicit_version_supersedes_an_unsupported_lower_priority_range(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".nvmrc").write_text("18.20.0\n")
+            (root / "package.json").write_text('{"engines":{"node":"^18 || >=22"}}')
+            result = scan_project(root)
+            self.assertEqual(result.tools["node"].version, "18.20.0")
+            self.assertFalse(result.unresolved)
+            self.assertTrue(result.warnings)
+
+    def test_bun_package_manager_version_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "package.json").write_text(
+                '{"packageManager":"bun@1.2.3","engines":{"node":"22"}}'
+            )
+            self.assertEqual(scan_project(root).tools["bun"].version, "1.2.3")
+
     def test_spring_wrapper_and_frontend_generate_project_tools(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -40,7 +97,7 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(result.tools["node"].version, "22")
             self.assertEqual(result.tools["pnpm"].version, "10.15.1")
             self.assertNotIn("maven", result.tools)
-            self.assertEqual(result.wrappers["maven"]["version"], "3.9.9")
+            self.assertEqual(result.wrappers["maven"].version, "3.9.9")
             self.assertFalse(result.conflicts)
             content = render_mise(result)
             self.assertIn('java = "temurin-21"', content)

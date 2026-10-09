@@ -3,113 +3,77 @@ from __future__ import annotations
 import json
 import os
 import platform
-import re
 import shutil
-import sys
 from pathlib import Path
 
-DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config/sysinfo.local.json"
-PROBE_COMMANDS = (
-    "git",
-    "mise",
-    "node",
-    "python",
-    "python3",
-    "uv",
-    "pnpm",
-    "winget",
-    "scoop",
-    "wsl",
-)
+from .i18n import language, t
+from .presentation import label
+from .settings import Settings, load_settings, native_path
 
 
-def _label(value: object) -> str:
-    # Local labels are plain text, never commands or terminal escape sequences.
+def _description(value: str | dict) -> str:
     return (
-        "".join(char for char in value if char.isprintable())[:200]
-        if isinstance(value, str)
-        else ""
+        value.get(language(), value.get("zh", value.get("en", "")))
+        if isinstance(value, dict)
+        else value
     )
 
 
-def collect_sysinfo(config_path: str | Path | None = None) -> dict:
-    """Inspect only platform metadata, PATH availability, and explicitly configured directories.
+def collect_sysinfo(
+    config_path: str | Path | None = None, *, settings: Settings | None = None
+) -> dict:
+    """Read platform metadata, PATH availability and configured directories only.
 
-    Never execute discovered tools, load shell profiles, scan projects, read SSH files,
-    or include arbitrary config/environment fields in the result.
+    Never execute tools, profiles or project code, or read arbitrary personal fields.
+    Disabled sections perform no probes. Configured lists replace native defaults.
     """
-    path = Path(config_path or os.environ.get("DEV_TOOLS_SYSINFO_CONFIG") or DEFAULT_CONFIG)
-    config: dict = {}
-    state = "missing"
-    warnings: list[str] = []
-    try:
-        content = json.loads(path.read_text(encoding="utf-8-sig"))
-        if not isinstance(content, dict):
-            raise TypeError("config must be an object")
-        config = content
-        state = "loaded"
-    except FileNotFoundError:
-        pass
-    except OSError, ValueError, TypeError:
-        state = "invalid"
-        warnings.append("本机配置无法读取或格式无效；已回退到通用只读探测。")
-
-    directories = []
-    native_key = "windows" if os.name == "nt" else "wsl"
-    entries = config.get("directories", [])
-    if not isinstance(entries, list):
-        entries = []
-        warnings.append("directories 应为列表；已忽略。")
-    for item in entries:
-        if not isinstance(item, dict):
-            continue
-        raw_path = item.get(native_key)
-        if not isinstance(raw_path, str) or not raw_path:
-            continue
-        directory = Path(raw_path).expanduser()
-        try:
-            exists = directory.is_dir()
-        except OSError:
-            exists = False
-        directories.append(
-            {
-                "command": _label(item.get("command")),
-                "description": _label(item.get("description")),
-                "path": str(directory),
-                "exists": exists,
-            }
-        )
-
-    tools = []
-    entries = config.get("tools", [])
-    if not isinstance(entries, list):
-        entries = []
-        warnings.append("tools 应为列表；已忽略。")
-    for item in entries:
-        if not isinstance(item, dict):
-            continue
-        command = item.get("command")
-        if not isinstance(command, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", command):
-            continue
-        tools.append({"command": command, "description": _label(item.get("description"))})
-
-    # Command availability refers only to PATH, not shell functions or service health.
-    return {
-        "system": {
+    settings = settings or load_settings(config_path)
+    cfg = settings.data["sysinfo"]
+    sections = cfg["sections"]
+    system = (
+        {
             "os": platform.system(),
             "release": platform.release(),
             "architecture": platform.machine(),
             "cpu_count": os.cpu_count(),
             "python": platform.python_version(),
-        },
-        "config_state": state,
+        }
+        if "system" in sections
+        else {}
+    )
+    directories = []
+    if "directories" in sections:
+        for item in cfg["directories"]:
+            path = native_path(item["path"], settings.path.parent)
+            try:
+                exists = path.is_dir()
+            except OSError:
+                exists = False
+            if exists or cfg["show_missing"]:
+                directories.append(
+                    {
+                        "command": item["command"],
+                        "description": _description(item["description"]),
+                        "path": str(path),
+                        "exists": exists,
+                    }
+                )
+    tools, commands = [], []
+    if "tools" in sections:
+        for item in cfg["tools"]:
+            available = shutil.which(item["command"]) is not None
+            if available or cfg["show_missing"]:
+                tools.append(
+                    {"command": item["command"], "description": _description(item["description"])}
+                )
+                commands.append({"command": item["command"], "available_on_path": available})
+    return {
+        "system": system,
+        "config_state": settings.state,
+        "sections": sections,
         "directories": directories,
         "tools": tools,
-        "commands": [
-            {"command": command, "available_on_path": shutil.which(command) is not None}
-            for command in PROBE_COMMANDS
-        ],
-        "warnings": warnings,
+        "commands": commands,
     }
 
 
@@ -118,21 +82,22 @@ def print_sysinfo(result: dict, *, as_json: bool = False) -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     system = result["system"]
-    print(f"系统：{system['os']} {system['release']} ({system['architecture']})")
-    print(f"CPU 逻辑核心：{system['cpu_count']}；当前 Python：{system['python']}")
-    print(f"本机配置：{result['config_state']}")
-    for directory in result["directories"]:
-        marker = "OK" if directory["exists"] else "不存在"
-        print(
-            f"  [{marker}] {directory['command']} {directory['path']} ({directory['description']})"
-        )
-    if result["tools"]:
-        print("配置的工具入口（不验证 shell 函数或服务）：")
-        for tool in result["tools"]:
-            print(f"  {tool['command']}：{tool['description']}")
-    print("PATH 命令可用性（不执行命令或检查更新）：")
-    for command in result["commands"]:
-        marker = "OK" if command["available_on_path"] else "--"
-        print(f"  [{marker}] {command['command']}")
-    for warning in result["warnings"]:
-        print(f"警告：{warning}", file=sys.stderr)
+    if system:
+        print(t("系统：{os} {release} ({architecture})", **system))
+        print(t("CPU 逻辑核心：{cpu_count}；当前 Python：{python}", **system))
+    print(t("本机配置：{state}", state=label(result["config_state"])))
+    if "directories" in result["sections"]:
+        print(t("目录检查："))
+        for directory in result["directories"]:
+            marker = t("存在") if directory["exists"] else t("不存在")
+            print(
+                f"  [{marker}] {directory['command']} {directory['path']} ({directory['description']})"
+            )
+    if "tools" in result["sections"]:
+        print(t("PATH 命令可用性（不执行命令或检查更新）："))
+        descriptions = {item["command"]: item["description"] for item in result["tools"]}
+        for command in result["commands"]:
+            marker = t("可用") if command["available_on_path"] else t("未找到")
+            description = descriptions[command["command"]]
+            suffix = f" ({description})" if description else ""
+            print(f"  [{marker}] {command['command']}{suffix}")

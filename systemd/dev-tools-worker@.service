@@ -1,0 +1,13 @@
+[Unit]
+Description=dev-tools project worker %i
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/dev-tools/scripts/dev-tools -e wsl _worker %i
+Restart=no
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

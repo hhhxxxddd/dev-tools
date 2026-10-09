@@ -1,0 +1,16 @@
+# 复制为项目根 dev-tools.toml；要求已有 compose.yaml。
+# 项目业务服务在 Compose 文件中声明，dev-tools 不推断 Redis/MySQL。
+schema = 1
+name = "compose-app"
+toolchain = "mise"
+
+[services.stack]
+driver = "compose"
+
+[services.stack.compose]
+files = ["compose.yaml"]
+build = true
+pull = false
+
+[services.stack.health]
+timeout = 60

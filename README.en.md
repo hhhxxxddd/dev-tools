@@ -1,202 +1,258 @@
 # dev-tools
 
-[简体中文](README.md) · **English**
+[中文](README.md)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+Discover projects, prepare development environments and control services with the same commands on Windows and WSL.
+Projects share version and workflow declarations; runtimes, packages, caches and process supervision remain native to each platform.
 
-`dev-tools` is a project toolchain entrypoint for Windows and WSL. It detects Java, Node.js,
-Python, Maven, and package-manager versions from files already in a project, generates a
-project-level `mise.toml`, and installs missing versions only when preparation is explicitly
-requested.
-
-## Design boundaries
-
-- Never create or install global project defaults for Java, Node.js, Python, Maven, or other
-  runtimes.
-- `scan` and `init` parse known metadata only. They do not execute project code or download
-  runtimes.
-- Only an explicit `project prepare` call may ask mise to install versions.
-- Windows and WSL share project declarations while keeping native binaries and caches separate.
-- `dev-tools` uses platform-native Python 3.14.8 for its own scanner. Its host runtime lookup
-  does not inherit a project's Python version selection.
-- Codex and CodeGraph are Windows operator CLIs with a separate config and host Node;
-  `project prepare` explicitly ignores that config.
-
-## Command help
-
-Start with these entrypoints:
-
-```powershell
-dev-tools help
-dev-tools project --help
-dev-tools project prepare --help
-```
-
-| Command | Writes files | Downloads | Purpose |
-|---|---:|---:|---|
-| `dev-tools --version` | No | No | Show the current version |
-| `dev-tools status` | No | No | Check mise on Windows and WSL |
-| `dev-tools doctor` | No | No | Run mise diagnostics on both sides |
-| `dev-tools cli status` | No | No | Inspect Windows operator CLIs |
-| `dev-tools cli install` | No | Yes | Explicitly install missing operator CLIs |
-| `dev-tools cli outdated` | No | No | Check operator CLI updates |
-| `dev-tools cli upgrade` | No | Yes | Explicitly update operator CLIs |
-| `dev-tools project scan [PATH]` | No | No | Report project versions, sources, and conflicts |
-| `dev-tools project init [PATH]` | Maybe | No | Generate a root `mise.toml` when missing |
-| `dev-tools project prepare [PATH] --dry-run` | No | No | Preview versions required by this project |
-| `dev-tools project prepare [PATH]` | No | Yes | Install missing versions declared by this project |
-
-Commands use the current directory when `PATH` is omitted. PowerShell `status` and `doctor`
-check Windows and the `Ubuntu` WSL distribution by default; pass `-Distro` to select another
-distribution. The WSL entrypoint checks the current WSL environment only.
-
-
-The Windows installer links the repository's operator CLI fragment into the personal mise "conf.d/windows-cli-tools" directory instead of copying version declarations. Personal global runtime configuration stays outside the repository. Only legacy global overrides owned by dev-tools are removed; CLI operations and project preparation retain their explicit isolated configurations.
+Version **0.4.0**; scan and project commands use JSON schema **3**, and `dev-tools.toml` uses schema **1**.
 
 ## Installation
 
-Clone the repository somewhere accessible from both Windows and WSL:
+### Install both Windows and WSL entrypoints
+
+You need PowerShell 7, Git and an existing WSL distribution. WSL service control requires a running systemd.
+An existing Windows mise installation is used directly; otherwise, Scoop must already be available.
+Automatic mise installation in WSL uses Debian/Ubuntu extrepo/APT sources.
 
 ```powershell
 git clone https://github.com/hhhxxxddd/dev-tools.git
 cd dev-tools
 .\scripts\bootstrap.ps1
+. $PROFILE
+dev-tools help
 ```
 
-Install the companion
-[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) at the same time:
+Bootstrap defaults to Ubuntu; use `-Distro <distribution>` for another distro. It verifies the checkout's Git origin before installing missing mise and deploying the host and entrypoints. It does not install WSL or Scoop. The runtime target still comes from `[wsl].distro` in your preferences; update that setting when using another distribution.
 
-```powershell
-.\scripts\bootstrap.ps1 -InstallWslDevctl
-```
+### Install each entrypoint separately
 
-Bootstrap will:
-
-1. Install Windows mise through Scoop when missing.
-2. Install WSL mise and Python 3 through `extrepo + apt` when missing.
-3. Install the `dev-tools` command entrypoint on Windows and WSL.
-4. Install the private Windows Python used only by the `dev-tools` scanner.
-5. Optionally install `wsl-devctl` and create its PowerShell forwarding command.
-
-It does not scan projects, install project runtimes, or automatically install Windows operator
-CLIs. Run `dev-tools cli install` explicitly when those CLIs are wanted.
-
-Install only one command entrypoint when needed:
+On Windows with mise already installed:
 
 ```powershell
 .\scripts\install.ps1
+. $PROFILE
 ```
+
+In WSL with mise, rsync and systemd already available:
 
 ```bash
 sudo bash scripts/install.sh
+dev-tools help
 ```
 
-## Project workflow
+The controller runs on Python **3.14.8**, independently of any project's Python. The Windows entrypoint references the current checkout. WSL copies the program to `/opt/dev-tools`, keeps its host in `/opt/dev-tools/host-mise`, and installs `/usr/local/bin/dev-tools`. Installers leave user-global mise tool declarations alone and do not register or start projects.
 
-### 1. Inspect detected versions
+To update, run `git pull --ff-only` in the source checkout and rerun the corresponding installer. Rerunning bootstrap updates both deployments.
+Uninstall with `scripts/uninstall.ps1` or `sudo bash scripts/uninstall.sh`. WSL uninstallation stops active workers and removes the entrypoint and systemd templates. Project declarations, registrations, state, caches and runtimes are preserved.
 
-```powershell
-dev-tools project scan E:\Projects\MyProjects\some-project
-dev-tools project scan E:\Projects\MyProjects\some-project --json
+## Start with a project
+
+Run in the project's source directory:
+
+```text
+dev-tools scan
+dev-tools init --dry-run
+dev-tools init
+dev-tools register
+dev-tools prepare --dry-run --json
+dev-tools prepare
+dev-tools start
+dev-tools status
+dev-tools list
 ```
 
-### 2. Generate a project declaration
+1. `scan` parses version declarations from known metadata. `init` creates missing dev-tools.toml and root mise declarations. Both parse project metadata without running project code, package scripts, wrappers or downloaded content; the only writes during init create missing declarations.
+2. Review generated versions, startup arguments, ports and health checks. Existing files are preserved. Unresolved versions, equal-priority conflicts and invalid metadata include their source locations; address those diagnostics first.
+3. `register` creates a native binding. `prepare --dry-run` validates the same plan used for execution. Only explicit prepare installs project runtimes and prepares packages and framework artifacts.
+4. `start` launches prepared services and monitors. When declarations, lockfiles or relevant build metadata change, follow the diagnostics and prepare again. Startup never fills in missing runtimes.
 
-```powershell
-dev-tools project init E:\Projects\MyProjects\some-project --dry-run
-dev-tools project init E:\Projects\MyProjects\some-project
+Discovery supports Node package workspaces, Maven/Spring Boot, Python/uv and existing Compose declarations. Scanning also reads version metadata such as Gradle files, without promising generated workflows for every detected build system. Edit declarations for complex projects, or consult the [project reference](docs/project-config.en.md) and [examples](examples/README.md).
+
+`init --runtime auto|host|compose` chooses workflow discovery; the default auto favors existing Compose. `init --toolchain system` uses installed system tools. The default mise selects runtimes from root project declarations.
+
+### Choose Windows or WSL
+
+Project commands accept `-e win|wsl`, also spelled `--env`. Omission selects the current platform. Place the environment option before or after the command:
+
+```text
+dev-tools -e wsl register .
+dev-tools prepare my-app -e wsl --dry-run
+dev-tools -e wsl prepare my-app
+dev-tools -e wsl start my-app
+dev-tools -e win list
 ```
 
-An existing root `mise.toml` or `.mise.toml` is preserved byte-for-byte. Equal-priority version
-conflicts stop generation and are reported.
+Cross-platform calls translate paths and preserve the caller's working directory. CLI values use win; shared configuration overlays and JSON platform identifiers use windows.
 
-### 3. Install project versions
+Native WSL register, prepare, start, stop, restart, sync, build, rename and unregister require root: use `sudo dev-tools ...`. Prepare previews and read-only operations do not require root. Windows forwarding runs WSL control as root and registers projects for the distro's default user unless `register --user` selects another user. Native Windows operations use the current user.
 
-```powershell
-dev-tools project prepare E:\Projects\MyProjects\some-project --dry-run
-dev-tools project prepare E:\Projects\MyProjects\some-project
+PATH defaults to the current directory for scan/init/register. Other project commands may omit NAME only when the current directory uniquely matches a registration's source or native workspace, including descendants, in the selected platform. Zero or multiple matches require an explicit name.
+
+## Commands
+
+Project commands live directly at the top level. `dev-tools` or `dev-tools help` lists all commands. Use `dev-tools help <command>` or `dev-tools <command> --help` for its arguments.
+
+| Command | Purpose and main options |
+|---|---|
+| `scan [PATH]` | Statically identify tool versions and diagnostics; `--json` |
+| `init [PATH]` | Create missing declarations; `--dry-run`, `--name`, `--runtime`, `--toolchain`, `--json` |
+| `register [PATH]` | Create a native binding; `--name`, `--user` (WSL), `--force`, `--json` |
+| `list` | List projects and state for the selected platform; `--json` |
+| `show [NAME]` | Show the declaration and native binding; `--json` |
+| `prepare [NAME]` | Install and prepare the project; `--dry-run`; `--json` requires `--dry-run` |
+| `start [NAME]` | Start services and monitors; `--service` includes its dependencies; `--json` |
+| `stop [NAME]` | Stop all project services and monitors; `--json` |
+| `restart [NAME]` | Restart project services and monitors; `--json` |
+| `status [NAME]` | Show preparation fingerprints, services, health and recovery; `--json` |
+| `logs [NAME] SERVICE` | Service or `__sync`/`__watch` logs; `--task`, `--lines`, `--follow` |
+| `sync [NAME]` | Manually synchronize source to the native workspace; `--json` |
+| `build [NAME]` | Build with prepared runtimes; `--service`, `--kind branch\|source\|resource\|structural`, `--json` |
+| `rename [NAME] NEW_NAME` | Change the native alias and restore previously active services; `--json` |
+| `unregister [NAME]` | Stop services and monitors, then remove the registration; `--purge` (WSL only), `--json` |
+| `config [edit\|check]` | Show, edit or validate controller preferences; `--json` for showing and checking |
+| `sysinfo` | Read current machine information, configured directories and PATH tools; `--json` |
+| `report` | Gather Git and software information; `--refresh`/`--no-refresh`, `--timeout`, `--output`, `--json` |
+| `help [COMMAND]` | Show all commands or help for one command |
+
+All commands accept `--config FILE`; `dev-tools --version` shows the program version. Config/sysinfo/report run on the current platform and reject the project-only -e option.
+
+Logs always requires a service or task name; rename always requires the new alias. `register --force` allows another binding for the same source and runtime user without overwriting conflicting bindings.
+Unregister preserves source, state, caches and runtimes by default. WSL `--purge` only deletes a validated native workspace. Windows does not support purging source.
+
+## Three configurations and native bindings
+
+| File | Responsibility | Location |
+|---|---|---|
+| `config.toml` | Controller language, editor, information display, report and WSL distribution preferences | Each platform's user configuration directory |
+| `dev-tools.toml` | Tasks, services, dependency graphs, build and sync policies | Project root; commit to the project |
+| `mise.toml` / `.mise.toml` | Project runtime versions | Project root; commit to the project |
+| Registration JSON | Source, native workspace, runtime user and storage identity | Each platform's native registry |
+
+Preparation uses explicit versions from the target project's root mise files. Existing root files are preserved; equal-priority conflicts between the two filenames are rejected. Controller preferences, user-global mise defaults, ancestor declarations and nested version declarations cannot replace root versions.
+Shared declarations exclude machine source paths, usernames and cache roots. Windows and WSL may read the same source declaration while keeping executables, virtual environments, packages and build outputs separate.
+
+### Controller preferences
+
+```text
+dev-tools config
+dev-tools config edit
+dev-tools config check
+dev-tools config --json
 ```
 
-`prepare` requires an existing root `mise.toml` or `.mise.toml`. It explicitly runs
-`mise install` in the target project context and never installs repository-wide global defaults.
+The default file is `%LOCALAPPDATA%/dev-tools/config.toml` on Windows. WSL uses `$XDG_CONFIG_HOME/dev-tools/config.toml`, or `~/.config/dev-tools/config.toml` when XDG is unset. Under sudo, WSL uses the invoking user's preferences and runs the editor as that user.
 
-## Recognized declarations
+File precedence is `--config FILE` > `DEV_TOOLS_CONFIG` > native default path. Place --config before or after the command. Missing files use defaults; only config edit creates a template. Invalid files fail clearly while help and config showing/editing/checking remain available. Unknown fields are rejected. Relative configured directories resolve against the file's parent.
 
-- mise: `mise.toml`, `.mise.toml`, and `.tool-versions`.
-- Java: `.java-version`, `.sdkmanrc`, Maven POM files, and Gradle toolchains.
-- Maven: Maven Wrapper; no duplicate Maven declaration is generated when a wrapper exists.
-- Node.js: `.nvmrc`, `.node-version`, and `package.json` engines, devEngines, or Volta.
-- Package managers: npm, pnpm, and Yarn versions from `packageManager`, engines, or Volta.
-- Python: `.python-version`, `pyproject.toml`, `uv.lock`, and uv version requirements.
+```toml
+language = "zh"
+editor = []
 
-The scanner parses known text, TOML, JSON, and XML only. Version ranges become reviewable broad
-versions, such as `>=3.11` to `python = "3.11"`.
+[wsl]
+distro = "Ubuntu"
 
-## Working with wsl-devctl
+[sysinfo]
+sections = ["system", "directories", "tools"]
+show_missing = true
+# Omit tools for native defaults; an explicit list replaces them, [] disables them.
+# tools = [{ command = "git", description = { zh = "版本控制", en = "Version control" } }]
+directories = []
 
-`dev-tools` discovers, generates, and explicitly installs project tool versions.
-[`wsl-devctl`](https://github.com/hhhxxxddd/wsl-devctl) mirrors Windows source into WSL ext4 and
-manages builds, systemd processes, and live reload.
-
-```bash
-dev-tools project init /mnt/e/Projects/CompanyProjects/order-service
-wsl-devctl init /mnt/e/Projects/CompanyProjects/order-service \
-  --toolchain mise --fix --start
+[report]
+roots = []
+max_depth = 2
+timeout = 90
+refresh = true
+collectors = ["git", "mise", "winget", "scoop", "apt", "npm", "wsl"]
 ```
 
-`wsl-devctl` can also invoke `dev-tools` while registering a project:
+See the [annotated template](config/settings.example.toml).
 
-```bash
-wsl-devctl init /mnt/e/Projects/CompanyProjects/order-service \
-  --toolchain mise --generate-mise --fix --start
+- **Language:** Chinese zh is the default; set en for English on the next invocation. There is no language flag or public language environment variable. Help, notices and controller diagnostics follow the setting. Third-party output, user text, JSON keys and status identifiers keep their original values. Cross-platform commands carry the resolved caller language while settings files remain separate.
+- **Editor:** a nonempty editor argv array > VISUAL > EDITOR > Notepad on Windows / vi in WSL. For example, `editor = ["code", "--wait"]`; the editor must already be installed. The file is validated when the editor returns. GUI launchers may return early; run config check after saving if needed.
+- **Distribution:** `[wsl].distro` selects the same distro for project forwarding and Windows reports. `DEV_TOOLS_DISTRO` temporarily overrides it. Installer-generated PowerShell functions do not pin a distro.
+- **Sysinfo:** sections chooses displayed groups; tools supplies PATH probes, descriptions and ordering; directories lists native paths and optional entrypoint names. Descriptions can be strings or `{ zh = "...", en = "..." }`. `show_missing = false` hides missing items. Disabled groups perform no probes. Tools are never executed and PowerShell profiles are not read.
+- **Report:** roots chooses Git repository discovery scope; the default [] scans no repositories. max_depth is 0–5, and per-command timeout is 1–600 seconds, defaulting to 90. An explicit `collectors = []` executes no collectors. CLI timeout and refresh options override this invocation only.
+
+### Report collection and refresh
+
+```text
+dev-tools sysinfo --json
+dev-tools report --no-refresh
+dev-tools report --json --output report.json
 ```
 
-## Upgrade, uninstall, and tests
+| Collector | Behavior |
+|---|---|
+| git | Discover repositories in roots and inspect worktree, branch and remote differences; refresh fetches refs without pulling |
+| mise | Read installed native tool versions; also query the target distro when wsl is enabled |
+| winget | Query available Windows application updates; skipped without refresh to avoid automatic source updates |
+| scoop | Read Windows application status; refresh updates Scoop/bucket indexes without updating installed apps |
+| apt | List upgradable WSL packages; refresh updates APT indexes using noninteractive sudo when not root, recording permission failures |
+| npm | Read global packages and query updates for extra packages, excluding mise-managed packages, npm and corepack |
+| wsl | Allow Windows to run enabled mise/APT/npm collectors in the configured distro |
 
-After updating the repository, rerun the relevant installer to refresh the entrypoint. Remove
-entrypoints with `scripts/uninstall.ps1` or `scripts/uninstall.sh`; installed project runtimes
-and caches are preserved.
+Report refreshes by default and may use the network or update local indexes. It never installs or upgrades software and accepts only built-in collectors.
+`--no-refresh` disables Git fetch and index refresh, but npm update queries may still use the network; remove npm from collectors when those queries are unwanted. npm update queries are skipped when the mise-managed inventory cannot be determined. WSL skips Windows collectors.
+
+## Lifecycle and platform boundaries
+
+The same Python worker handles dependencies, health, restart policies, monitoring and recovery on both platforms. Dependencies start and become ready first; stop reverses the graph. Failed startup rolls back newly started processes. Native process services without health probes have health unknown; Compose also checks container state and container-reported health.
+
+After validating its plan, prepare stops previously active workers, prepares native prerequisites and root runtimes, synchronizes source, runs tasks, prepares Compose images and Spring classpaths, then restores the active set. Failures save progress and recovery records. Prepare again after fixing the cause. Explicit stop cancels pending restoration intent.
+
+Source builds keep services running. Resource/structural builds stop affected services and dependents, build and restore them. Branch/HEAD changes wait for Git operations and files to settle before running declared package refreshes and builds. Background workers never install runtimes or download Spring DevTools JARs. Manual operations wait up to 15 seconds for the project lock; background operations yield when the project is busy.
+
+| Content | Windows | WSL |
+|---|---|---|
+| Registrations | `%LOCALAPPDATA%/dev-tools/projects.d` | `/etc/dev-tools/projects.d` |
+| State and logs | `%LOCALAPPDATA%/dev-tools/state` | `/var/lib/dev-tools` |
+| Workspace | Original source directory | Independent directory under the runtime user's `~/.cache/dev-tools/build` |
+| Supervision | Hidden processes with PID/start-time validation | Generic `dev-tools-worker@.service` template |
+| Source sync | Use source directly | rsync excluding Git, packages and native build outputs |
+
+WSL prepare can supply Git, rsync, runtime-user tools and requested Docker/Compose prerequisites. Windows requires a configured, reachable native Docker engine.
+Business services such as Redis/MySQL are declared by the project rather than inferred or installed automatically. This repository operates independently and does not read or migrate wsl-devctl registrations.
+Rename preserves caches, state and Maven/Compose storage identities. A valid snapshot still allows stop/unregister when the current declaration is broken.
+
+## Structure and verification
+
+```text
+src/dev_tools/
+  cli.py, command_help.py                  Command definitions and localized help
+  settings.py, i18n.py, locales/           Controller preferences and translations
+  scanner.py, metadata.py, versions.py     Static metadata and version discovery
+  project_models.py, workflows.py          Scan models, initialization and mise isolation
+  projects/                               Declarations, plans, execution, drivers, lifecycle and workers
+  runtimes/router.py                      Cross-environment command and path transport
+  runtimes/platforms/                     Native storage, users, sync, processes and systemd
+scripts/                                  Installation, entrypoints and process adapters
+systemd/                                  Generic worker template
+```
+
+Python has no third-party runtime dependencies and supports `>=3.14.8,<3.15`. Use native Python and add src to PYTHONPATH for development checks.
+
+Windows:
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-$python = Join-Path "$(mise where python@3.14.8)" python.exe
-& $python -m unittest discover -s tests -t . -v
+python -m unittest discover -v tests
+uvx ruff check src tests
+uvx ruff format --check src tests
 ```
 
-## License
+WSL:
 
-Licensed under the [MIT License](LICENSE).
+```bash
+export PYTHONPATH="$PWD/src"
+python3 -m unittest discover -v tests
+uvx ruff check src tests
+uvx ruff format --check src tests
+```
 
-## Machine information
+Entrypoint changes also require checking `scripts/dev-tools.ps1` and `scripts/dev-tools`. Parse every PowerShell installer before testing bootstrap changes. Maintenance boundaries are in [AGENTS.md](AGENTS.md).
 
-Run `dev-tools sysinfo` or `dev-tools sysinfo --json` for read-only platform metadata,
-CPU count, the current Python version, and common command availability on PATH. It does not
-execute discovered tools, access the network, install software, start WSL/services, load shell
-profiles, or scan projects. Windows uses the existing private Python; WSL uses its existing Python.
+Real verification scripts use temporary registrations, state and caches: `tests/integration/lifecycle_smoke.py` checks HTTP services, hot builds, recovery and rename; `toolchain_smoke.py` uses installed Java/Node/Python/Maven; `transport_smoke.py` checks bidirectional paths, implicit names, help, preferences and language from Windows. WSL lifecycle tests require root and systemd. Toolchain tests add no runtime versions; transport tests require both entrypoints installed.
 
-Optional configuration lives in the ignored `config/sysinfo.local.json` in this checkout.
-Use `DEV_TOOLS_SYSINFO_CONFIG` for a machine-specific location, or `--config PATH` to override it.
-Missing/invalid configuration safely falls back to generic detection without writing a file.
-JSON reports `config_state` as missing, invalid, or loaded. New machines need no personal config.
-Start with the empty `config/sysinfo.example.json` if custom entries are needed.
-
-`directories` entries accept command, description, windows, and wsl; only the current platform's
-directory is checked. `tools` entries accept command and description and are displayed as an index.
-PATH availability does not validate shell functions, versions, updates, or service health.
-SSH, key, proxy, credential, and unknown fields are ignored in both text and JSON outputs.
-Keep secrets out of labels and paths, and never commit local configuration.
-
-The optional `scripts/dev-info.ps1` and `scripts/dev-info` compatibility wrappers forward to
-sysinfo without reading the former control repository. No runtime reinstallation is required.
-
-## Daily repository and software report
-
-`dev-tools report` refreshes Git refs and package indexes, without pull, installation,
-upgrades or accepting new source agreements. Copy `config/report.example.json` to the
-ignored per-machine `config/report.local.json`; set explicit `roots.windows` and
-`roots.wsl`. Discovery is bounded and does not read Codex registrations or trusted paths.
-Use `--json --output PATH` to save structured output, `--timeout 90` for per-command
-limits, or `--no-refresh` to retain cached Git/APT/Scoop data (CLI outdated still queries
-versions). Windows also checks winget, Scoop and the selected WSL distro. WSL runs Linux
-collectors only. Failures are isolated and cached results are marked. `sysinfo` stays
-read-only. Do not place credentials in configuration or reports.
+[MIT License](LICENSE)

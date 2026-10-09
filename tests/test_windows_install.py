@@ -10,7 +10,7 @@ from pathlib import Path
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "Windows PowerShell required")
 class WindowsInstallerTests(unittest.TestCase):
-    def test_reinstall_preserves_personal_config_and_links_single_cli_source(self) -> None:
+    def test_install_and_uninstall_only_manage_host_and_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             repo = root / "repo"
@@ -18,9 +18,9 @@ class WindowsInstallerTests(unittest.TestCase):
             scripts.mkdir(parents=True)
             installer = scripts / "install.ps1"
             shutil.copyfile(Path(__file__).parents[1] / "scripts/install.ps1", installer)
-            cli = repo / "config/windows-cli-tools/mise.toml"
-            cli.parent.mkdir(parents=True)
-            cli.write_text('[tools]\nnode = "latest"\n', encoding="utf-8")
+            shutil.copyfile(
+                Path(__file__).parents[1] / "scripts/uninstall.ps1", scripts / "uninstall.ps1"
+            )
             personal = root / "personal.toml"
             personal.write_text('[tools]\njava = "25"\n', encoding="utf-8")
             profile = root / "profile.ps1"
@@ -35,17 +35,25 @@ $ErrorActionPreference = 'Stop'
 $env:USERPROFILE = $UserRoot
 $env:MISE_GLOBAL_CONFIG_FILE = $Personal
 $PROFILE = [pscustomobject]@{CurrentUserCurrentHost = $ProfileFile}
-function mise { $global:LASTEXITCODE = 0 }
+$global:HostInstalls = 0
+function mise {
+    if ($args[-2] -ne 'install' -or $args[-1] -ne 'python@3.14.8' -or $args -notcontains '--no-config') {
+        throw 'Installer must only install its explicit private Python host'
+    }
+    $global:HostInstalls++
+    $global:LASTEXITCODE = 0
+}
 & $Installer
 & $Installer
 if ($env:MISE_GLOBAL_CONFIG_FILE -ne $Personal) { throw 'Personal override lost' }
-$link = Get-Item -LiteralPath (Join-Path $UserRoot '.config/mise/conf.d/windows-cli-tools')
-if ($link.LinkType -ne 'Junction') { throw 'Expected junction' }
-$fragment = Join-Path $link.FullName 'mise.toml'
-$content = [IO.File]::ReadAllText($fragment)
-$source = Join-Path (Split-Path (Split-Path $Installer)) 'config/windows-cli-tools/mise.toml'
-[IO.File]::WriteAllText($source, $content.Replace('latest', '24'))
-if (-not [IO.File]::ReadAllText($fragment).Contains('24')) { throw 'CLI source drifted' }
+if ($global:HostInstalls -ne 2) { throw 'Unexpected host install count' }
+if (Test-Path -LiteralPath (Join-Path $UserRoot '.config/mise')) { throw 'Installer wrote global mise configuration' }
+$profileContent = [IO.File]::ReadAllText($ProfileFile)
+if ([regex]::Matches($profileContent, '# >>> dev-tools >>>').Count -ne 1) { throw 'Duplicate entrypoint' }
+& (Join-Path (Split-Path $Installer) 'uninstall.ps1')
+if ($env:MISE_GLOBAL_CONFIG_FILE -ne $Personal) { throw 'Uninstaller changed personal configuration' }
+if ([IO.File]::ReadAllText($ProfileFile).Contains('# >>> dev-tools >>>')) { throw 'Uninstaller left entrypoint' }
+if ($global:HostInstalls -ne 2) { throw 'Uninstaller touched runtime installations' }
 """,
                 encoding="utf-8",
             )
@@ -69,8 +77,7 @@ if (-not [IO.File]::ReadAllText($fragment).Contains('24')) { throw 'CLI source d
             self.assertEqual(personal.read_text(encoding="utf-8"), '[tools]\njava = "25"\n')
             content = profile.read_text(encoding="utf-8")
             self.assertIn(str(personal), content)
-            self.assertEqual(content.count("# >>> dev-tools >>>"), 1)
-            self.assertNotIn("config\\windows-cli-tools\\mise.toml'", content)
+            self.assertNotIn("# >>> dev-tools >>>", content)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,19 @@
+# 复制为项目根 dev-tools.toml；要求 package-lock.json 和 dev 脚本。
+# 使用其他包管理器时同时调整 command、manager 与根级 mise 版本。
+schema = 1
+name = "next-app"
+toolchain = "mise"
+
+[tasks.install]
+command = ["npm", "ci"]
+manager = "npm"
+tools = ["node"]
+
+[services.web]
+command = ["npm", "run", "dev", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+prepare = ["install"]
+tools = ["node"]
+
+[services.web.health]
+tcp = 3000
+timeout = 30

@@ -1,0 +1,88 @@
+# 复制为项目根 dev-tools.toml；目录假定为 backend/app、backend/library、frontend。
+# 根据实际 Spring Boot 版本调整 DevTools 坐标；根级 mise 声明 java/node，
+# 没有 Maven Wrapper 时还需声明 maven，frontend 需要 package-lock.json。
+schema = 1
+name = "java-web"
+toolchain = "mise"
+
+[tasks.install-java]
+command = ["{maven}", "-B", "-ntp", "-DskipTests", "install"]
+workdir = "backend"
+manager = "maven"
+tools = ["java"]
+
+[tasks.install-java.java.maven]
+repository = "user"
+
+[tasks.install-node]
+command = ["npm", "ci"]
+workdir = "frontend"
+manager = "npm"
+tools = ["node"]
+
+[tasks.compile-java]
+command = ["{maven}", "-B", "-ntp", "-DskipTests", "compile"]
+workdir = "backend"
+role = "build"
+tools = ["java"]
+
+[tasks.compile-java.java.maven]
+repository = "user"
+
+[tasks.resources-java]
+command = ["{maven}", "-B", "-ntp", "-DskipTests", "install"]
+workdir = "backend"
+role = "build"
+tools = ["java"]
+
+[tasks.resources-java.java.maven]
+repository = "user"
+
+[tasks.clean-java]
+command = ["{maven}", "-B", "-ntp", "-DskipTests", "clean", "install"]
+workdir = "backend"
+role = "build"
+tools = ["java"]
+
+[tasks.clean-java.java.maven]
+repository = "user"
+
+[services.api]
+command = [
+  "{maven}", "-B", "-ntp", "-pl", "app", "spring-boot:run",
+  "-Dspring-boot.run.additional-classpath-elements={spring_classpath}",
+  "-Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.trigger-file=dev-tools-reload.trigger",
+]
+workdir = "backend"
+prepare = ["install-java"]
+tools = ["java"]
+
+[services.api.java.maven]
+repository = "user"
+
+[services.api.java.spring]
+devtools = "org.springframework.boot:spring-boot-devtools:3.5.0"
+classpath_modules = ["backend/library/target/classes"]
+
+[services.api.health]
+tcp = 8080
+timeout = 60
+
+[services.web]
+command = ["npm", "run", "dev", "--", "--port", "5173"]
+workdir = "frontend"
+prepare = ["install-node"]
+tools = ["node"]
+depends_on = ["api"]
+
+[services.web.health]
+tcp = 5173
+
+[builds.api]
+watch = [
+  "backend/app/src/main", "backend/library/src/main", "backend/.mvn",
+  "backend/pom.xml", "backend/app/pom.xml", "backend/library/pom.xml",
+]
+source_task = "compile-java"
+resource_task = "resources-java"
+structural_task = "clean-java"

@@ -1,8 +1,0 @@
-[tools]
-node = { version = "latest", os = ["windows"] }
-"npm:@openai/codex" = { version = "latest", os = ["windows"] }
-"npm:@colbymchenry/codegraph" = { version = "latest", os = ["windows"] }
-
-[settings.npm]
-package_manager = "npm"
-shell_out = true

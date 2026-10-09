@@ -1,35 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_path="$(readlink -f "${BASH_SOURCE[0]}")"
-repo_root="$(cd -- "$(dirname -- "$script_path")/.." && pwd)"
-profile_path="${HOME}/.profile"
-start_marker="# >>> dev-tools >>>"
-end_marker="# <<< dev-tools <<<"
-
-command -v mise >/dev/null 2>&1 || {
-  printf 'mise is not available on PATH.\n' >&2
-  exit 1
+[[ ${EUID} -eq 0 ]] || { printf 'Run this installer as root.\n' >&2; exit 1; }
+command -v mise >/dev/null 2>&1 || { printf 'Install mise first.\n' >&2; exit 1; }
+repo_root=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)
+install_root=$(readlink -m "${DEV_TOOLS_INSTALL_ROOT:-/opt/dev-tools}")
+command_root=${DEV_TOOLS_COMMAND_ROOT:-/usr/local/bin}
+unit_root=${DEV_TOOLS_UNIT_DIR:-/etc/systemd/system}
+config_root=${DEV_TOOLS_CONFIG_ROOT:-/etc/dev-tools}
+state_root=${DEV_TOOLS_STATE_ROOT:-/var/lib/dev-tools}
+[[ "$install_root" == /* && "$install_root" != / && "$install_root" != "$repo_root" && "$repo_root" != "$install_root/"* && "$install_root" != "$repo_root/"* ]] || {
+  printf 'Installation root must be absolute and separate from the checkout.\n' >&2; exit 1;
 }
 
+for target in "$install_root" "$install_root/src" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples" "$install_root/host-mise"; do
+  [[ ! -L "$target" ]] || { printf 'Refusing symbolic-link installation target: %s\n' "$target" >&2; exit 1; }
+done
+install -d -m 0755 "$install_root"
+export MISE_DATA_DIR="$install_root/host-mise"
 mise --yes install python@3.14.8
-python_root="$(mise where python@3.14.8)"
-"$python_root/bin/python3" - "$profile_path" "$start_marker" "$end_marker" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-if sys.version_info < (3, 14, 8):
-    raise SystemExit("dev-tools requires Python 3.14.8 or newer")
-
-profile, start, end = sys.argv[1:]
-path = Path(profile)
-content = path.read_text(encoding="utf-8") if path.exists() else ""
-pattern = rf"(?ms)^{re.escape(start)}.*?^{re.escape(end)}\n?"
-content = re.sub(pattern, "", content).rstrip()
-path.write_text(f"{content}\n" if content else "", encoding="utf-8", newline="\n")
-PY
-
-install -d /usr/local/bin
-ln -sfn "$repo_root/scripts/dev-tools" /usr/local/bin/dev-tools
-printf 'dev-tools installed: %s\n' /usr/local/bin/dev-tools
+python_root=$(mise where python@3.14.8)
+printf '%s\n' "$python_root/bin/python3" > "$install_root/.host-python"
+chmod 0644 "$install_root/.host-python"
+"$python_root/bin/python3" -c 'import sys; raise SystemExit(sys.version_info < (3, 14, 8))'
+install -d -m 0755 "$install_root/src" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples"
+for target in "$install_root/src" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples"; do
+  [[ $(readlink -f "$target") == "$target" ]] || { printf 'Unexpected installation target: %s\n' "$target" >&2; exit 1; }
+done
+# The controller stays available when its Windows checkout is unavailable.
+# Copy only owned source; existing project registrations and caches are preserved.
+command -v rsync >/dev/null 2>&1 || { printf 'Install rsync before deploying dev-tools.\n' >&2; exit 1; }
+rsync -a --delete --exclude '__pycache__' "$repo_root/src/dev_tools/" "$install_root/src/dev_tools/"
+rsync -a --delete "$repo_root/scripts/" "$install_root/scripts/"
+rsync -a --delete --exclude "*.local.*" "$repo_root/config/" "$install_root/config/"
+rsync -a --delete "$repo_root/docs/" "$install_root/docs/"
+rsync -a --delete "$repo_root/examples/" "$install_root/examples/"
+install -m 0644 "$repo_root/README.md" "$install_root/README.md"
+install -m 0644 "$repo_root/README.en.md" "$install_root/README.en.md"
+install -m 0644 "$repo_root/AGENTS.md" "$install_root/AGENTS.md"
+install -m 0644 "$repo_root/LICENSE" "$install_root/LICENSE"
+chmod 0755 "$install_root/scripts/dev-tools"
+install -d "$command_root" "$unit_root" "$config_root/projects.d" "$config_root/examples" "$state_root"
+ln -sfn "$install_root/scripts/dev-tools" "$command_root/dev-tools"
+install -m 0644 "$repo_root/systemd/"dev-tools-*.service "$unit_root/"
+install -m 0644 "$repo_root/examples/"*.toml "$config_root/examples/"
+printf '# dev-tools\n\n中文指南：%s/README.md\n\nEnglish guide: %s/README.en.md\n\n项目模板 / Project templates: %s/examples\n' "$install_root" "$install_root" "$config_root" > "$config_root/README.md"
+systemctl daemon-reload
+printf 'Installed dev-tools. No projects were registered, started or migrated.\n'

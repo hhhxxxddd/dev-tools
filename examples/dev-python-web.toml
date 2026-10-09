@@ -1,0 +1,24 @@
+# 复制为项目根 dev-tools.toml；要求 uv.lock 及项目中的 Uvicorn 依赖。
+# 根级 mise 声明 python 和 uv；prepare 使用已选 Python 创建本机 .venv。
+schema = 1
+name = "python-web"
+toolchain = "mise"
+
+[tasks.install]
+command = ["uv", "sync", "--locked", "--python", "{python}"]
+manager = "uv"
+tools = ["python", "uv"]
+
+[tasks.install.env]
+UV_PYTHON_DOWNLOADS = "never"
+
+[services.api]
+command = ["{venv_python}", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+prepare = ["install"]
+tools = ["python"]
+
+[services.api.python]
+root = "."
+
+[services.api.health]
+tcp = 8000
