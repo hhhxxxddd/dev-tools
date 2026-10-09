@@ -13,7 +13,12 @@ from pathlib import Path
 @unittest.skipUnless(os.name != "nt" and shutil.which("bash"), "WSL/Linux bash required")
 class WslEntrypointTests(unittest.TestCase):
     def run_entrypoint(
-        self, root: Path, *, runtime_available: bool, language: str | None = None
+        self,
+        root: Path,
+        *,
+        runtime_available: bool,
+        language: str | None = None,
+        without_home: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         commands = root / "bin"
         commands.mkdir()
@@ -39,6 +44,8 @@ class WslEntrypointTests(unittest.TestCase):
         env["PATH"] = str(commands) + os.pathsep + env.get("PATH", "")
         env["TEST_PYTHON_ROOT"] = sys.prefix
         env["DEV_TOOLS_CONFIG"] = str(root / "config.toml")
+        if without_home:
+            env.pop("HOME", None)
         if language:
             (root / "config.toml").write_text(f'language = "{language}"\n', encoding="utf-8")
         return subprocess.run(
@@ -58,6 +65,12 @@ class WslEntrypointTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertIn("3.14.8", payload["system"]["python"])
         self.assertNotIn("wrong-project-python", result.stderr)
+
+    def test_systemd_entrypoint_works_without_home(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            result = self.run_entrypoint(Path(temporary), runtime_available=True, without_home=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("system", json.loads(result.stdout))
 
     def test_missing_host_reports_installer_without_falling_back(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -254,6 +254,89 @@ class EngineContractTests(unittest.TestCase):
             )
             self.assertEqual(engine.backend.running, {"api", "web", "__watch"})
 
+    def partial_builds(self):
+        for service in (None, "api"):
+            for kind in ("source", "resource", "structural"):
+                yield service, kind
+        yield "api", "branch"
+
+    def test_partial_builds_do_not_prepare_unprepared_projects(self):
+        for service, kind in self.partial_builds():
+            for engine in self.both():
+                with self.subTest(
+                    service=service, kind=kind, environment=engine.binding.environment
+                ):
+                    engine.rebuild(service=service, kind=kind)
+                    self.assertFalse(engine.status()["prepared"])
+                    self.assertIsNone(engine.state().get("prepared_revision"))
+                    self.assertIsNone(engine.state()["recovery"])
+                    with self.assertRaises(ProjectError):
+                        engine.start()
+                    self.assertFalse(engine.backend.running)
+                    engine.prepare()
+                    revision = engine.state()["prepared_revision"]
+                    engine.rebuild(service=service, kind=kind)
+                    self.assertEqual(engine.state()["prepared_revision"], revision)
+                    self.assertTrue(engine.status()["prepared"])
+
+    def test_partial_builds_preserve_stale_preparation_until_prepare(self):
+        for service, kind in self.partial_builds():
+            for engine in self.both():
+                with self.subTest(
+                    service=service, kind=kind, environment=engine.binding.environment
+                ):
+                    lockfile = engine.binding.source / "package-lock.json"
+                    lockfile.write_text('{"lockfileVersion": 3, "packages": {}}', encoding="utf-8")
+                    engine.prepare()
+                    revision = engine.state()["prepared_revision"]
+                    engine.backend.running.update({"api", "web", "__watch"})
+                    lockfile.write_text(
+                        '{"lockfileVersion": 3, "packages": {"node_modules/new": {}}}',
+                        encoding="utf-8",
+                    )
+                    self.assertNotEqual(revision, fingerprint(engine.binding))
+                    engine.backend.events.clear()
+                    engine.rebuild(service=service, kind=kind)
+                    self.assertEqual(engine.state()["prepared_revision"], revision)
+                    self.assertFalse(engine.status()["prepared"])
+                    self.assertIsNone(engine.state()["recovery"])
+                    self.assertEqual(engine.backend.running, {"api", "web", "__watch"})
+                    self.assertEqual(
+                        [event for event in engine.backend.events if event.startswith("task:")],
+                        ["task:compile"],
+                    )
+                    events = engine.backend.events.copy()
+                    with self.assertRaises(ProjectError):
+                        engine.start()
+                    self.assertEqual(engine.backend.events, events)
+                    engine.prepare()
+                    self.assertEqual(
+                        engine.state()["prepared_revision"], fingerprint(engine.binding)
+                    )
+                    self.assertTrue(engine.status()["ready"])
+
+    def test_branch_build_refreshes_preparation_after_running_prepare_tasks(self):
+        for engine in self.both():
+            lockfile = engine.binding.source / "package-lock.json"
+            lockfile.write_text('{"lockfileVersion": 3, "packages": {}}', encoding="utf-8")
+            engine.prepare()
+            revision = engine.state()["prepared_revision"]
+            lockfile.write_text(
+                '{"lockfileVersion": 3, "packages": {"node_modules/new": {}}}', encoding="utf-8"
+            )
+            engine.backend.events.clear()
+            engine.rebuild(kind="branch")
+            self.assertEqual(
+                [event for event in engine.backend.events if event.startswith("task:")],
+                ["task:install", "task:compile"],
+            )
+            self.assertNotEqual(engine.state()["prepared_revision"], revision)
+            self.assertEqual(engine.state()["prepared_revision"], fingerprint(engine.binding))
+            self.assertTrue(engine.status()["prepared"])
+            with patch("dev_tools.projects.monitoring.git_snapshot", return_value={}):
+                engine.start()
+            self.assertTrue(engine.status()["ready"])
+
     def add_service_dependencies(self, engine):
         raw = copy.deepcopy(engine.spec.raw)
         raw["services"].update(

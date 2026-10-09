@@ -110,6 +110,15 @@ class WindowsBackend(Backend):
         request = self.binding.state / "native" / (worker + ".launch.json")
         environment = os.environ.copy()
         environment.update(PYTHONPATH=str(REPOSITORY / "src"), PYTHONUTF8="1")
+        # Detached native workers can run outside the caller's Windows filesystem
+        # context (for example an MSIX host). Keep their registry and state roots.
+        from .layout import storage
+
+        registry_root, state_root = storage("windows")
+        environment.update(
+            DEV_TOOLS_REGISTRY_ROOT=str(registry_root),
+            DEV_TOOLS_STATE_ROOT=str(state_root),
+        )
         command = [
             sys.executable,
             "-P",

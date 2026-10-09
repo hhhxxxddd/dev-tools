@@ -2,11 +2,16 @@
 
 ## 未发布
 
+- 修复局部构建误更新准备指纹的问题：source/resource/structural 和指定服务的默认构建保留原状态，依赖变化后仍要求 prepare；完整 branch 构建继续执行准备任务并更新指纹。
 - 修复未指定服务的 source/resource/structural 构建误用准备任务和结构构建任务；Compose 镜像只在 branch/structural 构建中重建。
 - prepare 恢复活动服务时补齐当前声明中的传递依赖，依赖启动失败仍保留恢复记录。
 - 合并两份根级 mise 配置的工具清单，继续拒绝同优先级版本冲突。
 - register --force 支持为同一源码和运行用户添加独立别名，保留冲突绑定；WSL 按解析后的运行用户检查重复注册。
 - 统一指纹、文件监控和 Maven Wrapper 解析中的路径形式，修复 Windows 长短路径造成的测试与集成结果差异。
+- 显式 pip 工作流不再被残留 uv.lock 的 uv 版本诊断阻断，实际使用的工具仍需根级声明。
+- WSL 入口在 systemd 未设置 HOME 时从账户信息定位本机配置。
+- Windows 后台 worker 沿用控制进程解析后的注册和状态目录，避免 MSIX 宿主与原生后台进程的目录差异导致启动失败。
+- WSL 真实生命周期测试使用独立的临时服务名，避免与已安装的 systemd 服务模板冲突。
 
 ## 0.4.0 - 2026-10-09
 

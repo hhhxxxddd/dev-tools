@@ -199,7 +199,12 @@ class WslBackend(Backend):
         self._run(argv, project=True)
 
     def unit(self, worker: str) -> str:
-        return f"dev-tools-worker@{self.binding.name}:{worker}.service"
+        prefix = (
+            "dev-tools-test-worker"
+            if os.environ.get("DEV_TOOLS_TEST_TRANSIENT") == "1"
+            else "dev-tools-worker"
+        )
+        return f"{prefix}@{self.binding.name}:{worker}.service"
 
     def start(self, worker: str) -> None:
         if self.active(worker):

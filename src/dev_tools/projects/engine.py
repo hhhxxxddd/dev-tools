@@ -451,7 +451,10 @@ class ProjectEngine:
                     raise ProjectError(
                         message("project declarations changed during build; run prepare")
                     )
-                self.save(prepared_revision=plan.revision, recovery=None)
+                if kind == "branch":
+                    self.save(prepared_revision=plan.revision, recovery=None)
+                else:
+                    self.save(recovery=None)
                 self._start(stop)
             except (ProjectError, OSError) as exc:
                 self.save(recovery={**record, "error": str(exc), "error_detail": error_detail(exc)})

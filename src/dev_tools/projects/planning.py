@@ -213,6 +213,7 @@ def preparation_plan(spec: ProjectSpec, binding: ProjectBinding, backend) -> Pre
         unresolved.extend(
             message("{tool}: {reason}", tool=item.tool, reason=item.reason)
             for item in scan.unresolved
+            if item.tool in tools
         )
         for name in sorted(tools - set(scan.root_tools)):
             unresolved.append(message("root mise config has no declaration for: {name}", name=name))

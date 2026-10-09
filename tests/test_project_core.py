@@ -249,6 +249,36 @@ class ProjectCoreTests(unittest.TestCase):
             )
             self.assertFalse(binding.state.exists())
 
+    def test_explicit_pip_workflow_does_not_require_uv_from_unused_lock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "mise.toml").write_text('[tools]\npython="3.14.8"\n')
+            (root / "pyproject.toml").write_text('[project]\nname="api"\nversion="1"\n')
+            (root / "uv.lock").write_text("version=1\n")
+            spec = parse_project(
+                {
+                    "schema": 1,
+                    "name": "demo",
+                    "tasks": {
+                        "install": {
+                            "command": ["{venv_python}", "-m", "pip", "install", "-e", "."],
+                            "tools": ["python"],
+                        }
+                    },
+                },
+                "windows",
+            )
+            binding = ProjectBinding("demo", "windows", root, root, root / "state")
+            with patch("dev_tools.projects.planning.shutil.which", return_value="mise"):
+                plan = preparation_plan(spec, binding, Backend(binding))
+                self.assertEqual(plan.unresolved, ())
+                self.assertEqual(plan.required_tools, ("python",))
+                uv_workflow = copy.deepcopy(spec.raw)
+                uv_workflow["tasks"]["install"]["command"] = ["uv", "sync", "--locked"]
+                spec = parse_project(uv_workflow, "windows")
+                plan = preparation_plan(spec, binding, Backend(binding))
+                self.assertTrue(any("uv" in detail for detail in plan.unresolved))
+
     def test_build_tasks_are_not_preparation_tasks(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

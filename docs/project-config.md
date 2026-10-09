@@ -108,6 +108,7 @@ role=build 任务被服务 prepare 或任务依赖明确引用时，也会进入
 任务按依赖顺序执行，输出写入本机状态目录的 logs/tasks/NAME.log。
 
 manager 为 npm/pnpm/yarn/bun/uv 时，准备计划要求 workdir 中存在相应锁文件。
+显式工作流的工具需求以 tasks/services 为准；目录中残留的 uv.lock 不会使 pip 工作流额外要求 uv。扫描仍报告元数据解析错误及版本冲突，实际使用的工具必须在根级 mise 中声明。
 发现工作区时，在包工作区根安装，在具体应用目录运行；自定义声明需要明确设置 workdir。
 锁文件校验不会自动把任意 install 命令变为冻结安装，应在 command 中声明 npm ci、--frozen-lockfile、--immutable 或 uv sync --locked。
 
@@ -225,6 +226,8 @@ watch 必须非空，可填写相对项目根的文件或目录。extensions/res
 手动构建为 `dev-tools build [NAME] --kind source|resource|structural|branch`，默认 branch；
 同时指定 --service 和默认 branch 时按该服务的 structural 构建处理。
 省略 --service 时，source/resource/structural 执行全部构建策略中的对应任务及其依赖；只有 branch 自动加入准备任务。
+source/resource/structural（包括指定 --service 的默认构建）保留原有准备指纹，不会把未准备或依赖已变化的项目标为已准备。
+锁文件或项目声明变化后，局部构建不能替代 prepare；完整 branch 构建执行准备任务后可以更新准备指纹，但不会安装运行时或 Spring DevTools JAR。
 Compose 镜像只在未指定 --service 的 branch/structural 构建中重新构建。
 
 ## 验证与修改流程

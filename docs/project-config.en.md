@@ -108,6 +108,7 @@ A role=build task explicitly referenced by service prepare or task dependencies 
 Tasks run in dependency order; output goes to logs/tasks/NAME.log under native state.
 
 For npm/pnpm/yarn/bun/uv managers, the plan requires the corresponding lockfile in workdir.
+An explicit workflow takes its tool requirements from tasks/services; a leftover uv.lock does not require uv for a pip workflow. Metadata parse errors and version conflicts still block preparation, and tools actually used must be declared in the root mise file.
 Workspace discovery installs at the package workspace root and runs each application in its own directory; set workdir explicitly in custom declarations.
 Lockfile validation does not rewrite arbitrary install commands into frozen installs. Declare npm ci, --frozen-lockfile, --immutable or uv sync --locked in command.
 
@@ -225,6 +226,8 @@ Branch builds synchronize source and run preparation tasks and structural builds
 Use `dev-tools build [NAME] --kind source|resource|structural|branch` manually; the default is branch.
 Selecting --service with the default branch kind performs a structural build for that service.
 Without --service, source/resource/structural run the matching tasks from all build policies and their dependencies; only branch automatically includes preparation tasks.
+Source/resource/structural builds (including the default build with --service) preserve the existing preparation fingerprint. They cannot mark unprepared projects or changed dependencies as prepared.
+After lockfiles or project declarations change, a partial build cannot replace prepare. A full branch build can update the fingerprint after running preparation tasks, but does not install runtimes or the Spring DevTools JAR.
 Compose images are rebuilt only for branch/structural builds without --service.
 
 ## Validate and modify

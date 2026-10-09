@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from dev_tools.projects.config import parse_project
 from dev_tools.projects.models import ProjectBinding
+from dev_tools.projects.registry import read_json
 from dev_tools.runtimes.router import forward_remote, source_argument, split_environment
 
 
@@ -61,6 +62,35 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(
             command[command.index("-WorkingDirectory") + 1], "WINDOWS:" + str(Path.cwd())
         )
+
+
+class WindowsAdapterTests(unittest.TestCase):
+    def test_detached_worker_uses_resolved_controller_storage(self):
+        from dev_tools.runtimes.platforms.windows import WindowsBackend
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binding = ProjectBinding("demo", "windows", root, root, root / "native-state/demo")
+            backend = WindowsBackend(binding)
+
+            def launch(action, request):
+                self.assertEqual(action, "launch")
+                environment = read_json(request)["environment"]
+                self.assertEqual(environment["DEV_TOOLS_REGISTRY_ROOT"], str(root / "registry"))
+                self.assertEqual(environment["DEV_TOOLS_STATE_ROOT"], str(root / "native-state"))
+                return {"pid": 123, "start_ticks": 456}
+
+            with (
+                patch.object(backend, "active", return_value=False),
+                patch.object(backend, "_native", side_effect=launch),
+                patch(
+                    "dev_tools.runtimes.platforms.layout.storage",
+                    return_value=(root / "registry", root / "native-state"),
+                ),
+                patch.dict(os.environ, {"DEV_TOOLS_REGISTRY_ROOT": str(root / "other-context")}),
+            ):
+                backend.start("api")
+            self.assertFalse((binding.state / "native/api.launch.json").exists())
 
 
 @unittest.skipUnless(os.name != "nt", "native Linux adapter")
