@@ -1,0 +1,34 @@
+{
+  "version": "0.4.0",
+  "description": "Project discovery, preparation and native Windows/WSL development control",
+  "homepage": "https://github.com/hhhxxxddd/dev-tools",
+  "license": "MIT",
+  "depends": [
+    "main/git",
+    "main/mise",
+    "main/pwsh"
+  ],
+  "url": "https://github.com/hhhxxxddd/dev-tools/releases/download/v0.4.0/dev-tools-0.4.0.zip",
+  "hash": "ea03c86c043c60cb01ea046f59204b3e43f0e0e911a354a6e26704ccbe62128d",
+  "bin": [
+    [
+      "scripts/scoop-entry.ps1",
+      "dev-tools"
+    ]
+  ],
+  "pre_install": "& pwsh -NoProfile -File \"$dir\\scripts\\scoop.ps1\" -Action check; if ($LASTEXITCODE -ne 0) { throw \"dev-tools check failed\" }",
+  "installer": {
+    "script": "& pwsh -NoProfile -File \"$dir\\scripts\\scoop.ps1\" -Action install; if ($LASTEXITCODE -ne 0) { throw \"dev-tools install failed\" }"
+  },
+  "pre_uninstall": "& pwsh -NoProfile -File \"$dir\\scripts\\scoop.ps1\" -Action check; if ($LASTEXITCODE -ne 0) { throw \"dev-tools check failed\" }",
+  "uninstaller": {
+    "script": "& pwsh -NoProfile -File \"$dir\\scripts\\scoop.ps1\" -Action uninstall; if ($LASTEXITCODE -ne 0) { throw \"dev-tools uninstall failed\" }"
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "url": "https://github.com/hhhxxxddd/dev-tools/releases/download/v$version/dev-tools-$version.zip",
+    "hash": {
+      "url": "https://github.com/hhhxxxddd/dev-tools/releases/download/v$version/SHA256SUMS"
+    }
+  }
+}
