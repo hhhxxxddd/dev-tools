@@ -87,7 +87,7 @@ class SysinfoTests(unittest.TestCase):
             before = path.read_bytes()
             result = collect_sysinfo(path)
             self.assertEqual(result["tools"][0]["description"], "ab")
-            self.assertEqual(result["directories"][0]["path"], str(path.parent))
+            self.assertEqual(result["directories"][0]["path"], str(path.parent.resolve()))
             self.assertTrue(result["directories"][0]["exists"])
             self.assertEqual(path.read_bytes(), before)
             path.write_text('[sysinfo]\ntools = [{command="cmd; echo SECRET"}]', encoding="utf-8")

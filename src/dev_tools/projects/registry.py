@@ -73,11 +73,6 @@ class Registry:
         source = source.expanduser().resolve(strict=True)
         spec = load_project(source, self.environment)
         alias = validate_name(name or spec.name)
-        for existing in self.names():
-            if existing != alias and self.load(existing).source == source:
-                raise ProjectError(
-                    message("source is already registered as: {existing}", existing=existing)
-                )
         identity = alias + "-" + uuid.uuid4().hex[:8]
         native_workspace, run_user, cache_root = workspace(
             self.environment, source, identity, run_user
@@ -98,6 +93,13 @@ class Registry:
                     message("project is already registered: {new_name}", new_name=alias)
                 )
             return current
+        if not force:
+            for existing in self.names():
+                current = self.load(existing)
+                if current.source == source and current.run_user == run_user:
+                    raise ProjectError(
+                        message("source is already registered as: {existing}", existing=existing)
+                    )
         write_json(self.path(alias), {"schema_version": SCHEMA_VERSION, **binding.as_dict()})
         return binding
 

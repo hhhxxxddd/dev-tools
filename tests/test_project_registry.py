@@ -20,7 +20,7 @@ class RegistryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         override = patch.dict(
             os.environ,
             {
@@ -68,6 +68,48 @@ class RegistryTests(unittest.TestCase):
         self.assertNotEqual(other.state, renamed.state)
         with self.assertRaises(ProjectError):
             self.registry.register(binding.source, name="duplicate")
+
+    def test_force_adds_an_alias_with_independent_state_and_preserves_existing_bindings(self):
+        binding = self.registry.register(self.source())
+        original = self.registry.path("demo").read_bytes()
+        duplicate = self.registry.register(binding.source, name="duplicate", force=True)
+        self.assertEqual(duplicate.source, binding.source)
+        self.assertNotEqual(duplicate.state, binding.state)
+        self.assertEqual(self.registry.path("demo").read_bytes(), original)
+        self.assertEqual(self.registry.register(binding.source, force=True), binding)
+        self.assertEqual(
+            self.registry.register(binding.source, name="duplicate", force=True), duplicate
+        )
+        with self.assertRaises(ProjectError):
+            self.registry.resolve_name(None, cwd=binding.source)
+        before = self.registry.path("duplicate").read_bytes()
+        with self.assertRaises(ProjectError):
+            self.registry.register(self.source("other"), name="duplicate", force=True)
+        self.assertEqual(self.registry.path("duplicate").read_bytes(), before)
+
+    def test_wsl_duplicate_detection_uses_resolved_running_user(self):
+        source = self.source()
+        registry = Registry("wsl")
+
+        def native_workspace(environment, source, identity, user):
+            user = user or "default-user"
+            cache = self.root / "cache" / user
+            return cache / identity, user, cache
+
+        with patch("dev_tools.projects.registry.workspace", side_effect=native_workspace):
+            original = registry.register(source)
+            other_user = registry.register(source, name="other-user", run_user="other-user")
+            self.assertNotEqual(original.workspace, other_user.workspace)
+            with self.assertRaises(ProjectError):
+                registry.register(source, name="duplicate", run_user="default-user")
+            duplicate = registry.register(
+                source, name="duplicate", run_user="default-user", force=True
+            )
+            self.assertNotEqual(duplicate.workspace, original.workspace)
+            self.assertNotEqual(duplicate.state, original.state)
+            self.assertEqual(registry.register(source, force=True), original)
+            with self.assertRaises(ProjectError):
+                registry.register(source, run_user="other-user", force=True)
 
     def test_malformed_binding_cannot_point_state_outside_native_storage(self):
         binding = self.registry.register(self.source())

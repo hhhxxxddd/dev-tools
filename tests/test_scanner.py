@@ -159,6 +159,34 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(result.existing_config, config.resolve())
             self.assertEqual(config.read_text(encoding="utf-8"), original)
 
+    def test_root_tool_names_merge_both_mise_files_without_nested_declarations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "mise.toml").write_text('[tools]\nnode = "22"\n', encoding="utf-8")
+            (root / ".mise.toml").write_text(
+                '[tools]\nnode = "22"\npython = "3.14.8"\n', encoding="utf-8"
+            )
+            nested = root / "nested"
+            nested.mkdir()
+            (nested / "mise.toml").write_text('[tools]\nuv = "0.8.0"\n', encoding="utf-8")
+            result = scan_project(root)
+            self.assertEqual(set(result.root_tools), {"node", "python"})
+            self.assertEqual(len(result.root_tools), 2)
+            self.assertIn("uv", result.tools)
+            self.assertEqual(result.existing_config, (root / "mise.toml").resolve())
+            self.assertFalse(result.blocked)
+
+    def test_merging_root_tool_names_preserves_equal_priority_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "mise.toml").write_text('[tools]\nnode = "22"\n', encoding="utf-8")
+            (root / ".mise.toml").write_text('[tools]\nnode = "20"\n', encoding="utf-8")
+            result = scan_project(root)
+            self.assertEqual(result.root_tools, ("node",))
+            self.assertEqual([item.tool for item in result.conflicts], ["node"])
+            self.assertNotIn("node", result.tools)
+            self.assertTrue(result.blocked)
+
     def test_uv_required_version_and_python_range_are_detected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

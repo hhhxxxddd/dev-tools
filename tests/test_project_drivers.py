@@ -5,6 +5,7 @@ import socket
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -71,7 +72,7 @@ class DriverTests(unittest.TestCase):
 
     def test_wrapper_and_repository_use_native_workspace_and_home(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             binding, backend = self.fixture(root)
             (binding.source / "mvnw.cmd").write_text("must never execute during resolution")
             (binding.source / "app").mkdir()
@@ -96,6 +97,27 @@ class DriverTests(unittest.TestCase):
         ):
             with self.assertRaises(ProjectError):
                 artifact_jar(Path("native"), coordinate)
+
+    def test_wrapper_resolution_accepts_equivalent_source_and_workspace_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            binding, backend = self.fixture(Path(temporary).resolve())
+            (binding.source / "mvnw.cmd").write_text("fixture", encoding="utf-8")
+            (binding.source / "app").mkdir()
+            alternate = replace(
+                binding,
+                source=binding.source / ".." / "source",
+                workspace=binding.workspace / ".." / "native",
+            )
+            for use_source in (False, True):
+                command, _ = maven_runtime(
+                    alternate,
+                    backend,
+                    "app",
+                    {"java": {"maven": {"repository": "user"}}},
+                    source=use_source,
+                )
+                directory = binding.source if use_source else binding.workspace
+                self.assertEqual(command, str(directory / "mvnw.cmd"))
 
     def test_spring_start_never_downloads_and_prepare_downloads_once(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -174,7 +196,7 @@ class DriverTests(unittest.TestCase):
 
     def test_compose_paths_profiles_and_namespace_survive_alias_changes(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             binding, _ = self.fixture(root)
             service = parse_project(
                 {
@@ -193,8 +215,6 @@ class DriverTests(unittest.TestCase):
             command = compose_command(binding, service, "up").argv
             self.assertIn(str(binding.workspace / "infra/compose.yml"), command)
             self.assertIn("dev", command)
-            from dataclasses import replace
-
             self.assertEqual(
                 command, compose_command(replace(binding, name="renamed"), service, "up").argv
             )

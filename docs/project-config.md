@@ -224,6 +224,8 @@ watch 必须非空，可填写相对项目根的文件或目录。extensions/res
 分支构建同步源码、执行准备任务和结构构建，使用已经准备的运行时。
 手动构建为 `dev-tools build [NAME] --kind source|resource|structural|branch`，默认 branch；
 同时指定 --service 和默认 branch 时按该服务的 structural 构建处理。
+省略 --service 时，source/resource/structural 执行全部构建策略中的对应任务及其依赖；只有 branch 自动加入准备任务。
+Compose 镜像只在未指定 --service 的 branch/structural 构建中重新构建。
 
 ## 验证与修改流程
 

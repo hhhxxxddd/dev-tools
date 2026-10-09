@@ -269,6 +269,77 @@ class ProjectCoreTests(unittest.TestCase):
             self.assertEqual(plan.tasks, ("install",))
             self.assertEqual(plan.as_dict()["schema_version"], 3)
 
+    def test_prepare_combines_runtime_declarations_from_both_root_mise_files(self):
+        for platform in ("windows", "wsl"):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                raw = {
+                    "schema": 1,
+                    "name": "demo",
+                    "rebuild_on_branch": False,
+                    "services": {
+                        "node-app": {"command": ["node", "app.js"]},
+                        "python-app": {"command": ["{python}", "app.py"]},
+                    },
+                }
+                (root / "dev-tools.toml").write_text(render_toml(raw), encoding="utf-8")
+                contents = {
+                    "mise.toml": '[tools]\nnode = "22"\n',
+                    ".mise.toml": '[tools]\npython = "3.14.8"\n',
+                }
+                for name, content in contents.items():
+                    (root / name).write_text(content, encoding="utf-8")
+                binding = ProjectBinding("demo", platform, root, root, root / "state")
+                with patch("dev_tools.projects.planning.shutil.which", return_value="mise"):
+                    plan = preparation_plan(parse_project(raw, platform), binding, Backend(binding))
+                    self.assertEqual(plan.unresolved, ())
+                    self.assertEqual(plan.runtime_versions, ("node@22", "python@3.14.8"))
+                    self.assertEqual(plan.required_tools, ("node", "python"))
+                    (root / ".mise.toml").write_text(
+                        contents[".mise.toml"] + 'node = "20"\n', encoding="utf-8"
+                    )
+                    conflict = preparation_plan(
+                        parse_project(raw, platform), binding, Backend(binding)
+                    )
+                self.assertTrue(any("conflict" in item for item in conflict.unresolved))
+                self.assertEqual(
+                    (root / "mise.toml").read_text(encoding="utf-8"), contents["mise.toml"]
+                )
+                self.assertFalse(binding.state.exists())
+
+    def test_fingerprint_and_monitor_accept_equivalent_source_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source = root / "source"
+            source.mkdir()
+            raw = {
+                "schema": 1,
+                "name": "demo",
+                "toolchain": "system",
+                "tasks": {"compile": {"command": ["fixture"], "role": "build"}},
+                "services": {"api": {"command": ["fixture"]}},
+                "builds": {
+                    "api": {
+                        "watch": ["."],
+                        "source_task": "compile",
+                        "resource_task": "compile",
+                        "structural_task": "compile",
+                    }
+                },
+            }
+            (source / "dev-tools.toml").write_text(render_toml(raw), encoding="utf-8")
+            (source / "A.java").write_text("source", encoding="utf-8")
+            alias = source / ".." / "source"
+            canonical = ProjectBinding("demo", "windows", source, source, root / "state")
+            alternate = ProjectBinding("demo", "windows", alias, alias, root / "state")
+            self.assertEqual(fingerprint(alternate), fingerprint(canonical))
+            policy = parse_project(raw, "windows").builds[0]
+            self.assertEqual(file_snapshot(alias, policy), file_snapshot(source, policy))
+            self.assertEqual(set(file_snapshot(alias, policy)), {"A.java"})
+            initial = fingerprint(alternate)
+            (source / "package-lock.json").write_text("{}", encoding="utf-8")
+            self.assertNotEqual(fingerprint(alternate), initial)
+
     def test_manifest_and_lock_changes_invalidate_preparation(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

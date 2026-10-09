@@ -13,6 +13,7 @@ from .models import BuildSpec, ProjectError, within
 
 
 def file_snapshot(root: Path, policy: BuildSpec) -> dict[str, tuple[int, int]]:
+    root = root.resolve()
     result = {}
     for relative in policy.watch:
         directory = within(root, relative)

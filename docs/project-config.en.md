@@ -224,6 +224,8 @@ Source builds keep processes running. Resource/structural builds stop affected s
 Branch builds synchronize source and run preparation tasks and structural builds using prepared runtimes.
 Use `dev-tools build [NAME] --kind source|resource|structural|branch` manually; the default is branch.
 Selecting --service with the default branch kind performs a structural build for that service.
+Without --service, source/resource/structural run the matching tasks from all build policies and their dependencies; only branch automatically includes preparation tasks.
+Compose images are rebuilt only for branch/structural builds without --service.
 
 ## Validate and modify
 

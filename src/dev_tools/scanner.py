@@ -154,8 +154,8 @@ def scan_project(path: str | Path) -> ScanResult:
         try:
             if file.name in {"mise.toml", ".mise.toml"}:
                 declared = _scan_mise(file, root, evidence)
-                if file == existing:
-                    root_tools = declared
+                if file.parent == root:
+                    root_tools = tuple(dict.fromkeys((*root_tools, *declared)))
             elif file.name == ".tool-versions":
                 _scan_tool_versions(file, root, evidence)
             elif file.name in {".java-version", ".node-version", ".nvmrc", ".python-version"}:

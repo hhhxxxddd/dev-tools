@@ -14,6 +14,7 @@ from .models import CommandSpec, ProjectBinding, ProjectError, ServiceSpec, with
 
 
 def maven_wrapper(root: Path, workdir: str, filename: str) -> Path | None:
+    root = root.resolve()
     current = within(root, workdir)
     while current == root or root in current.parents:
         wrapper = current / filename
@@ -47,8 +48,8 @@ def maven_runtime(
         else f".cache/dev-tools/maven/{binding.state.name}/repository"
     )
     wrapper = maven_wrapper(binding.source, workdir, backend.wrapper_filename)
-    root = binding.source if source else binding.workspace
-    executable = str(root / wrapper.relative_to(binding.source)) if wrapper else "mvn"
+    root = (binding.source if source else binding.workspace).resolve()
+    executable = str(root / wrapper.relative_to(binding.source.resolve())) if wrapper else "mvn"
     option = f'-Dmaven.repo.local="{repository}"'
     return executable, {
         "MAVEN_OPTS": (os.environ.get("MAVEN_OPTS", "") + " " + option).strip(),

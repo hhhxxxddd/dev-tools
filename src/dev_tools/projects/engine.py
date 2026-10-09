@@ -11,7 +11,7 @@ from ..runtimes.platforms.locking import operation_lock
 from . import SCHEMA_VERSION
 from .drivers import install_spring_artifact, run_compose, spring_classpath
 from .execution import Executor
-from .models import ProjectBinding, ProjectError, ProjectSpec
+from .models import ProjectBinding, ProjectError, ProjectSpec, dependency_order
 from .planning import PreparationPlan, fingerprint, preparation_plan
 from .registry import read_json, write_json
 
@@ -174,11 +174,12 @@ class ProjectEngine:
         raise ProjectError(message("service {name} did not become ready before timeout", name=name))
 
     def _start(self, names: tuple[str, ...], *, infrastructure: bool = False) -> None:
+        names = dependency_order(
+            {name: service.depends_on for name, service in self.spec.services.items()}, names
+        )
         started = []
         try:
-            for name in self.spec.service_order():
-                if name not in names:
-                    continue
+            for name in names:
                 if not self.backend.active(name):
                     service = self.spec.services[name]
                     if service.driver == "process" and service.health.get("tcp"):
@@ -337,8 +338,6 @@ class ProjectEngine:
         with operation_lock(self.binding.state, timeout=15):
             self._prepared()
             graph = {name: service.depends_on for name, service in self.spec.services.items()}
-            from .models import dependency_order
-
             names = dependency_order(graph, selected)
             if not names:
                 raise ProjectError(message("no runtime services are declared"))
@@ -421,27 +420,31 @@ class ProjectEngine:
             try:
                 self._stop(stop)
                 self.backend.sync(self.spec)
-                if service is None:
+                if kind == "branch":
                     selected = tuple(
                         dict.fromkeys(
                             [*plan.tasks, *[item.structural_task for item in self.spec.builds]]
                         )
                     )
-                    names = self.spec.task_order(selected)
                 else:
-                    build = next(item for item in self.spec.builds if item.service == service)
-                    task = {
-                        "source": build.source_task,
-                        "resource": build.resource_task,
-                        "structural": build.structural_task,
-                    }[kind]
-                    names = self.spec.task_order((task,))
+                    selected = tuple(
+                        dict.fromkeys(
+                            getattr(item, f"{kind}_task")
+                            for item in self.spec.builds
+                            if service is None or item.service == service
+                        )
+                    )
+                names = self.spec.task_order(selected)
                 for name in names:
                     self.executor.task(self.spec.tasks[name])
                 for item in self.spec.services.values():
                     if service is not None and item.name != service:
                         continue
-                    if item.driver == "compose" and service is None:
+                    if (
+                        item.driver == "compose"
+                        and service is None
+                        and kind in {"branch", "structural"}
+                    ):
                         run_compose(self.executor, item, "build")
                     spring_classpath(self.binding, self.backend, item, reload=True)
                 if plan.revision != fingerprint(self.binding):

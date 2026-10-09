@@ -24,6 +24,7 @@ LOCKFILES = {
 
 
 def fingerprint(binding: ProjectBinding) -> str:
+    source = binding.source.resolve()
     digest = hashlib.sha256()
     names = {
         CONFIG_NAME,
@@ -44,16 +45,16 @@ def fingerprint(binding: ProjectBinding) -> str:
         "docker-compose.yml",
         *[name for files in LOCKFILES.values() for name in files],
     }
-    paths = set(_find(binding.source, names))
-    if (binding.source / CONFIG_NAME).is_file():
-        spec = load_project(binding.source, binding.environment)
+    paths = set(_find(source, names))
+    if (source / CONFIG_NAME).is_file():
+        spec = load_project(source, binding.environment)
         for item in [*spec.tasks.values(), *spec.services.values()]:
-            directory = within(binding.source, item.workdir)
+            directory = within(source, item.workdir)
             paths.update(directory / name for name in names if (directory / name).is_file())
     for path in sorted(paths):
         if path.is_file():
-            within(binding.source, path.relative_to(binding.source).as_posix())
-            digest.update(path.relative_to(binding.source).as_posix().encode())
+            within(source, path.relative_to(source).as_posix())
+            digest.update(path.relative_to(source).as_posix().encode())
             digest.update(path.read_bytes())
     return digest.hexdigest()
 

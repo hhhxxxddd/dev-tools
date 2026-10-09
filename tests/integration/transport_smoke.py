@@ -46,7 +46,7 @@ def smoke() -> dict:
         ).strip()
 
     with TransportDirectory(prefix="dev-tools-transport-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         preferences = root / "settings.toml"
         preferences.write_text(
             'language = "en"\n[wsl]\ndistro = '

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,6 +67,7 @@ class FakeExecutor:
 
 class EngineContractTests(unittest.TestCase):
     def fixture(self, root, environment):
+        root = root.resolve()
         raw = {
             "schema": 1,
             "name": "demo",
@@ -185,6 +187,114 @@ class EngineContractTests(unittest.TestCase):
             engine.rebuild(service="api", kind="source")
             self.assertEqual(engine.backend.running, {"api", "web"})
             self.assertEqual(engine.backend.events, ["sync", "task:compile"])
+
+    def test_build_kinds_without_service_use_matching_tasks_and_share_dependencies(self):
+        for kind in ("source", "resource", "structural", "branch"):
+            for engine in self.both():
+                with self.subTest(kind=kind, environment=engine.binding.environment):
+                    raw = copy.deepcopy(engine.spec.raw)
+                    raw["tasks"] = {
+                        "install": {"command": ["fixture"]},
+                        "generate": {"command": ["fixture"], "role": "build"},
+                    }
+                    raw["builds"] = {}
+                    for service in ("api", "web"):
+                        raw["builds"][service] = {"watch": ["."]}
+                        for task_kind in ("source", "resource", "structural"):
+                            name = f"{task_kind}-{service}"
+                            raw["tasks"][name] = {
+                                "command": ["fixture"],
+                                "role": "build",
+                                "depends_on": ["generate"],
+                            }
+                            raw["builds"][service][f"{task_kind}_task"] = name
+                    engine.spec = parse_project(raw, engine.binding.environment)
+                    (engine.binding.source / "dev-tools.toml").write_text(
+                        render_toml(raw), encoding="utf-8"
+                    )
+                    engine.backend.running.update({"api", "web", "__watch"})
+                    engine.rebuild(kind=kind)
+                    task_kind = "structural" if kind == "branch" else kind
+                    expected = ["task:install"] if kind == "branch" else []
+                    expected.extend(
+                        ["task:generate", f"task:{task_kind}-api", f"task:{task_kind}-web"]
+                    )
+                    self.assertEqual(
+                        [item for item in engine.backend.events if item.startswith("task:")],
+                        expected,
+                    )
+                    stops = [item for item in engine.backend.events if item.startswith("stop:")]
+                    self.assertEqual(stops, [] if kind == "source" else ["stop:web", "stop:api"])
+                    self.assertEqual(engine.backend.running, {"api", "web", "__watch"})
+                    self.assertNotIn("requirements", engine.backend.events)
+
+    def test_source_and_resource_builds_do_not_rebuild_compose_images(self):
+        for engine in self.both():
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["services"]["stack"] = {"driver": "compose"}
+            engine.spec = parse_project(raw, engine.binding.environment)
+            (engine.binding.source / "dev-tools.toml").write_text(
+                render_toml(raw), encoding="utf-8"
+            )
+            (engine.binding.source / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
+            with patch("dev_tools.projects.engine.run_compose") as compose:
+                for kind in ("source", "resource", "structural", "branch"):
+                    engine.rebuild(kind=kind)
+                self.assertEqual(
+                    [call.args[2:] for call in compose.call_args_list], [("build",), ("build",)]
+                )
+
+    def test_single_service_default_build_runs_only_its_structural_task(self):
+        for engine in self.both():
+            engine.backend.running.update({"api", "web", "__watch"})
+            engine.rebuild(service="api")
+            self.assertEqual(
+                [item for item in engine.backend.events if item.startswith("task:")],
+                ["task:compile"],
+            )
+            self.assertEqual(engine.backend.running, {"api", "web", "__watch"})
+
+    def add_service_dependencies(self, engine):
+        raw = copy.deepcopy(engine.spec.raw)
+        raw["services"].update(
+            cache={"command": ["fixture"]},
+            db={"command": ["fixture"], "depends_on": ["cache"]},
+            idle={"command": ["fixture"]},
+        )
+        raw["services"]["api"]["depends_on"] = ["db"]
+        engine.spec = parse_project(raw, engine.binding.environment)
+        (engine.binding.source / "dev-tools.toml").write_text(render_toml(raw), encoding="utf-8")
+
+    def test_prepare_restores_new_transitive_dependencies_before_active_services(self):
+        for engine in self.both():
+            engine.prepare()
+            engine.backend.running.update({"api", "web", "__watch"})
+            self.add_service_dependencies(engine)
+            engine.backend.events.clear()
+            engine.prepare()
+            starts = [item for item in engine.backend.events if item.startswith("start:")]
+            self.assertEqual(starts[:4], ["start:cache", "start:db", "start:api", "start:web"])
+            self.assertNotIn("idle", engine.backend.running)
+            self.assertTrue({"cache", "db", "api", "web", "__watch"} <= engine.backend.running)
+            self.assertIsNone(engine.state()["recovery"])
+
+    def test_failed_new_dependency_preserves_prepare_recovery_and_retry_restores_it(self):
+        for engine in self.both():
+            engine.prepare()
+            engine.backend.running.update({"api", "web", "__watch"})
+            self.add_service_dependencies(engine)
+            engine.backend.fail_start = "db"
+            with self.assertRaises(ProjectError):
+                engine.prepare()
+            self.assertFalse(engine.backend.running)
+            self.assertEqual(
+                set(engine.state()["recovery"]["restore_workers"]), {"api", "web", "__watch"}
+            )
+            engine.backend.fail_start = ""
+            engine.prepare()
+            self.assertTrue({"cache", "db", "api", "web", "__watch"} <= engine.backend.running)
+            self.assertNotIn("idle", engine.backend.running)
+            self.assertIsNone(engine.state()["recovery"])
 
     def test_changed_manifest_blocks_start_and_planned_prepare(self):
         for engine in self.both():

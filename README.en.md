@@ -129,7 +129,7 @@ Unregister preserves source, state, caches and runtimes by default. WSL `--purge
 | `mise.toml` / `.mise.toml` | Project runtime versions | Project root; commit to the project |
 | Registration JSON | Source, native workspace, runtime user and storage identity | Each platform's native registry |
 
-Preparation uses explicit versions from the target project's root mise files. Existing root files are preserved; equal-priority conflicts between the two filenames are rejected. Controller preferences, user-global mise defaults, ancestor declarations and nested version declarations cannot replace root versions.
+Preparation uses explicit versions from the target project's root mise files. Existing root files are preserved; when both filenames exist, their tool declarations are combined and equal-priority version conflicts are rejected. Controller preferences, user-global mise defaults, ancestor declarations and nested version declarations cannot replace root versions.
 Shared declarations exclude machine source paths, usernames and cache roots. Windows and WSL may read the same source declaration while keeping executables, virtual environments, packages and build outputs separate.
 
 ### Controller preferences
@@ -200,7 +200,7 @@ Report refreshes by default and may use the network or update local indexes. It 
 
 The same Python worker handles dependencies, health, restart policies, monitoring and recovery on both platforms. Dependencies start and become ready first; stop reverses the graph. Failed startup rolls back newly started processes. Native process services without health probes have health unknown; Compose also checks container state and container-reported health.
 
-After validating its plan, prepare stops previously active workers, prepares native prerequisites and root runtimes, synchronizes source, runs tasks, prepares Compose images and Spring classpaths, then restores the active set. Failures save progress and recovery records. Prepare again after fixing the cause. Explicit stop cancels pending restoration intent.
+After validating its plan, prepare stops previously active workers, prepares native prerequisites and root runtimes, synchronizes source, runs tasks, prepares Compose images and Spring classpaths, then restores the active set and the service dependencies required by the current declaration. Failures save progress and recovery records. Prepare again after fixing the cause. Explicit stop cancels pending restoration intent.
 
 Source builds keep services running. Resource/structural builds stop affected services and dependents, build and restore them. Branch/HEAD changes wait for Git operations and files to settle before running declared package refreshes and builds. Background workers never install runtimes or download Spring DevTools JARs. Manual operations wait up to 15 seconds for the project lock; background operations yield when the project is busy.
 

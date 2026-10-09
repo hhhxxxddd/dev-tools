@@ -96,7 +96,7 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual(settings.language, "zh")
                 self.assertEqual(settings.data["sysinfo"]["tools"], [])
                 self.assertEqual(settings.data["report"]["collectors"], ["git"])
-                self.assertEqual(settings.origins["report.collectors"], str(explicit))
+                self.assertEqual(settings.origins["report.collectors"], str(explicit.resolve()))
                 self.assertEqual(tomllib.loads(render_settings(settings.data)), settings.data)
 
     def test_bad_types_unknown_fields_and_syntax_never_leak_values(self):
@@ -136,7 +136,7 @@ class SettingsTests(unittest.TestCase):
                 edit_settings(load_settings(path))
             self.assertEqual(
                 runner.call_args.args[0][-4:],
-                ["/editor", "--wait", "argument with spaces", str(path)],
+                ["/editor", "--wait", "argument with spaces", str(path.resolve())],
             )
             self.assertEqual(path.read_text(encoding="utf-8"), source)
 

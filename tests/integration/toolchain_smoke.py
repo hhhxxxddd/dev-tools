@@ -30,7 +30,7 @@ def smoke() -> dict:
     repository = Path(__file__).resolve().parents[2]
     native = "windows" if os.name == "nt" else "wsl"
     with tempfile.TemporaryDirectory(prefix="dev-tools-tools-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         source = root / "运行环境 & spaces"
         source.mkdir()
         ports = []
