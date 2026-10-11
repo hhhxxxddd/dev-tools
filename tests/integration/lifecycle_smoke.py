@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -25,6 +26,14 @@ def smoke() -> dict:
     environment_name = "windows" if os.name == "nt" else "wsl"
     with tempfile.TemporaryDirectory(prefix="dev-tools-native-") as temporary:
         root = Path(temporary).resolve()
+        controller = repository
+        if environment_name == "windows":
+            controller = root / "controller"
+            shutil.copytree(repository / "scripts", controller / "scripts")
+            shutil.copytree(repository / "src/dev_tools", controller / "src/dev_tools")
+            (controller / ".host-python.win").write_text(
+                str(Path(sys.executable).resolve()) + "\n", encoding="utf-8"
+            )
         source = root / "项目 & spaces"
         source.mkdir()
         (source / "source").mkdir()
@@ -84,7 +93,7 @@ def smoke() -> dict:
         (source / "dev-tools.toml").write_text(render_toml(raw), encoding="utf-8")
         environment = os.environ.copy()
         environment.update(
-            PYTHONPATH=str(repository / "src"),
+            PYTHONPATH=str(controller / "src"),
             PYTHONUTF8="1",
             DEV_TOOLS_REGISTRY_ROOT=str(root / "registry"),
             DEV_TOOLS_STATE_ROOT=str(root / "state"),
@@ -100,7 +109,7 @@ def smoke() -> dict:
                 "-NoProfile",
                 "-NonInteractive",
                 "-File",
-                str(repository / "scripts/dev-tools.ps1"),
+                str(controller / "scripts/dev-tools.ps1"),
             ]
             if environment_name == "windows"
             else ["bash", str(repository / "scripts/dev-tools")]

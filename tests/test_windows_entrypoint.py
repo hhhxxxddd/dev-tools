@@ -91,9 +91,17 @@ function mise {
             self.assertEqual(wsl_binding.read_text(), "/opt/shared/python/bin/python3\n")
 
     def test_native_flags_and_scan_cannot_import_project_python_code(self):
-        script = Path(__file__).resolve().parents[1] / "scripts/dev-tools.ps1"
+        repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            deployment = Path(temporary) / "controller"
+            shutil.copytree(repository / "scripts", deployment / "scripts")
+            shutil.copytree(repository / "src/dev_tools", deployment / "src/dev_tools")
+            (deployment / ".host-python.win").write_text(
+                str(Path(sys.executable).resolve()) + "\n", encoding="utf-8"
+            )
+            script = deployment / "scripts/dev-tools.ps1"
+            root = Path(temporary) / "project"
+            root.mkdir()
             for name in ("socket.py", "subprocess.py", "sitecustomize.py"):
                 (root / name).write_text(
                     'raise RuntimeError("project code must never execute during scanning")\n'
