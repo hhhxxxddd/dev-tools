@@ -171,7 +171,7 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(tuple(updated.services), (service,))
             self.assertEqual(updated.services[service].command.argv, ("custom", "dev"))
 
-    def test_dry_run_rediscovery_never_writes_or_executes_and_keeps_platform_override(self):
+    def test_planning_rediscovery_never_writes_or_executes_and_keeps_platform_override(self):
         fixture = engine_fixture.EngineContractTests()
         with tempfile.TemporaryDirectory() as temporary:
             engine = fixture.fixture(Path(temporary), "windows")

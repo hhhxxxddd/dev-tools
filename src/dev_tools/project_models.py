@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .schemas import CLI_SCHEMA_VERSION
+
 
 @dataclass(frozen=True)
 class Evidence:
@@ -65,7 +67,7 @@ class ScanResult:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": 3,
+            "schema_version": CLI_SCHEMA_VERSION,
             "root": str(self.root),
             "existing_config": str(self.existing_config) if self.existing_config else None,
             "tools": {

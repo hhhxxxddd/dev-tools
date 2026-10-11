@@ -90,11 +90,10 @@ class Backend:
     def _phase(self, worker: str, *, active: bool) -> dict:
         record = read_json(self.binding.state / "workers" / f"{worker}.json")
         if not active:
+            unexpected = record.get("phase") in {"failed", "starting", "running", "restarting"}
             return {
                 **record,
-                "phase": "failed"
-                if record.get("phase") in {"failed", "starting", "running", "restarting"}
-                else "stopped",
-                "error": record.get("error", "worker exited unexpectedly" if record else ""),
+                "phase": "failed" if unexpected else "stopped",
+                "error": record.get("error", "worker exited unexpectedly" if unexpected else ""),
             }
         return record or {"phase": "starting"}

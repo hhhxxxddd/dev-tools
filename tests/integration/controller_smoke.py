@@ -122,6 +122,15 @@ test "$(cat {native}/config/projects.d/existing.json)" = keep-registration
 test "$(cat {native}/state/existing)" = keep-state
 test -f {native}/deployment/docs/installation.md
 test -f {native}/deployment/docs/installation.en.md
+PYTHONPATH={native}/deployment/src "$(cat {native}/deployment/.host-python)" - <<'PY'
+from pathlib import Path
+from dev_tools.controller import verify_source
+from dev_tools.validation import validate
+root = Path("{native}/deployment")
+verify_source(root)
+validate(root, "dev_tools")
+print("Installed receipt and documentation verified")
+PY
 {native}/bin/dev-tools --version
 {native}/bin/dev-tools self status --json
 """)

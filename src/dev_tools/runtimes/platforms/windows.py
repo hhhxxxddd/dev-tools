@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ...i18n import language, message
 from ...projects.models import ProjectError, ProjectSpec
+from ...projects.process_errors import process_error, run_process
 from ...projects.registry import read_json, write_json
 from .base import Backend, PlatformRequirements
 
@@ -18,7 +19,7 @@ REPOSITORY = Path(__file__).resolve().parents[4]
 
 class WindowsBackend(Backend):
     def _native(self, action: str, path: Path) -> dict:
-        result = subprocess.run(
+        result = run_process(
             [
                 "pwsh",
                 "-NoProfile",
@@ -37,6 +38,7 @@ class WindowsBackend(Backend):
             encoding="utf-8",
             errors="replace",
             check=False,
+            timeout=30,
         )
         if result.returncode:
             raise ProjectError(result.stderr.strip() or f"Windows native {action} failed")
@@ -57,15 +59,19 @@ class WindowsBackend(Backend):
             )
         elif any(service.driver == "compose" for service in spec.services.values()):
             for arguments in (["docker", "compose", "version"], ["docker", "info"]):
-                result = subprocess.run(
-                    arguments,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    check=False,
-                    timeout=15,
-                )
+                try:
+                    result = run_process(
+                        arguments,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        check=False,
+                        timeout=15,
+                    )
+                except ProjectError as exc:
+                    unresolved.append(exc.args[0])
+                    break
                 if result.returncode:
                     unresolved.append(
                         message(
@@ -99,10 +105,16 @@ class WindowsBackend(Backend):
 
     def terminate_child(self, child: subprocess.Popen) -> None:
         if child.poll() is None:
-            subprocess.run(
-                ["taskkill", "/PID", str(child.pid), "/T", "/F"], capture_output=True, check=False
+            run_process(
+                ["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+                timeout=10,
             )
-            child.wait(timeout=10)
+            try:
+                child.wait(timeout=10)
+            except subprocess.SubprocessError as exc:
+                raise process_error(exc, getattr(child, "args", None)) from None
 
     def start(self, worker: str) -> None:
         if self.active(worker):

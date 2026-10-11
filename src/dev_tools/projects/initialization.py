@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..schemas import CLI_SCHEMA_VERSION
 from ..workflows import InitializationPlan, initialization_plan, write_initialization
-from . import SCHEMA_VERSION
 from .config import CONFIG_NAME, load_project, render_toml
 from .discovery import discover_project
 
@@ -19,7 +19,7 @@ def initialize(
     plan = initialization_plan(path)
     if plan.action == "no-tools" and toolchain == "mise":
         plan = InitializationPlan(plan.scan, "preview", "[tools]\n")
-    payload = {**plan.as_dict(), "schema_version": SCHEMA_VERSION}
+    payload = {**plan.as_dict(), "schema_version": CLI_SCHEMA_VERSION}
     root = plan.scan.root
     project = root / CONFIG_NAME
     blocked = bool(
@@ -54,7 +54,7 @@ def initialize(
             plan = write_initialization(plan)
             payload.update(plan.as_dict())
     payload.update(
-        schema_version=SCHEMA_VERSION,
+        schema_version=CLI_SCHEMA_VERSION,
         project_config={"action": project_action, "path": str(project), "content": content},
     )
     return payload, False

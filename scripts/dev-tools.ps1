@@ -32,6 +32,14 @@ function Assert-Mise {
 }
 
 function Get-InternalPython {
+    $hostBinding = Join-Path $repoRoot '.host-python.win'
+    if (Test-Path -LiteralPath $hostBinding) {
+        if ((Get-Item -LiteralPath $hostBinding -Force).LinkType -or
+            -not (Test-Path -LiteralPath $hostBinding -PathType Leaf)) {
+            throw (Get-DevToolsMessage 'Refusing invalid dev-tools Python binding: {path}' $startupLanguage @{path=$hostBinding})
+        }
+        return Get-DevToolsHostPythonPath ([IO.File]::ReadAllText($hostBinding).Trim()) $startupLanguage
+    }
     Assert-Mise
     $pythonRoots = @(& mise --no-config -C $repoRoot where $internalPython 2>$null)
     $miseExitCode = $LASTEXITCODE

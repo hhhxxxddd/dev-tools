@@ -19,12 +19,15 @@ class WslEntrypointTests(unittest.TestCase):
         runtime_available: bool,
         language: str | None = None,
         without_home: bool = False,
+        host_binding: str | None = None,
+        unreadable_binding: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         commands = root / "bin"
         commands.mkdir()
         mise = commands / "mise"
         mise.write_text(
             "#!/bin/sh\n"
+            'printf "%s\\n" "$*" >> "$TEST_MISE_LOG"\n'
             'if [ "$1" = --no-config ]; then shift; fi\n'
             'if [ "$1" = -C ]; then shift 2; fi\n'
             'test "$1" = where && test "$2" = python@3.14.8 || exit 2\n'
@@ -46,11 +49,24 @@ class WslEntrypointTests(unittest.TestCase):
                 env.pop(key, None)
         env["PATH"] = str(commands) + os.pathsep + env.get("PATH", "")
         env["TEST_PYTHON_ROOT"] = sys.prefix
+        env["TEST_MISE_LOG"] = str(root / "mise.log")
         env["DEV_TOOLS_CONFIG"] = str(root / "config.toml")
         if language:
             (root / "config.toml").write_text(f'language = "{language}"\n', encoding="utf-8")
+        repository = Path(__file__).parents[1]
+        entrypoint = repository / "scripts/dev-tools"
+        if host_binding is not None or unreadable_binding:
+            scripts = root / "scripts"
+            scripts.mkdir()
+            entrypoint = scripts / "dev-tools"
+            shutil.copyfile(repository / "scripts/dev-tools", entrypoint)
+            (root / "src").symlink_to(repository / "src", target_is_directory=True)
+            if unreadable_binding:
+                (root / ".host-python").mkdir()
+            else:
+                (root / ".host-python").write_text(host_binding + "\n", encoding="utf-8")
         return subprocess.run(
-            ["bash", str(Path(__file__).parents[1] / "scripts/dev-tools"), "sysinfo", "--json"],
+            ["bash", str(entrypoint), "sysinfo", "--json"],
             cwd=root,
             env=env,
             capture_output=True,
@@ -88,6 +104,29 @@ class WslEntrypointTests(unittest.TestCase):
                 )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(expected, result.stderr)
+
+    def test_external_binding_works_without_mise_or_project_python(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result = self.run_entrypoint(root, runtime_available=False, host_binding=sys.executable)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("3.14.8", json.loads(result.stdout)["system"]["python"])
+            self.assertFalse((root / "mise.log").exists())
+            self.assertNotIn("wrong-project-python", result.stderr)
+
+    def test_invalid_binding_never_falls_back_to_mise(self):
+        for unreadable in (False, True):
+            with self.subTest(unreadable=unreadable), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                result = self.run_entrypoint(
+                    root,
+                    runtime_available=True,
+                    host_binding=str(root / "missing-python"),
+                    unreadable_binding=unreadable,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("scripts/install.sh", result.stderr)
+                self.assertFalse((root / "mise.log").exists())
 
 
 if __name__ == "__main__":

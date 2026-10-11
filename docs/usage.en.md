@@ -79,6 +79,7 @@ dev-tools report --json --output report.json
 | wsl | Allow Windows to run enabled mise/APT/Snap/Rustup/npm collectors in the configured distro |
 
 Report refreshes by default and may use the network or update local indexes. It never installs or upgrades software and accepts only built-in collectors.
+Explicit collection failures, timeouts, partial results, parse errors or repository discovery issues retain the report and exit 1. Missing optional tools, disabled entries or normal update findings do not themselves count as execution failures.
 `--no-refresh` disables Git fetch, index refresh and mise/Store/Snap/Rustup update queries, but npm update queries may still use the network; remove npm from collectors when those queries are unwanted. npm update queries are skipped when the mise-managed inventory cannot be determined. WSL skips Windows collectors.
 mise, Store, Snap and Rustup update queries provide structured updates. Rustup's update exit code 100 is not a failure, and partial valid results are retained. Unknown response formats are marked parse-error rather than reported as fully up to date.
 
@@ -89,7 +90,17 @@ mise, Store, Snap and Rustup update queries provide structured updates. Rustup's
 
 The same Python worker handles dependencies, health, restart policies, monitoring and recovery on both platforms. Dependencies start and become ready first; stop reverses the graph. Failed startup rolls back newly started processes. Native process services without health probes have health unknown; Compose also checks container state and container-reported health.
 
-Start automatically validates and executes the shared preparation plan: prepare native prerequisites and root runtimes, synchronize source, lockfiles and packages, prepare Compose images and Spring classpaths, then start services. While running, declaration, lockfile and configuration changes use the same flow, keeping the monitor alive through failures and retrying after corrections. Starting all services follows newly discovered services; start --service maintains only the selection and its dependencies. Explicit prepare remains available for previews or manual preparation. Stop publishes cancellation first, preventing services from restarting after an update.
+Start automatically validates and executes the shared preparation plan: prepare native prerequisites and root runtimes, synchronize source, lockfiles and packages, prepare Compose images and Spring classpaths, then start services. While running, declaration, lockfile and configuration changes use the same flow, keeping the monitor alive through failures and retrying after corrections. Starting all services follows newly discovered services; start --service maintains only the selection and its dependencies. Check inspects the plan read-only; prepare executes it manually. Stop publishes cancellation first, preventing services from restarting after an update.
+
+```text
+dev-tools check my-app
+dev-tools check my-app --json
+dev-tools prepare my-app
+dev-tools prepare my-app --json
+```
+
+`check` shows declared versions, native prerequisites, preparation tasks and blockers without installing runtimes, synchronizing source or executing tasks. It shares the preparation plan with `prepare`, `start` and background maintenance; `scan` only discovers project declarations. `--json` controls output format only: `prepare --json` still performs preparation. Omit the project name in a directory that uniquely matches it.
+Blocked scan/init/check results exit 1; argument errors exit 2 and interruptions exit 130. Successful status queries exit 0 and express readiness through the JSON ready field. See the [CLI and automation contract](cli-contract.en.md) for the full interface agreement.
 
 Source builds keep services running. Resource/structural builds stop affected services and dependents, build and restore them. Branch/HEAD changes wait for Git operations and files to settle before running declared package refreshes and builds. Background preparation can supply runtimes explicitly declared at the project root and Spring DevTools JARs. Manual operations wait up to 15 seconds for the project lock; background operations yield when the project is busy.
 
@@ -100,6 +111,12 @@ Source builds keep services running. Resource/structural builds stop affected se
 | Workspace | Original source directory | Independent directory under the runtime user's `~/.cache/dev-tools/build` |
 | Supervision | Hidden processes with PID/start-time validation | Generic `dev-tools-worker@.service` template |
 | Source sync | Use source directly | rsync excluding Git, packages and native build outputs |
+
+### Log queries and retention
+
+`dev-tools logs my-app api --lines 200` shows recent service output; add `--follow` to follow it. Queries read the current log only. The initial tail reads at most 10 MiB, so very long lines or large output can return fewer than the requested number of lines. Following reads subsequent output in blocks and follows rotation or truncation.
+
+Before a worker or task starts, an existing log of at least 10 MiB is rotated, retaining up to three archives named `.1`–`.3`. Oversized archives retain only their newest 10 MiB. Rotation happens at startup only: a single long-running process can grow its current log beyond 10 MiB, so the threshold is not a live size limit.
 
 WSL prepare can supply Git, rsync, runtime-user tools and requested Docker/Compose prerequisites. Windows requires a configured, reachable native Docker engine.
 Business services such as Redis/MySQL are declared by the project rather than inferred or installed automatically. This repository operates independently and does not read or migrate wsl-devctl registrations.

@@ -216,6 +216,7 @@ class SettingsTests(unittest.TestCase):
                 "scan",
                 "register",
                 "list",
+                "check",
                 "prepare",
                 "start",
                 "stop",

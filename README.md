@@ -1,38 +1,64 @@
 # dev-tools
 
-[English](README.en.md) · [更新记录](CHANGELOG.md) · [v0.4.1](https://github.com/hhhxxxddd/dev-tools/releases/tag/v0.4.1)
+**简体中文** · [English](README.en.md)
 
-**近乎无感的本地开发部署：自动发现依赖，改代码热部署，依赖升级后接着开发。**
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.0](https://img.shields.io/badge/Version-0.5.0-blue)](CHANGELOG.md)
 
-面向 Windows 和 WSL 的开发项目管理工具，适合让 AI 反复改代码、加依赖、切分支的 **vibe coding** 工作流。注册并启动一次，之后专心改代码，依赖同步和服务恢复交给 dev-tools。
+为 Windows 和 WSL 开发项目提供热部署与热更新：识别依赖、准备环境、启动服务，并跟进代码和依赖变化。
+支持 Node.js、Python / uv、Maven / Spring Boot 和已有 Docker Compose 项目。
 
-- **自动发现**：读取项目已有声明，识别 Node.js、Maven / Spring Boot、Python / uv 和已有 Docker Compose 项目，生成可检查的开发配置。
-- **热部署**：前端热更新、Python 自动重载、Spring 编译与 DevTools 重载；切换分支后按配置重新构建。
-- **跟进依赖变化**：运行期间按模块同步锁文件、安装新增或升级的包、清理移除的依赖并恢复服务。无需重新注册或手动准备，保留手改命令。
+## 环境要求
+
+| 平台 / 依赖 | 版本或要求 | 使用范围 |
+| --- | --- | --- |
+| Windows | Windows 11 | 原生 Windows 控制程序 |
+| WSL（可选） | WSL 2；已验证 Ubuntu 24.04 LTS | 管理 WSL 项目时启用 systemd |
+| PowerShell | 7 或更新版本 | Windows 入口与进程管理 |
+| Python | `>=3.14.8,<3.15` | 控制程序仅用标准库；可绑定已有原生解释器 |
+| Git | `git` 命令可用 | 源码安装、工具更新和分支监控 |
+| mise | `mise` 命令可用 | 默认宿主安装及项目运行时管理 |
+| rsync | `rsync` 命令可用 | WSL 部署与源码同步 |
+| Docker / Compose（可选） | Docker 与 Compose v2 | 使用 Compose 项目时需要 |
+| Scoop（可选） | `scoop` 命令可用 | 使用 Scoop 安装时需要 |
+
+项目的 Node.js、Java 等版本由根 mise 配置决定。
 
 ## 安装
 
-Windows 推荐通过 Scoop 安装：
+### Scoop（Windows）
+
+通过 hxd-box 安装正式发行版：
 
 ```powershell
-scoop bucket add dev-tools https://github.com/hhhxxxddd/dev-tools
-scoop install dev-tools/dev-tools
-dev-tools help
+scoop bucket add hxd-box https://github.com/hhhxxxddd/hxd-box
+scoop install hxd-box/dev-tools
 ```
 
-Scoop 安装 Git、PowerShell 7、mise 和控制程序自己的 Python。项目运行时由项目根级版本声明决定，Windows 与 WSL 各自保存依赖和缓存。
+自动准备 Git、PowerShell 7、mise 和 Python 3.14 控制程序宿主。
 
-需要 WSL 时，先安装发行版并启用 systemd，再从 Windows 部署一次：
+### Git（Windows）
+
+准备好上表中的依赖，获取并安装当前源码：
+
+```powershell
+git clone https://github.com/hhhxxxddd/dev-tools.git
+cd dev-tools
+.\scripts\install.ps1
+```
+
+安装后重新打开 PowerShell。绑定已有 Python、仅安装 WSL 等方式见[安装说明](docs/installation.md)。
+
+两种安装方式均可从 Windows 部署到 WSL：
 
 ```powershell
 dev-tools self update -e wsl
 ```
 
-首次部署和后续更新使用同一命令，无需进入 WSL 再克隆仓库。默认发行版为 Ubuntu；进入 `dev-tools` 或 `help` 会提示缺失部署。源码安装和其他发行版见[安装说明](docs/installation.md)。
+默认使用 Ubuntu；Windows 和 WSL 各自保存运行时、依赖与缓存。
 
-## 快速上手
+## 快速开始
 
-进入已有项目目录：
+在项目目录执行：
 
 ```text
 cd path/to/my-app
@@ -41,49 +67,32 @@ dev-tools register
 dev-tools start
 ```
 
-`init` 保留已有配置，缺少明确版本或自定义入口时会提示补充；`start` 自动准备环境。随后直接改代码、增删或升级依赖、切换分支即可。依赖更新可能短暂停服，热部署取决于框架和配置。
+`init` 保留已有配置，`start` 自动准备并启动服务。之后按配置处理热部署和依赖变化。
+任务与服务写在 `dev-tools.toml`，运行时版本写在根 `mise.toml` / `.mise.toml`。
 
-省略 `-e` 使用当前平台；从 Windows 控制 WSL 项目：
+省略 `-e` 使用当前平台；加 `-e wsl` 从 Windows 管理 WSL 项目。原生 WSL 的注册和启停使用 `sudo`。
 
-```powershell
-dev-tools -e wsl register .
-dev-tools -e wsl start
-```
+## 常用命令
 
-原生 WSL 的注册和启停需要 `sudo`。`stop` 停止自动维护，下次 `start` 补齐变化。
+| 命令 | 用途 |
+| --- | --- |
+| `dev-tools list --all` | 查看 Windows 与 WSL 项目 |
+| `dev-tools check my-app` | 只读检查准备计划 |
+| `dev-tools status my-app` | 查看项目状态 |
+| `dev-tools logs my-app web --follow` | 跟踪服务日志 |
+| `dev-tools stop my-app` | 停止服务与自动维护 |
+| `dev-tools unregister my-app` | 取消项目注册 |
+| `dev-tools config edit` | 编辑本机偏好 |
+| `dev-tools upgrade` | 更新工具自身 |
+| `dev-tools -v` / `dev-tools help` | 查看版本或帮助 |
 
-## 日常使用
+在唯一匹配项目的目录中可省略项目名；替换示例中的项目和服务名。
+`list` 查看当前平台，`list --all` 查看 Windows 和 WSL。
+更新工具前先停止相关平台的项目，更新 WSL 使用 `dev-tools upgrade -e wsl`。
+默认中文，在 `config` 中设置 `language = "en"` 切换英文。
 
-```text
-dev-tools list
-dev-tools list --all
-dev-tools status my-app
-dev-tools logs my-app web --follow
-dev-tools stop my-app
-```
+## 文档
 
-替换示例项目名和服务名；在唯一匹配项目的目录中可省略项目名。预览准备计划用 `dev-tools prepare --dry-run`，手动完整构建用 `dev-tools build`。
+[安装与更新](docs/installation.md) · [项目配置](docs/project-config.md) · [运行说明](docs/usage.md) · [接口约定](docs/cli-contract.md)
 
-`list` 默认列出当前平台，`list -e win` / `list -e wsl` 筛选单个环境，`list --all` 汇总 Windows 和配置的 WSL 发行版。两侧统一显示名称、环境和状态；一侧不可用时保留另一侧结果并报告失败。`--all` 不与 `-e` 同用。
-
-流程写在 `dev-tools.toml`，运行时版本写在根 `mise.toml` / `.mise.toml`；扫描和初始化不执行项目代码或安装运行时。`dependency_mode = "locked"` 可禁止自动修改锁文件。默认中文，通过 `dev-tools config edit` 设置 `language = "en"` 切换英文。
-
-## 更新
-
-先停止对应平台的项目，再更新：
-
-```powershell
-scoop update
-scoop update dev-tools
-dev-tools self update -e wsl
-```
-
-WSL 更新按需执行。两端保留项目注册、偏好、缓存和项目运行时，更新后用 `start` 恢复服务。
-
-## 文档与贡献
-
-[安装与卸载](docs/installation.md) · [项目配置与热部署](docs/project-config.md) · [运行说明](docs/usage.md) · [示例](examples/README.md)
-
-欢迎提交 Issue 和 Pull Request；开发前请阅读[开发与验证](docs/development.md)和[维护约束](AGENTS.md)。
-
-[MIT](LICENSE)
+[示例](examples/README.md) · [开发与贡献](docs/development.md) · [更新记录](CHANGELOG.md)

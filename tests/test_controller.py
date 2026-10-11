@@ -173,7 +173,9 @@ class ControllerTests(unittest.TestCase):
                 target = checkout / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content.replace(b"\n", b"\r\n"))
-            converted = build(checkout, root / "converted", "v" + __version__)
+            converted = build(
+                checkout, root / "converted", "v" + __version__, provenance=first["provenance"]
+            )
             self.assertEqual(first["sha256"], converted["sha256"])
             manifest = json.loads((root / "first/dev-tools.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["hash"], first["sha256"])

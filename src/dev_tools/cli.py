@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 from . import __version__
+from .cli_errors import emit_error, exit_code, request_scope, set_request
 from .command_help import CommandCatalog, LocalizedArgumentParser, add_config, add_environment
 from .controller import add_commands as add_controller_commands
 from .controller import deployment_notice
@@ -15,8 +17,10 @@ from .presentation import label
 from .project_models import ScanResult
 from .projects.cli import add_commands
 from .projects.initialization import initialize
+from .projects.models import ProjectError, validate_name
 from .report import collect_report, render_report
 from .scanner import scan_project
+from .schemas import CLI_SCHEMA_VERSION
 from .settings import SettingsError, config_command, load_settings, split_config
 from .sysinfo import collect_sysinfo, print_sysinfo
 
@@ -81,13 +85,12 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print(json.dumps(_payload(result, action="scan"), ensure_ascii=False, indent=2))
     else:
         _print_human(result)
-    return 2 if result.blocked else 0
+    return 1 if result.blocked else 0
 
 
 def cmd_init(args: argparse.Namespace) -> int:
     payload, blocked = initialize(
         args.path,
-        dry_run=args.dry_run,
         name=getattr(args, "name", None),
         runtime=getattr(args, "runtime", "auto"),
         toolchain=getattr(args, "toolchain", "mise"),
@@ -105,13 +108,11 @@ def cmd_init(args: argparse.Namespace) -> int:
                 path=project_config["path"],
             )
         )
-        if args.dry_run and project_config.get("content"):
-            print(project_config["content"])
         for diagnostic in payload.get("diagnostics", []):
             print(f"{diagnostic['source']}: {render(diagnostic['message'])}", file=sys.stderr)
         for item in payload.get("unresolved", []):
             print(f"{item['tool']}: {render(item['reason'])}", file=sys.stderr)
-    return 2 if blocked else 0
+    return 1 if blocked else 0
 
 
 def cmd_sysinfo(args: argparse.Namespace) -> int:
@@ -129,10 +130,20 @@ def cmd_report(args: argparse.Namespace) -> int:
         settings=getattr(args, "settings", None),
     )
     output = json.dumps(value, ensure_ascii=False, indent=2) if args.json else render_report(value)
-    print(output)
     if args.output:
         Path(args.output).write_text(output + "\n", encoding="utf-8")
-    return 0
+    print(output)
+    incomplete = bool(value.get("discovery_issues")) or any(
+        collector.get("status") in {"failed", "timeout", "partial", "parse-error"}
+        for collector in value.get("collectors", {}).values()
+    )
+    incomplete = incomplete or any(
+        repository.get("fetch", {}).get("status") in {"failed", "timeout", "partial", "parse-error"}
+        or repository.get("worktree") == "error"
+        or repository.get("tracking") == "tracking-error"
+        for repository in value.get("repositories", [])
+    )
+    return 1 if incomplete else 0
 
 
 def parser() -> argparse.ArgumentParser:
@@ -142,6 +153,7 @@ def parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     result.add_argument(
+        "-v",
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -200,7 +212,6 @@ def parser() -> argparse.ArgumentParser:
     initialize.add_argument(
         "path", nargs="?", default=".", metavar=t("目录"), help=t("项目源码目录，默认当前目录")
     )
-    initialize.add_argument("--dry-run", action="store_true", help=t("预览配置内容，不写入文件"))
     initialize.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
     initialize.set_defaults(func=cmd_init)
     initialize.add_argument(
@@ -232,7 +243,22 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
     command_parser = parser()
     command_parser.deployment_notice = lambda: deployment_notice(settings)
     args = command_parser.parse_args(arguments or ["help"])
+    set_request(args)
     args.settings = settings
+    if args.command == "config" and args.config_action == "edit" and args.json:
+        command_parser.error(t("config edit does not support --json"))
+    if args.command == "self":
+        if args.json and args.self_action != "status":
+            command_parser.error(t("self --json requires status"))
+        if args.source and args.self_action == "status":
+            command_parser.error(t("self --source requires update or upgrade"))
+    for field in ("name", "new_name", "service"):
+        value = getattr(args, field, None)
+        if value and not (args.command == "logs" and field == "service" and value.startswith("__")):
+            try:
+                validate_name(value)
+            except ProjectError:
+                command_parser.error(t("Invalid project, task or service name"))
     if args.command in {"config", "sysinfo", "report"} and arguments != forwarded:
         command_parser.error(t("-e/--env 只用于项目命令；辅助命令使用当前平台"))
     if settings.errors and args.command not in {"config", "help"}:
@@ -242,18 +268,53 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
             if args.all_environments and arguments != forwarded:
                 command_parser.error(t("list --all 不能与 -e/--env 同时使用"))
         else:
-            code = forward_remote(environment, forwarded, settings=settings)
-            if code is not None:
-                raise SystemExit(code)
-    raise SystemExit(args.func(args))
+            if getattr(args, "json", False):
+                result = forward_remote(
+                    environment, forwarded, settings=settings, capture=True, timeout=None
+                )
+                if result is not None:
+                    try:
+                        value = json.loads(result.stdout)
+                        if (
+                            not isinstance(value, dict)
+                            or type(value.get("schema_version")) is not int
+                            or value.get("schema_version") != CLI_SCHEMA_VERSION
+                            or not isinstance(value.get("action"), str)
+                            or args.command != "init"
+                            and value.get("action") != args.command
+                            or result.returncode not in {0, 1, 2, 130}
+                        ):
+                            raise ValueError
+                    except TypeError, ValueError:
+                        raise ProjectError(
+                            message("Invalid JSON response from target environment")
+                        ) from None
+                    if result.stderr:
+                        print(result.stderr, end="", file=sys.stderr)
+                    print(json.dumps(value, ensure_ascii=False, indent=2))
+                    raise SystemExit(exit_code(result.returncode))
+            else:
+                code = forward_remote(environment, forwarded, settings=settings)
+                if code is not None:
+                    raise SystemExit(exit_code(code))
+    raise SystemExit(exit_code(args.func(args)))
 
 
 def main(arguments: list[str] | None = None) -> None:
     arguments = list(sys.argv[1:] if arguments is None else arguments)
+    with request_scope(arguments):
+        _main(arguments)
+
+
+def _main(arguments: list[str]) -> None:
     from .runtimes.router import split_environment
 
     try:
         explicit, local = split_config(arguments)
+    except SettingsError as exc:
+        emit_error(exc, code="invalid_arguments")
+        raise SystemExit(2) from None
+    try:
         # Native supervisors must not depend on interactive user preferences.
         if "_worker" in local:
             environment, forwarded = split_environment(local)
@@ -270,20 +331,30 @@ def main(arguments: list[str] | None = None) -> None:
                     )
                 )
         settings = load_settings(explicit, tolerate_invalid=True)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         with language_scope(getattr(exc, "language", "zh")):
-            print(f"dev-tools: {render(exc)}", file=sys.stderr)
+            emit_error(exc)
         raise SystemExit(1) from None
+    except KeyboardInterrupt as exc:
+        emit_error(exc)
+        raise SystemExit(130) from None
     # Transport carries the calling config's resolved language, never a public
     # language override or a foreign machine's settings file. Do not leak it to tasks.
     inherited = os.environ.pop("DEV_TOOLS_TRANSPORT_LANGUAGE", None)
     with language_scope(inherited if inherited in {"zh", "en"} else settings.language):
         try:
             environment, forwarded = split_environment(local)
+        except ValueError as exc:
+            emit_error(exc, code="invalid_arguments")
+            raise SystemExit(2) from None
+        try:
             _dispatch(local, forwarded, environment, settings)
-        except (OSError, ValueError) as exc:
-            print(f"dev-tools: {render(exc)}", file=sys.stderr)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            emit_error(exc)
             raise SystemExit(1) from None
+        except KeyboardInterrupt as exc:
+            emit_error(exc)
+            raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

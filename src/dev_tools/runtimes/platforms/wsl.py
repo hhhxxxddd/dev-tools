@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ...i18n import message
 from ...projects.models import ProjectError, ProjectSpec
+from ...projects.process_errors import process_error, run_process
 from ...projects.registry import write_json
 from ...scanner import IGNORED_DIRECTORIES
 from .base import Backend, PlatformRequirements
@@ -42,7 +43,10 @@ class WslBackend(Backend):
             os.killpg(child.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        child.wait(timeout=5)
+        try:
+            child.wait(timeout=5)
+        except subprocess.SubprocessError as exc:
+            raise process_error(exc, getattr(child, "args", None)) from None
 
     def home(self) -> Path:
         return Path(pwd.getpwnam(self.binding.run_user).pw_dir)
@@ -103,7 +107,7 @@ class WslBackend(Backend):
         environment["DEBIAN_FRONTEND"] = "noninteractive"
         if project:
             argv, environment = self.identity(argv, environment)
-        result = subprocess.run(
+        result = run_process(
             argv,
             env=environment,
             capture_output=True,
@@ -138,9 +142,17 @@ class WslBackend(Backend):
             packages.extend(["docker.io", "docker-compose-v2"])
             enable, group = True, self.binding.run_user != "root"
         elif docker:
-            if self._run(["docker", "compose", "version"], project=True, check=False).returncode:
-                packages.append("docker-compose-v2")
-            info = self._run(["docker", "info"], project=True, check=False, timeout=15)
+            try:
+                compose = self._run(
+                    ["docker", "compose", "version"], project=True, check=False, timeout=15
+                )
+                if compose.returncode:
+                    packages.append("docker-compose-v2")
+                info = self._run(["docker", "info"], project=True, check=False, timeout=15)
+            except ProjectError as exc:
+                return PlatformRequirements(
+                    tuple(dict.fromkeys(packages)), unresolved=(exc.args[0],)
+                )
             if info.returncode:
                 group = (
                     "permission denied" in info.stderr.lower() and self.binding.run_user != "root"

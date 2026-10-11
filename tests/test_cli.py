@@ -20,6 +20,7 @@ from dev_tools.cli import cmd_init, main, parser
 from dev_tools.i18n import language_scope, message
 from dev_tools.projects.cli import run
 from dev_tools.projects.models import ProjectError
+from tests import test_project_engine as engine_fixture
 
 
 class CliTests(unittest.TestCase):
@@ -28,12 +29,15 @@ class CliTests(unittest.TestCase):
             ["sync", "demo"],
             ["self", "install"],
             ["build", "demo", "--kind", "source"],
+            ["init", "--dry-run"],
+            ["prepare", "demo", "--dry-run"],
+            ["check", "demo", "--dry-run"],
         ):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
                 parser().parse_args(arguments)
             self.assertEqual(result.exception.code, 2)
 
-    def test_start_json_keeps_native_process_output_on_stderr(self):
+    def test_execution_json_keeps_native_process_output_on_stderr(self):
         code = textwrap.dedent("""\
             import argparse, copy, json, os, sys, tempfile
             from pathlib import Path
@@ -53,21 +57,25 @@ class CliTests(unittest.TestCase):
                 def resolve(command, **kwargs):
                     content = "native build progress" if command.argv[-1:] == ("build",) else json.dumps([{"State": "running"}])
                     return [sys.executable, "-c", "print(" + repr(content) + ")"], engine.binding.source, os.environ.copy()
-                args = argparse.Namespace(project_command="start", env="win", name="demo", service=None, json=True)
+                args = argparse.Namespace(project_command=sys.argv[1], env="win", name="demo", service=None, json=True)
                 with patch("dev_tools.projects.cli.engine_for", return_value=engine), patch.object(engine.executor, "resolve", side_effect=resolve), patch("dev_tools.projects.monitoring.git_snapshot", return_value={}):
                     raise SystemExit(run(args))
             """)
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            cwd=Path(__file__).parents[1],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(json.loads(result.stdout)["completed"])
-        self.assertIn("native build progress", result.stderr)
+        for action in ("start", "prepare"):
+            with self.subTest(action=action):
+                result = subprocess.run(
+                    [sys.executable, "-c", code, action],
+                    cwd=Path(__file__).parents[1],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertTrue(payload["completed"])
+                self.assertEqual(payload["action"], action)
+                self.assertIn("native build progress", result.stderr)
 
     def test_init_does_not_write_a_partial_config_when_versions_are_unresolved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -77,9 +85,9 @@ class CliTests(unittest.TestCase):
             )
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                code = cmd_init(argparse.Namespace(path=str(root), dry_run=False, json=True))
+                code = cmd_init(argparse.Namespace(path=str(root), json=True))
             payload = json.loads(output.getvalue())
-            self.assertEqual(code, 2)
+            self.assertEqual(code, 1)
             self.assertEqual(payload["action"], "unresolved")
             self.assertFalse((root / "mise.toml").exists())
 
@@ -88,7 +96,7 @@ class CliTests(unittest.TestCase):
             (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
         )
 
-        self.assertEqual(__version__, "0.4.1")
+        self.assertRegex(__version__, r"^\d+\.\d+\.\d+$")
         self.assertEqual(metadata["project"]["version"], __version__)
 
     def test_version_flag_prints_version(self) -> None:
@@ -106,7 +114,7 @@ class CliTests(unittest.TestCase):
             output = io.StringIO()
 
             with contextlib.redirect_stdout(output):
-                code = cmd_init(argparse.Namespace(path=str(root), dry_run=False, json=True))
+                code = cmd_init(argparse.Namespace(path=str(root), json=True))
 
             payload = json.loads(output.getvalue())
             self.assertEqual(code, 0)
@@ -125,20 +133,96 @@ class CliTests(unittest.TestCase):
             output = io.StringIO()
 
             with contextlib.redirect_stdout(output):
-                code = cmd_init(argparse.Namespace(path=str(root), dry_run=False, json=True))
+                code = cmd_init(argparse.Namespace(path=str(root), json=True))
 
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(output.getvalue())["action"], "preserved")
 
     def test_native_commands_use_the_same_parser(self) -> None:
         for environment in ("win", "wsl"):
-            args = parser().parse_args(
-                ["--env", environment, "prepare", "demo", "--dry-run", "--json"]
-            )
-            self.assertEqual(args.name, "demo")
-            self.assertTrue(args.dry_run)
-            self.assertTrue(args.json)
-            self.assertEqual(args.func.__module__, "dev_tools.projects.cli")
+            for action in ("check", "prepare"):
+                args = parser().parse_args(["--env", environment, action, "demo", "--json"])
+                self.assertEqual(args.name, "demo")
+                self.assertFalse(hasattr(args, "dry_run"))
+                self.assertTrue(args.json)
+                self.assertEqual(args.func.__module__, "dev_tools.projects.cli")
+
+    def test_check_uses_full_plan_without_executing_or_writing(self):
+        for environment in ("windows", "wsl"):
+            for blocked in (False, True):
+                with (
+                    self.subTest(environment=environment, blocked=blocked),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    root = Path(temporary)
+                    engine = engine_fixture.EngineContractTests().fixture(root, environment)
+                    if blocked:
+                        engine.backend.unresolved = (message("fixture prerequisite is missing"),)
+                    before = {
+                        path.relative_to(root): path.read_bytes()
+                        for path in root.rglob("*")
+                        if path.is_file()
+                    }
+                    output = io.StringIO()
+                    with (
+                        patch("dev_tools.projects.cli.engine_for", return_value=engine),
+                        patch.object(engine, "plan", wraps=engine.plan) as plan,
+                        patch.object(engine, "prepare") as prepare,
+                        patch.object(engine.backend, "require_control") as require_control,
+                        patch("subprocess.run") as execute,
+                        contextlib.redirect_stdout(output),
+                    ):
+                        code = run(
+                            parser().parse_args(
+                                [
+                                    "-e",
+                                    "win" if environment == "windows" else "wsl",
+                                    "check",
+                                    "demo",
+                                    "--json",
+                                ]
+                            )
+                        )
+                    plan.assert_called_once_with(force=True)
+                    prepare.assert_not_called()
+                    require_control.assert_not_called()
+                    execute.assert_not_called()
+                    self.assertEqual(code, 1 if blocked else 0)
+                    payload = json.loads(output.getvalue())
+                    self.assertEqual(payload["action"], "check")
+                    self.assertEqual(payload["ready"], not blocked)
+                    self.assertEqual([task["name"] for task in payload["tasks"]], ["install"])
+                    self.assertFalse(engine.backend.events)
+                    self.assertEqual(
+                        before,
+                        {
+                            path.relative_to(root): path.read_bytes()
+                            for path in root.rglob("*")
+                            if path.is_file()
+                        },
+                    )
+                    self.assertFalse(engine.binding.state.exists())
+                    if environment == "wsl":
+                        self.assertFalse(engine.binding.workspace.exists())
+
+    def test_prepare_json_executes_the_same_full_plan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            engine = engine_fixture.EngineContractTests().fixture(Path(temporary), "windows")
+            output = io.StringIO()
+            with (
+                patch("dev_tools.projects.cli.engine_for", return_value=engine),
+                patch.object(engine, "plan", wraps=engine.plan) as plan,
+                contextlib.redirect_stdout(output),
+            ):
+                self.assertEqual(
+                    run(parser().parse_args(["-e", "win", "prepare", "demo", "--json"])),
+                    0,
+                )
+            plan.assert_called_once_with(force=True)
+            self.assertIn("task:install", engine.backend.events)
+            self.assertTrue(engine.state()["prepared_revision"])
+            self.assertEqual(json.loads(output.getvalue())["action"], "prepare")
+            self.assertTrue(json.loads(output.getvalue())["completed"])
 
     def test_list_table_localizes_states_aligns_columns_and_preserves_json(self):
         environment = "windows" if os.name == "nt" else "wsl"
@@ -290,6 +374,7 @@ class CliTests(unittest.TestCase):
             "init",
             "register",
             "list",
+            "check",
             "prepare",
             "start",
             "stop",
@@ -308,6 +393,7 @@ class CliTests(unittest.TestCase):
             self.assertRegex(help_text, rf"(?m)^  {command}\s+")
         self.assertNotIn("_worker", help_text)
         self.assertNotIn("project COMMAND", help_text)
+        self.assertNotIn("--dry-run", help_text)
         output = io.StringIO()
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as stopped:
             main(["help", "unregister"])

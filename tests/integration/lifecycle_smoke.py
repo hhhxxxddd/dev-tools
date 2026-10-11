@@ -143,7 +143,7 @@ def smoke() -> dict:
             listing = json.loads(invoke("list", "--json").stdout)
             if [item["name"] for item in listing["projects"]] != [name]:
                 raise AssertionError(listing)
-            plan = json.loads(invoke("prepare", "--dry-run", "--json").stdout)
+            plan = json.loads(invoke("check", "--json").stdout)
             if not plan["ready"] or (source / "prepared.txt").exists():
                 raise AssertionError(plan)
             binding = plan["binding"]

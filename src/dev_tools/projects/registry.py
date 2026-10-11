@@ -8,7 +8,7 @@ from typing import Any
 
 from ..i18n import message
 from ..runtimes.platforms.layout import storage, workspace
-from . import SCHEMA_VERSION
+from ..schemas import BINDING_SCHEMA_VERSION
 from .config import load_project
 from .models import ProjectBinding, ProjectError, validate_name
 
@@ -100,7 +100,9 @@ class Registry:
                     raise ProjectError(
                         message("source is already registered as: {existing}", existing=existing)
                     )
-        write_json(self.path(alias), {"schema_version": SCHEMA_VERSION, **binding.as_dict()})
+        write_json(
+            self.path(alias), {"schema_version": BINDING_SCHEMA_VERSION, **binding.as_dict()}
+        )
         if spec.discovery == "auto":
             from .maintenance import discovery_plan
 
@@ -113,7 +115,7 @@ class Registry:
         if not raw:
             raise ProjectError(message("project is not registered: {name}", name=name))
         if (
-            raw.get("schema_version") != SCHEMA_VERSION
+            raw.get("schema_version") != BINDING_SCHEMA_VERSION
             or raw.get("environment") != self.environment
             or raw.get("name") != name
         ):
@@ -128,7 +130,12 @@ class Registry:
         ]
         if self.state_root not in state.parents:
             raise ProjectError(message("binding state escapes native storage"))
-        cache_root = Path(raw["cache_root"]).resolve() if raw.get("cache_root") else None
+        cache_value = raw.get("cache_root")
+        if cache_value is not None and (
+            not isinstance(cache_value, str) or cache_value and not Path(cache_value).is_absolute()
+        ):
+            raise ProjectError(message("native binding paths must be absolute"))
+        cache_root = Path(cache_value).resolve() if cache_value else None
         if self.environment == "wsl":
             if cache_root is None or cache_root not in workspace.parents:
                 raise ProjectError(message("binding workspace escapes native cache root"))
@@ -151,6 +158,6 @@ class Registry:
         if self.path(new).exists():
             raise ProjectError(message("project is already registered: {new_name}", new_name=new))
         updated = replace(binding, name=validate_name(new))
-        write_json(self.path(new), {"schema_version": SCHEMA_VERSION, **updated.as_dict()})
+        write_json(self.path(new), {"schema_version": BINDING_SCHEMA_VERSION, **updated.as_dict()})
         self.path(old).unlink()
         return updated

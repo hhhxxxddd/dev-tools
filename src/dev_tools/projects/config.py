@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..i18n import message
+from ..schemas import PROJECT_CONFIG_SCHEMA_VERSION
 from .models import (
     BuildSpec,
     CommandSpec,
@@ -134,7 +135,7 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
         },
         "project",
     )
-    if type(raw.get("schema")) is not int or raw.get("schema") != 1:
+    if type(raw.get("schema")) is not int or raw.get("schema") != PROJECT_CONFIG_SCHEMA_VERSION:
         raise ProjectError(message("dev-tools.toml requires schema = 1"))
     name = validate_name(str(raw.get("name", "")))
     toolchain = raw.get("toolchain", "mise")

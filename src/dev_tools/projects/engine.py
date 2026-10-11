@@ -5,14 +5,14 @@ import socket
 import time
 import urllib.request
 import uuid
-from collections import deque
 
 from ..i18n import error_detail, join_messages, message, t
 from ..runtimes.platforms.locking import operation_lock
-from . import SCHEMA_VERSION
+from ..schemas import CLI_SCHEMA_VERSION
 from .config import CONFIG_NAME, load_project, render_toml
 from .drivers import install_spring_artifact, run_compose, spring_classpath
 from .execution import Executor
+from .logfiles import read_log
 from .maintenance import LOCKFILES, atomic_write, clean_venv_task, discovery_plan
 from .models import ProjectBinding, ProjectError, ProjectSpec, dependency_order, within
 from .planning import PreparationPlan, fingerprint, preparation_plan, preparation_revisions
@@ -140,7 +140,7 @@ class ProjectEngine:
         )
         health = None if any(value["health"] == "unknown" for value in services.values()) else ready
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": CLI_SCHEMA_VERSION,
             "action": "status",
             "name": self.binding.name,
             "environment": self.binding.environment,
@@ -675,12 +675,5 @@ class ProjectEngine:
         if not path.is_file():
             print(t("暂无日志。"))
             return
-        with path.open(encoding="utf-8", errors="replace") as stream:
-            for line in deque(stream, maxlen=lines):
-                print(line, end="")
-            while follow:
-                line = stream.readline()
-                if line:
-                    print(line, end="", flush=True)
-                else:
-                    time.sleep(0.25)
+        for content in read_log(path, lines=lines, follow=follow):
+            print(content, end="", flush=follow)

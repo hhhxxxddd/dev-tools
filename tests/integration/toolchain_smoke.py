@@ -150,7 +150,7 @@ public class Hello { public static void main(String[] args) throws Exception {
         name = raw["name"]
         invoke("register", str(source))
         try:
-            preview = json.loads(invoke("prepare", name, "--dry-run", "--json").stdout)
+            preview = json.loads(invoke("check", name, "--json").stdout)
             if set(preview["runtime_versions"]) != {
                 f"{tool}@{version}" for tool, version in tools.items()
             }:

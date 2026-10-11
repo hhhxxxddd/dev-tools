@@ -2,7 +2,6 @@
 set -euo pipefail
 
 [[ ${EUID} -eq 0 ]] || { printf 'Run this installer as root.\n' >&2; exit 1; }
-command -v mise >/dev/null 2>&1 || { printf 'Install mise first.\n' >&2; exit 1; }
 repo_root=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)
 install_root=$(readlink -m "${DEV_TOOLS_INSTALL_ROOT:-/opt/dev-tools}")
 command_root=${DEV_TOOLS_COMMAND_ROOT:-/usr/local/bin}
@@ -13,9 +12,11 @@ state_root=${DEV_TOOLS_STATE_ROOT:-/var/lib/dev-tools}
   printf 'Installation root must be absolute and separate from the checkout.\n' >&2; exit 1;
 }
 
-for target in "$install_root" "$install_root/src" "$install_root/src/dev_tools" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples" "$install_root/host-mise" "$install_root/.host-python" "$install_root/.windows-source" "$install_root/.release.json" "$install_root/README.md" "$install_root/README.en.md" "$install_root/CHANGELOG.md" "$install_root/AGENTS.md" "$install_root/LICENSE"; do
+for target in "$install_root" "$install_root/src" "$install_root/src/dev_tools" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples" "$install_root/systemd" "$install_root/host-mise" "$install_root/.host-python" "$install_root/.windows-source" "$install_root/.source" "$install_root/.release.json" "$install_root/README.md" "$install_root/README.en.md" "$install_root/CHANGELOG.md" "$install_root/AGENTS.md" "$install_root/LICENSE" "$install_root/pyproject.toml"; do
   [[ ! -L "$target" ]] || { printf 'Refusing symbolic-link installation target: %s\n' "$target" >&2; exit 1; }
 done
+
+command -v rsync >/dev/null 2>&1 || { printf 'Install rsync before deploying dev-tools.\n' >&2; exit 1; }
 if [[ -f "$install_root/src/dev_tools/__init__.py" ]]; then
   active_units=$(systemctl list-units 'dev-tools-worker@*.service' --state=active,activating,deactivating --no-legend --plain)
   [[ -z "$active_units" ]] || {
@@ -29,30 +30,60 @@ if [[ -f "$install_root/src/dev_tools/__init__.py" ]]; then
     exit 1
   }
 fi
+
+# A controller only owns the Python it installs itself. External interpreters
+# retain their own installation and upgrade lifecycle.
+if [[ -v DEV_TOOLS_PYTHON ]]; then
+  host_python="$DEV_TOOLS_PYTHON"
+elif [[ -e "$install_root/.host-python" ]]; then
+  [[ -f "$install_root/.host-python" && -r "$install_root/.host-python" ]] || {
+    printf 'Installed dev-tools host binding is unreadable: %s\n' "$install_root/.host-python" >&2; exit 1;
+  }
+  host_python=$(cat "$install_root/.host-python")
+else
+  command -v mise >/dev/null 2>&1 || { printf 'Set DEV_TOOLS_PYTHON or install mise first.\n' >&2; exit 1; }
+  install -d -m 0755 "$install_root"
+  export MISE_DATA_DIR="$install_root/host-mise"
+  mise --no-config --yes install python@3.14.8
+  python_root=$(mise --no-config where python@3.14.8)
+  host_python="$python_root/bin/python3"
+fi
+[[ "$host_python" == /* && -f "$host_python" && -x "$host_python" ]] || {
+  printf 'dev-tools host Python must be an existing absolute executable: %s\n' "$host_python" >&2; exit 1;
+}
+validated_python=$("$host_python" -I -S -c 'import sys; sys.platform == "linux" or sys.exit("dev-tools requires native Linux Python"); (3, 14, 8) <= sys.version_info < (3, 15) or sys.exit("dev-tools requires Python >=3.14.8,<3.15"); import ssl, tomllib; from pathlib import Path; print(Path(sys.executable).resolve())') || {
+  printf 'dev-tools host Python validation failed: %s\n' "$host_python" >&2; exit 1;
+}
+[[ "$validated_python" == /* && -f "$validated_python" && -x "$validated_python" ]] || {
+  printf 'dev-tools host Python resolved to an invalid executable: %s\n' "$validated_python" >&2; exit 1;
+}
 install -d -m 0755 "$install_root"
-export MISE_DATA_DIR="$install_root/host-mise"
-mise --no-config --yes install python@3.14.8
-python_root=$(mise --no-config where python@3.14.8)
-printf '%s\n' "$python_root/bin/python3" > "$install_root/.host-python"
+printf '%s\n' "$validated_python" > "$install_root/.host-python"
 chmod 0644 "$install_root/.host-python"
-"$python_root/bin/python3" -c 'import sys; raise SystemExit(sys.version_info < (3, 14, 8))'
-install -d -m 0755 "$install_root/src" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples"
-for target in "$install_root/src" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples"; do
+install -d -m 0755 "$install_root/src" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples" "$install_root/systemd"
+for target in "$install_root/src" "$install_root/scripts" "$install_root/config" "$install_root/docs" "$install_root/examples" "$install_root/systemd"; do
   [[ $(readlink -f "$target") == "$target" ]] || { printf 'Unexpected installation target: %s\n' "$target" >&2; exit 1; }
 done
 # The controller stays available when its Windows checkout is unavailable.
 # Copy only owned source; existing project registrations and caches are preserved.
-command -v rsync >/dev/null 2>&1 || { printf 'Install rsync before deploying dev-tools.\n' >&2; exit 1; }
 rsync -a --delete --exclude '__pycache__' "$repo_root/src/dev_tools/" "$install_root/src/dev_tools/"
 rsync -a --delete "$repo_root/scripts/" "$install_root/scripts/"
 rsync -a --delete --exclude "*.local.*" "$repo_root/config/" "$install_root/config/"
 rsync -a --delete "$repo_root/docs/" "$install_root/docs/"
 rsync -a --delete "$repo_root/examples/" "$install_root/examples/"
+rsync -a --delete "$repo_root/systemd/" "$install_root/systemd/"
+install -m 0644 "$repo_root/pyproject.toml" "$install_root/pyproject.toml"
 install -m 0644 "$repo_root/README.md" "$install_root/README.md"
 install -m 0644 "$repo_root/README.en.md" "$install_root/README.en.md"
 install -m 0644 "$repo_root/CHANGELOG.md" "$install_root/CHANGELOG.md"
 install -m 0644 "$repo_root/AGENTS.md" "$install_root/AGENTS.md"
 install -m 0644 "$repo_root/LICENSE" "$install_root/LICENSE"
+if [[ -e "$repo_root/.git" ]]; then
+  printf '%s\n' "$repo_root" > "$install_root/.source"
+  chmod 0644 "$install_root/.source"
+else
+  rm -f -- "$install_root/.source"
+fi
 if [[ -f "$repo_root/.release.json" ]]; then
   install -m 0644 "$repo_root/.release.json" "$install_root/.release.json"
 else

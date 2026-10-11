@@ -12,6 +12,7 @@ from unittest.mock import patch
 from dev_tools.projects.config import parse_project
 from dev_tools.projects.models import ProjectBinding
 from dev_tools.projects.registry import read_json, write_json
+from dev_tools.runtimes.platforms.base import Backend
 from dev_tools.runtimes.router import (
     _windows_entry,
     forward_remote,
@@ -130,6 +131,34 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(
             command[command.index("-WorkingDirectory") + 1], "WINDOWS:" + str(Path.cwd())
         )
+
+
+class NativePhaseTests(unittest.TestCase):
+    def test_stopped_workers_do_not_report_an_unexpected_exit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            backend = Backend(ProjectBinding("demo", "windows", root, root, root / "state"))
+            self.assertEqual(backend._phase("api", active=False), {"phase": "stopped", "error": ""})
+            write_json(backend.binding.state / "workers/api.json", {"phase": "stopped"})
+            self.assertEqual(backend._phase("api", active=False), {"phase": "stopped", "error": ""})
+
+    def test_dead_active_workers_keep_failure_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            backend = Backend(ProjectBinding("demo", "windows", root, root, root / "state"))
+            path = backend.binding.state / "workers/api.json"
+            for phase in ("starting", "running", "restarting"):
+                with self.subTest(phase=phase):
+                    write_json(path, {"phase": phase, "pid": 123})
+                    status = backend._phase("api", active=False)
+                    self.assertEqual(status["phase"], "failed")
+                    self.assertEqual(status["pid"], 123)
+                    self.assertIn("unexpectedly", status["error"])
+            write_json(path, {"phase": "failed", "error": "task failed", "exit_code": 7})
+            self.assertEqual(
+                backend._phase("api", active=False),
+                {"phase": "failed", "error": "task failed", "exit_code": 7},
+            )
 
 
 class WindowsAdapterTests(unittest.TestCase):

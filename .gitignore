@@ -9,4 +9,5 @@ build/
 # Machine-local overrides and backups; native preferences live outside the checkout.
 *.local.*
 .host-python
+.host-python.win
 host-mise/

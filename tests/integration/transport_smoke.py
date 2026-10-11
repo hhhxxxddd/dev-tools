@@ -124,7 +124,7 @@ def smoke() -> dict:
                 if [project["name"] for project in listed["projects"]] != ["transport-fixture"]:
                     raise AssertionError(listed)
                 for entry in (windows_entry, wsl_entry):
-                    plan = invoke(entry, "prepare", "-e", target, "--dry-run", "--json")
+                    plan = invoke(entry, "check", "-e", target, "--json")
                     if plan["binding"] != windows_view["binding"]:
                         raise AssertionError(plan)
                     error = subprocess.run(
@@ -142,10 +142,10 @@ def smoke() -> dict:
                         raise AssertionError(
                             "caller configuration language was lost: " + error.stderr
                         )
-                # Neither source declarations nor caches are installed by previews.
-                preview = invoke(windows_entry, "init", "..", "-e", target, "--dry-run", "--json")
-                if "content" not in preview or (source / "mise.toml").exists():
-                    raise AssertionError(preview)
+                # Read-only scanning and checks neither create declarations nor prepare tasks.
+                scanned = invoke(windows_entry, "scan", "..", "-e", target, "--json")
+                if scanned["action"] != "scan" or (source / "mise.toml").exists():
+                    raise AssertionError(scanned)
             finally:
                 if registered:
                     invoke(windows_entry, "unregister", "-e", target, "--json")
@@ -173,7 +173,7 @@ def smoke() -> dict:
             "implicit_name": True,
             "list_unregister": True,
             "shared_help": True,
-            "static_preview": True,
+            "readonly_check": True,
             "unified_config": True,
             "forwarded_language": True,
         }

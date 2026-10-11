@@ -8,7 +8,7 @@ from typing import Any
 
 from ..i18n import message
 from ..scanner import scan_project
-from . import SCHEMA_VERSION
+from ..schemas import CLI_SCHEMA_VERSION
 from .config import CONFIG_NAME, load_project
 from .detection import _find
 from .drivers import maven_wrapper, spring_artifact
@@ -161,7 +161,7 @@ class PreparationPlan:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": CLI_SCHEMA_VERSION,
             "action": "prepare",
             "name": self.binding.name,
             "environment": self.binding.environment,

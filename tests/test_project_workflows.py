@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,7 @@ from dev_tools.projects.models import ProjectBinding
 from dev_tools.projects.planning import preparation_plan
 from dev_tools.runtimes.platforms.base import Backend
 from dev_tools.scanner import scan_project
+from dev_tools.schemas import CLI_SCHEMA_VERSION
 from dev_tools.workflows import initialization_plan, write_initialization
 
 
@@ -40,9 +42,7 @@ class ProjectWorkflowTests(unittest.TestCase):
                 self.assertEqual(result.diagnostics[0].source, name)
                 self.assertEqual(result.diagnostics[0].code, code)
                 with contextlib.redirect_stdout(io.StringIO()):
-                    self.assertEqual(
-                        cmd_init(argparse.Namespace(path=root, dry_run=False, json=True)), 2
-                    )
+                    self.assertEqual(cmd_init(argparse.Namespace(path=root, json=True)), 1)
                 self.assertFalse((root / "mise.toml").exists())
 
     def test_invalid_encoding_has_a_file_diagnostic(self):
@@ -88,19 +88,21 @@ class ProjectWorkflowTests(unittest.TestCase):
             self.assertEqual(result.diagnostics[0].source, "mise.toml")
             self.assertEqual(result.diagnostics[0].code, "invalid-metadata")
 
-    def test_init_preview_never_executes_mise_or_project_scripts(self):
+    def test_init_writes_missing_config_without_executing_mise_or_project_scripts(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "mise.toml").write_text('[tools]\nnode="22"\n')
             (root / "package.json").write_text('{"scripts":{"postinstall":"touch executed"}}')
             output = io.StringIO()
             with patch("subprocess.run") as execute, contextlib.redirect_stdout(output):
-                code = cmd_init(argparse.Namespace(path=root, dry_run=True, json=True))
+                code = cmd_init(argparse.Namespace(path=root, json=True))
             execute.assert_not_called()
             payload = json.loads(output.getvalue())
             self.assertEqual(code, 0)
             self.assertEqual(payload["schema_version"], 3)
-            self.assertEqual(payload["project_config"]["action"], "preview")
+            self.assertEqual(payload["project_config"]["action"], "created")
+            self.assertTrue((root / "dev-tools.toml").is_file())
+            self.assertEqual((root / "mise.toml").read_text(), '[tools]\nnode="22"\n')
             self.assertFalse((root / "executed").exists())
 
     def test_init_does_not_overwrite_a_config_created_after_preview(self):
@@ -116,13 +118,20 @@ class ProjectWorkflowTests(unittest.TestCase):
             self.assertFalse((root / "mise.toml").exists())
 
     def test_explicit_environment_routes_without_importing_unix_modules(self):
+        payload = {"schema_version": CLI_SCHEMA_VERSION, "action": "status"}
+        response = subprocess.CompletedProcess([], 0, json.dumps(payload), "")
+        output = io.StringIO()
         with (
-            patch("dev_tools.runtimes.router.forward_remote", return_value=0) as route,
+            patch("dev_tools.runtimes.router.forward_remote", return_value=response) as route,
+            contextlib.redirect_stdout(output),
             self.assertRaises(SystemExit) as stopped,
         ):
             main(["--env", "win", "status", "demo", "--json"])
         self.assertEqual(stopped.exception.code, 0)
-        route.assert_called_once_with("win", ["status", "demo", "--json"], settings=ANY)
+        self.assertEqual(json.loads(output.getvalue()), payload)
+        route.assert_called_once_with(
+            "win", ["status", "demo", "--json"], settings=ANY, capture=True, timeout=None
+        )
         if sys.platform == "win32":
             self.assertNotIn("dev_tools.runtimes.platforms.wsl", sys.modules)
 

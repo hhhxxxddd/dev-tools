@@ -11,7 +11,7 @@ from threading import Event
 from ..i18n import t
 from ..scanner import IGNORED_DIRECTORIES
 from .config import load_project
-from .models import BuildSpec, within
+from .models import BuildSpec, ProjectError, within
 from .planning import fingerprint
 
 
@@ -73,6 +73,7 @@ def git_snapshot(executor) -> dict[str, str | bool]:
             cwd=executor.binding.source,
             capture=True,
             check=False,
+            timeout=10,
         )
         return result.stdout.strip() if result.returncode == 0 else ""
 
@@ -97,7 +98,7 @@ def git_snapshot(executor) -> dict[str, str | bool]:
             "branch": query("symbolic-ref", "--short", "-q", "HEAD"),
             "busy": busy,
         }
-    except OSError:
+    except ProjectError, OSError:
         return {}
 
 

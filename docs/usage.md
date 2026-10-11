@@ -79,6 +79,7 @@ dev-tools report --json --output report.json
 | wsl | 允许 Windows 在配置的发行版中执行已启用的 mise/APT/Snap/Rustup/npm 采集器 |
 
 report 默认刷新，可能联网或更新本机索引；不会安装或升级软件，也不接受自定义脚本采集器。
+明确采集失败、超时、部分结果、解析错误或仓库发现问题时保留报告并返回 1；可选工具缺失、禁用项或正常发现更新本身不算执行失败。
 `--no-refresh` 禁止 Git fetch、索引刷新及 mise/Store/Snap/Rustup 更新查询，但 npm 更新查询仍可能联网；无需该查询时从 collectors 移除 npm。无法确定 mise 管理的 npm 清单时跳过 npm 更新查询。WSL 跳过 Windows 采集器。
 mise、Store、Snap、Rustup 更新查询输出结构化 updates；Rustup 的更新退出码 100 不作为失败，部分有效结果会保留。未知响应格式标记 parse-error，不据此报告全部最新。
 
@@ -89,7 +90,17 @@ mise、Store、Snap、Rustup 更新查询输出结构化 updates；Rustup 的更
 
 同一 Python worker 在两侧处理服务依赖、健康检查、重启、监控和恢复。依赖先启动并等待就绪，停止按相反顺序执行；启动失败回滚本次新增的进程。原生进程未声明健康检查时状态为 unknown；Compose 还会检查容器运行状态和容器报告的健康状态。
 
-start 自动校验并执行统一准备计划：准备平台依赖与根级运行时，同步源码、锁文件和包，准备 Compose 镜像与 Spring classpath，再启动服务。运行期间声明、锁文件和配置变化会自动执行相同流程；后台保留监控进程，失败保存进度，修正后重试。默认启动全部服务时会跟进新发现的服务；start --service 只维护所选服务及依赖。显式 prepare 仍可预览或手动准备；stop 先取消运行意图，防止更新结束后重新启动。
+start 自动校验并执行统一准备计划：准备平台依赖与根级运行时，同步源码、锁文件和包，准备 Compose 镜像与 Spring classpath，再启动服务。运行期间声明、锁文件和配置变化会自动执行相同流程；后台保留监控进程，失败保存进度，修正后重试。默认启动全部服务时会跟进新发现的服务；start --service 只维护所选服务及依赖。check 只读检查计划，prepare 手动执行准备；stop 先取消运行意图，防止更新结束后重新启动。
+
+```text
+dev-tools check my-app
+dev-tools check my-app --json
+dev-tools prepare my-app
+dev-tools prepare my-app --json
+```
+
+`check` 显示声明版本、平台前置条件、准备任务和阻塞原因，不安装运行时、同步源码或执行任务。它与 `prepare`、`start` 及后台维护使用同一准备计划；`scan` 则只负责发现项目声明。`--json` 只控制输出格式，`prepare --json` 仍会执行准备。在唯一匹配项目的目录中可省略项目名。
+阻塞的 scan/init/check 返回 1；参数错误返回 2，中断返回 130。查询成功的 status 返回 0，并通过 JSON 的 ready 表达就绪状态。完整约定见 [CLI 与自动化接口](cli-contract.md)。
 
 source 构建保持服务运行；resource/structural 构建先停止受影响服务及依赖方，再构建和恢复。分支/HEAD 变化等待 Git 操作和文件稳定后，按声明刷新包与构建；后台准备可以补齐项目根明确声明的运行时和 Spring DevTools JAR。手动操作最多等待 15 秒获取项目锁，后台操作遇到忙碌项目时避让。
 
@@ -100,6 +111,12 @@ source 构建保持服务运行；resource/structural 构建先停止受影响�
 | 工作目录 | 原始源码目录 | 运行用户的 `~/.cache/dev-tools/build` 下独立目录 |
 | 监督 | 隐藏进程，校验 PID 和启动时间 | `dev-tools-worker@.service` 通用模板 |
 | 源码同步 | 直接使用源码 | rsync，排除 Git、依赖和平台构建产物 |
+
+### 日志查询与保留
+
+`dev-tools logs my-app api --lines 200` 查看服务最近的日志；添加 `--follow` 持续跟踪。查询只读取当前日志，初始尾部最多读取 10 MiB，因此超长行或大量输出时可能少于指定行数；持续跟踪按块读取后续内容，并跟进文件轮转或截断。
+
+worker 和任务启动前，已有日志达到 10 MiB 时轮转，最多保留 `.1`～`.3` 三份历史文件；超大的历史日志只保留最近 10 MiB。轮转只在启动时发生，一次长时间运行的当前日志仍可能超过 10 MiB，不能将此阈值视为实时大小限制。
 
 WSL prepare 可补齐 Git、rsync、运行用户工具及请求的 Docker/Compose；Windows 使用已配置且可达的原生 Docker 引擎。
 Redis/MySQL 等业务服务由项目自己声明，不自动推断或安装。本仓库独立运行，不读取或迁移 wsl-devctl 的注册信息。

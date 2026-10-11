@@ -121,6 +121,25 @@ class RegistryTests(unittest.TestCase):
             with self.assertRaises(ProjectError):
                 self.registry.load("demo")
 
+    def test_malformed_cache_root_is_rejected_without_exposing_its_value(self):
+        binding = self.registry.register(self.source())
+        for environment in ("windows", "wsl"):
+            registry = Registry(environment)
+            for value in (1, True, [], {"SECRET": "credential"}, "relative-SECRET"):
+                with self.subTest(environment=environment, value=value):
+                    write_json(
+                        registry.path("demo"),
+                        {
+                            "schema_version": 3,
+                            **binding.as_dict(),
+                            "environment": environment,
+                            "cache_root": value,
+                        },
+                    )
+                    with self.assertRaises(ProjectError) as failed:
+                        registry.load("demo")
+                    self.assertNotIn("SECRET", str(failed.exception))
+
     def test_stop_and_unregister_survive_a_broken_declaration(self):
         binding = self.registry.register(self.source())
         engine = engine_for("windows", "demo")

@@ -104,6 +104,7 @@ def forward_remote(
     *,
     settings: Settings | None = None,
     capture: bool = False,
+    timeout: float | None = 30,
 ) -> int | subprocess.CompletedProcess[str] | None:
     if any(token in {"--help", "-h"} for token in arguments):
         return None
@@ -117,7 +118,7 @@ def forward_remote(
             "text": True,
             "encoding": "utf-8",
             "errors": "replace",
-            "timeout": 30,
+            "timeout": timeout,
         }
         if capture
         else {}

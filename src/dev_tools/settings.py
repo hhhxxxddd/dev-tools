@@ -389,6 +389,10 @@ def config_command(args) -> int:
         return edit_settings(settings)
     payload = settings.as_dict()
     if args.json:
+        if settings.errors:
+            from .cli_errors import error_payload
+
+            payload.update(error_payload(SettingsError(settings.errors[0]), action="config"))
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(

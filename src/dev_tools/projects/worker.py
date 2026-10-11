@@ -9,8 +9,10 @@ from threading import Event
 
 from ..i18n import error_detail, message
 from .drivers import compose_command, spring_classpath
+from .logfiles import rotate_log
 from .models import ProjectError
 from .monitoring import sync_loop, watch_loop
+from .process_errors import process_error
 from .registry import write_json
 
 
@@ -20,12 +22,19 @@ def run_worker(engine, name: str) -> int:
         signal.signal(signum, lambda *_: stop.set())
     phase_path = engine.binding.state / "workers" / f"{name}.json"
     log_path = engine.binding.state / "logs" / f"{name}.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def phase(value: str, **details) -> None:
         write_json(phase_path, {"phase": value, "updated_at": time.time(), **details})
 
-    with log_path.open("a", encoding="utf-8", buffering=1) as log:
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log(log_path)
+        log_stream = log_path.open("a", encoding="utf-8", buffering=1)
+    except (ProjectError, OSError) as exc:
+        phase("failed", error=str(exc), error_detail=error_detail(exc), exit_code=1)
+        return 1
+
+    with log_stream as log:
         if name in {"__sync", "__watch"}:
             import contextlib
 
@@ -36,7 +45,9 @@ def run_worker(engine, name: str) -> int:
                     )
                 phase("stopped")
                 return 0
-            except (ProjectError, OSError) as exc:
+            except (ProjectError, OSError, subprocess.SubprocessError) as exc:
+                if isinstance(exc, subprocess.SubprocessError):
+                    exc = process_error(exc)
                 log.write(f"{exc}\n")
                 phase("failed", error=str(exc), error_detail=error_detail(exc), exit_code=1)
                 return 1
@@ -90,11 +101,25 @@ def run_worker(engine, name: str) -> int:
                 if not restart:
                     return code
                 stop.wait(1)
-            except (ProjectError, OSError) as exc:
+            except (ProjectError, OSError, subprocess.SubprocessError) as exc:
+                if isinstance(exc, subprocess.SubprocessError):
+                    exc = process_error(exc)
+                cleanup_error = ""
                 if child:
-                    engine.backend.terminate_child(child)
+                    try:
+                        engine.backend.terminate_child(child)
+                    except (ProjectError, OSError, subprocess.SubprocessError) as cleanup:
+                        if isinstance(cleanup, subprocess.SubprocessError):
+                            cleanup = process_error(cleanup)
+                        cleanup_error = str(cleanup)
                 log.write(f"{exc}\n")
-                phase("failed", error=str(exc), error_detail=error_detail(exc), exit_code=1)
+                phase(
+                    "failed",
+                    error=str(exc),
+                    error_detail=error_detail(exc),
+                    cleanup_error=cleanup_error,
+                    exit_code=1,
+                )
                 return 1
         phase("stopped")
     return 0

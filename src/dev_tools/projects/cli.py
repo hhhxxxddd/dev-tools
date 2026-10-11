@@ -10,7 +10,7 @@ from ..presentation import format_table, label
 from ..runtimes.platforms.factory import backend_for
 from ..runtimes.platforms.layout import require_registration_control
 from ..runtimes.platforms.locking import operation_lock
-from . import SCHEMA_VERSION
+from ..schemas import CLI_SCHEMA_VERSION
 from .config import load_project, parse_project
 from .drivers import remove_owned_tree
 from .engine import ProjectEngine
@@ -62,7 +62,7 @@ def list_projects(environment: str, settings=None) -> list[dict]:
             payload = json.loads(result.stdout)
             if (
                 not isinstance(payload, dict)
-                or payload.get("schema_version") != SCHEMA_VERSION
+                or payload.get("schema_version") != CLI_SCHEMA_VERSION
                 or payload.get("action") != "list"
                 or payload.get("environment") != environment
                 or not isinstance(payload.get("projects"), list)
@@ -233,7 +233,7 @@ def emit(payload: dict, as_json: bool) -> None:
 def run(args: argparse.Namespace) -> int:
     action = args.project_command
     environment = "windows" if args.env == "win" else args.env
-    payload = {"schema_version": SCHEMA_VERSION, "action": action, "environment": environment}
+    payload = {"schema_version": CLI_SCHEMA_VERSION, "action": action, "environment": environment}
     if action == "list":
         settings = getattr(args, "settings", None)
         if not args.all_environments:
@@ -282,13 +282,11 @@ def run(args: argparse.Namespace) -> int:
     engine = engine_for(
         environment, args.name, allow_stale=action in {"stop", "unregister", "logs"}
     )
-    if action == "prepare":
-        if args.json and not args.dry_run:
-            raise ProjectError(message("prepare 使用 --json 时必须同时指定 --dry-run"))
+    if action in {"check", "prepare"}:
         plan = engine.plan(force=True)
-        if args.dry_run:
-            emit(plan.as_dict(), args.json)
-            return 2 if plan.unresolved else 0
+        if action == "check":
+            emit({**plan.as_dict(), "action": "check"}, args.json)
+            return 1 if plan.unresolved else 0
         engine.prepare(plan)
     elif action == "start":
         engine.start((args.service,) if args.service else None)
@@ -371,7 +369,8 @@ def add_commands(commands) -> None:
     listing.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
     listing.set_defaults(func=run)
     for action, description in (
-        ("prepare", t("准备项目运行时、依赖和构建；--dry-run 预览计划")),
+        ("check", t("只读校验并查看完整准备计划")),
+        ("prepare", t("准备项目运行时、依赖和构建")),
         ("start", t("自动准备并启动项目服务和监控")),
         ("stop", t("停止项目服务和监控")),
         ("restart", t("重启项目服务和监控")),
@@ -397,15 +396,7 @@ def add_commands(commands) -> None:
             command.add_argument(
                 "--json",
                 action="store_true",
-                help=t("以 JSON 输出准备计划，须同时指定 --dry-run")
-                if action == "prepare"
-                else t("以 JSON 输出结果"),
-            )
-        if action == "prepare":
-            command.add_argument(
-                "--dry-run",
-                action="store_true",
-                help=t("只校验并预览准备计划，不安装或执行项目任务"),
+                help=t("以 JSON 输出准备计划") if action == "check" else t("以 JSON 输出结果"),
             )
         if action in {"start", "build"}:
             command.add_argument(

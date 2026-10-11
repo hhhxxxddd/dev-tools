@@ -32,7 +32,7 @@ tcp = 5173
 timeout = 30
 ```
 
-在 Windows 执行 `dev-tools register`、`dev-tools prepare --dry-run --json`，检查后执行 start，自动准备环境。
+在 Windows 执行 `dev-tools register`、`dev-tools check --json`，检查后执行 start，自动准备环境。
 原生 WSL 修改操作使用 sudo；预览无需 sudo。
 
 ## 根字段
@@ -69,7 +69,7 @@ WSL 在 Linux 工作目录中解析锁文件，检查源码未被并发修改后
 
 `init` 生成的配置含 `discovery = "auto"`：注册时记录自动发现基线，后续新增、删除模块会合并到任务、服务和构建图中；只更新仍与原生成值相同的字段，保留手改命令和主动删除的条目。已有自定义配置默认 `discovery = "manual"`，不会改写；首次改为 auto 时先采用当前配置并建立基线。自动配置更新会重新序列化 TOML，保留字段值，但不保留原注释和排版。
 
-无法推断的入口、冲突以及新语言缺少根级 mise 版本声明时会提示解决，不猜测工具版本或业务服务。`scan`、`init` 和 `prepare --dry-run` 仍只分析，不执行安装。
+无法推断的入口、冲突以及新语言缺少根级 mise 版本声明时会提示解决，不猜测工具版本或业务服务。`scan` 和 `check` 只读分析，`init` 只创建缺失配置，三者均不执行安装。
 
 ## 命令与平台覆盖
 
@@ -249,7 +249,7 @@ Compose 镜像只在未指定服务的完整构建中重建。
 
 ```text
 dev-tools show --json
-dev-tools prepare --dry-run --json
+dev-tools check --json
 dev-tools prepare
 dev-tools start
 dev-tools status --json
@@ -257,8 +257,9 @@ dev-tools logs install --task
 ```
 
 准备预览不执行任务、不安装运行时、不改变注册或缓存；平台适配器可能进行只读 Docker 查询。
-未解决的扫描或准备计划返回 2。执行失败的工具自身错误通常返回 1，参数错误返回 2；
+未解决的扫描、初始化或准备计划返回 1。运行失败和部分结果返回 1，参数错误返回 2，中断返回 130；
 status 的退出码不等于服务健康状态，自动化应检查其 JSON 内容。
 config/sysinfo/report 的 JSON 各自用于该命令，不能假定它们包含项目命令的 schema_version。
+完整字段、错误文档及退出码约定见 [CLI 与自动化接口](cli-contract.md)。
 
 更多声明模板见 [examples](../examples/README.md)，两侧安装与偏好设置见 [README](../README.md)。

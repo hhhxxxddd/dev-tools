@@ -8,7 +8,9 @@ from typing import Any
 
 from ..i18n import message
 from ..workflows import mise_environment
+from .logfiles import rotate_log
 from .models import CommandSpec, ProjectBinding, ProjectError, ProjectSpec, within
+from .process_errors import run_process
 from .toolchain import root_runtime_versions
 
 
@@ -91,11 +93,12 @@ class Executor:
         project: bool = True,
         capture: bool = False,
         check: bool = True,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = self.user_environment(env)
         if project:
             argv, environment = self.identity(argv, environment)
-        result = subprocess.run(
+        result = run_process(
             argv,
             cwd=cwd,
             env=environment,
@@ -105,6 +108,7 @@ class Executor:
             encoding="utf-8",
             errors="replace",
             check=False,
+            timeout=timeout,
         )
         if check and result.returncode:
             raise ProjectError(
@@ -124,8 +128,9 @@ class Executor:
             raise ProjectError(message("task workdir does not exist: {cwd}", cwd=cwd))
         log_path = self.binding.state / "logs/tasks" / f"{task.name}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log(log_path)
         with log_path.open("ab") as log:
-            result = subprocess.run(
+            result = run_process(
                 argv, cwd=cwd, env=environment, stdout=log, stderr=subprocess.STDOUT, check=False
             )
         if result.returncode:

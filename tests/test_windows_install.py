@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,11 +24,12 @@ class WindowsInstallerTests(unittest.TestCase):
                 payload.extractall(package)
             check = root / "check.ps1"
             check.write_text(
-                """param($Package, $Root)
+                """param($Package, $Root, $PythonRoot)
 $ErrorActionPreference = 'Stop'
 $env:DEV_TOOLS_STATE_ROOT = Join-Path $Root 'state'
 $env:LOCALAPPDATA = Join-Path $Root 'local'
 $env:USERPROFILE = Join-Path $Root 'user'
+Remove-Item Env:DEV_TOOLS_PYTHON -ErrorAction SilentlyContinue
 $profileFile = Join-Path $Root 'Documents/PowerShell/profile.ps1'
 $legacyProfile = Join-Path $Root 'Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1'
 New-Item -ItemType Directory -Path (Split-Path $profileFile), (Split-Path $legacyProfile) -Force | Out-Null
@@ -37,7 +39,9 @@ $PROFILE = [pscustomobject]@{CurrentUserCurrentHost = $profileFile; CurrentUserA
 $global:HostInstalls = 0
 function mise {
   if ($args -notcontains '--no-config' -or $args[-1] -ne 'python@3.14.8') { throw 'Unexpected runtime installation' }
-  $global:HostInstalls++
+  if ($args -contains 'install') { $global:HostInstalls++ }
+  elseif ($args -contains 'where') { $PythonRoot }
+  else { throw 'Unexpected mise operation' }
   $global:LASTEXITCODE = 0
 }
 $hook = Join-Path $Package 'scripts/scoop.ps1'
@@ -67,6 +71,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $native 'web.json'))) { throw 'Nativ
                     str(check),
                     str(package),
                     str(root),
+                    sys.prefix,
                 ],
                 capture_output=True,
                 text=True,
@@ -85,6 +90,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $native 'web.json'))) { throw 'Nativ
             installer = scripts / "install.ps1"
             shutil.copyfile(Path(__file__).parents[1] / "scripts/install.ps1", installer)
             shutil.copyfile(
+                Path(__file__).parents[1] / "scripts/dev-tools-messages.ps1",
+                scripts / "dev-tools-messages.ps1",
+            )
+            shutil.copyfile(
                 Path(__file__).parents[1] / "scripts/uninstall.ps1", scripts / "uninstall.ps1"
             )
             personal = root / "personal.toml"
@@ -96,30 +105,33 @@ if (-not (Test-Path -LiteralPath (Join-Path $native 'web.json'))) { throw 'Nativ
             )
             bootstrap = root / "check.ps1"
             bootstrap.write_text(
-                """param($Installer, $UserRoot, $Personal, $ProfileFile)
+                """param($Installer, $UserRoot, $Personal, $ProfileFile, $PythonRoot)
 $ErrorActionPreference = 'Stop'
 $env:USERPROFILE = $UserRoot
 $env:MISE_GLOBAL_CONFIG_FILE = $Personal
 $PROFILE = [pscustomobject]@{CurrentUserCurrentHost = $ProfileFile}
+Remove-Item Env:DEV_TOOLS_PYTHON -ErrorAction SilentlyContinue
 $global:HostInstalls = 0
 function mise {
-    if ($args[-2] -ne 'install' -or $args[-1] -ne 'python@3.14.8' -or $args -notcontains '--no-config') {
+    if ($args[-1] -ne 'python@3.14.8' -or $args -notcontains '--no-config') {
         throw 'Installer must only install its explicit private Python host'
     }
-    $global:HostInstalls++
+    if ($args[-2] -eq 'install') { $global:HostInstalls++ }
+    elseif ($args[-2] -eq 'where') { $PythonRoot }
+    else { throw 'Unexpected mise operation' }
     $global:LASTEXITCODE = 0
 }
 & $Installer
 & $Installer
 if ($env:MISE_GLOBAL_CONFIG_FILE -ne $Personal) { throw 'Personal override lost' }
-if ($global:HostInstalls -ne 2) { throw 'Unexpected host install count' }
+if ($global:HostInstalls -ne 1) { throw 'Existing host binding was not reused' }
 if (Test-Path -LiteralPath (Join-Path $UserRoot '.config/mise')) { throw 'Installer wrote global mise configuration' }
 $profileContent = [IO.File]::ReadAllText($ProfileFile)
 if ([regex]::Matches($profileContent, '# >>> dev-tools >>>').Count -ne 1) { throw 'Duplicate entrypoint' }
 & (Join-Path (Split-Path $Installer) 'uninstall.ps1')
 if ($env:MISE_GLOBAL_CONFIG_FILE -ne $Personal) { throw 'Uninstaller changed personal configuration' }
 if ([IO.File]::ReadAllText($ProfileFile).Contains('# >>> dev-tools >>>')) { throw 'Uninstaller left entrypoint' }
-if ($global:HostInstalls -ne 2) { throw 'Uninstaller touched runtime installations' }
+if ($global:HostInstalls -ne 1) { throw 'Uninstaller touched runtime installations' }
 """,
                 encoding="utf-8",
             )
@@ -133,9 +145,11 @@ if ($global:HostInstalls -ne 2) { throw 'Uninstaller touched runtime installatio
                     str(root / "user"),
                     str(personal),
                     str(profile),
+                    sys.prefix,
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 check=False,
                 timeout=30,
             )
@@ -144,6 +158,84 @@ if ($global:HostInstalls -ne 2) { throw 'Uninstaller touched runtime installatio
             content = profile.read_text(encoding="utf-8")
             self.assertIn(str(personal), content)
             self.assertNotIn("# >>> dev-tools >>>", content)
+
+    def test_external_python_is_reused_without_mise_and_invalid_bindings_fail(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = Path(__file__).parents[1]
+            scripts = root / "repo/scripts"
+            scripts.mkdir(parents=True)
+            for name in ("install.ps1", "dev-tools-messages.ps1"):
+                shutil.copyfile(repository / "scripts" / name, scripts / name)
+            config = root / "config.toml"
+            config.write_text('language = "en"\n', encoding="utf-8")
+            check = root / "check.ps1"
+            check.write_text(
+                """param($Installer, $Python, $Config)
+$ErrorActionPreference = 'Stop'
+$env:DEV_TOOLS_CONFIG = $Config
+function mise { throw 'External Python must not invoke mise' }
+$repository = Split-Path (Split-Path $Installer)
+$binding = Join-Path $repository '.host-python.win'
+$wslBinding = Join-Path $repository '.host-python'
+$wslPython = '/opt/shared/python/bin/python3'
+[IO.File]::WriteAllText($wslBinding, $wslPython)
+$env:DEV_TOOLS_PYTHON = $Python
+& $Installer -NoProfile
+if ([IO.File]::ReadAllText($binding).Trim() -ne $Python) { throw 'Wrong external binding' }
+if ([IO.File]::ReadAllText($wslBinding) -ne $wslPython) { throw 'Windows installation changed WSL binding' }
+Remove-Item Env:DEV_TOOLS_PYTHON
+& $Installer -NoProfile
+if ([IO.File]::ReadAllText($binding).Trim() -ne $Python) { throw 'Existing binding changed' }
+$env:DEV_TOOLS_PYTHON = 'python.exe'
+$blocked = $false
+try { & $Installer -NoProfile } catch {
+  if ($_.Exception.Message -like '*existing absolute Windows path*') { $blocked = $true }
+  else { throw }
+}
+if (-not $blocked) { throw 'Relative external Python accepted' }
+if ([IO.File]::ReadAllText($binding).Trim() -ne $Python) { throw 'Invalid override changed binding' }
+Remove-Item Env:DEV_TOOLS_PYTHON
+[IO.File]::WriteAllText($binding, (Join-Path (Split-Path $binding) 'missing/python.exe'))
+$blocked = $false
+try { & $Installer -NoProfile } catch {
+  if ($_.Exception.Message -like '*existing absolute Windows path*') { $blocked = $true }
+  else { throw }
+}
+if (-not $blocked) { throw 'Invalid existing binding accepted' }
+# An explicit, valid path can repair a stale binding.
+$env:DEV_TOOLS_PYTHON = $Python
+& $Installer -NoProfile
+if ([IO.File]::ReadAllText($binding).Trim() -ne $Python) { throw 'Explicit repair failed' }
+$env:DEV_TOOLS_PYTHON = (Get-Command pwsh).Source
+$blocked = $false
+try { & $Installer -NoProfile } catch {
+  if ($_.Exception.Message -like '*requires native Windows Python*') { $blocked = $true }
+  else { throw }
+}
+if (-not $blocked) { throw 'Non-Python executable accepted' }
+if ([IO.File]::ReadAllText($binding).Trim() -ne $Python) { throw 'Failed validation changed binding' }
+""",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    "pwsh",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    str(check),
+                    str(scripts / "install.ps1"),
+                    str(Path(sys.executable).resolve()),
+                    str(config),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

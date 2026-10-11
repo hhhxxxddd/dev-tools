@@ -12,6 +12,7 @@ LABELS = {
     "all": "全部环境",
     "register": "注册项目",
     "list": "项目列表",
+    "check": "检查项目",
     "prepare": "准备项目",
     "start": "启动项目",
     "stop": "停止项目",

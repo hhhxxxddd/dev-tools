@@ -7,14 +7,18 @@ Pure discovery/workflow modules are separate from platform runtime adapters.
 
 - Keep Windows and WSL runtime installations and caches platform-native. Share project declarations
   and workflows, not executable directories or global project-runtime defaults. Keep the controller
-  host separate from project runtimes; installers must not manage user-global tool declarations.
+  host versions and dependencies separate from project runtimes. A read-only external Python
+  installation may be shared through native bindings and mise links; consumers must not upgrade
+  or remove it. Installers must not manage user-global tool declarations.
 - Do not embed usernames, drive letters, credentials, proxy settings, or other machine-specific
   values in tracked files. Resolve the repository location from each entrypoint.
 - Project scanning may parse known version and build metadata but must never execute project code,
   package scripts, wrappers, or downloaded content.
 - Preserve an existing root `mise.toml` or `.mise.toml`. Report equal-priority conflicts instead of
   guessing or overwriting.
-- Do not install or upgrade runtimes during `scan` or `init`. Explicit `prepare`,
+- Keep `scan` and `check` read-only; they must not write project configuration or state,
+  install runtimes, execute project tasks, bootstrap a deployment, or request elevation.
+  Do not install or upgrade runtimes during `init`. Explicit `prepare`,
   `start` and active-project maintenance share one preparation plan. Install versions
   only from the target project's root mise configuration. `stop` cancels maintenance.
 - The separate wsl-devctl repository is a business reference, not a runtime dependency.
@@ -31,8 +35,12 @@ Pure discovery/workflow modules are separate from platform runtime adapters.
 
 - Keep user preferences in native user `config.toml`, shared project workflows in
   `dev-tools.toml`, runtime versions in root mise files, and machine identity in native bindings.
+  Controller interpreter bindings are `.host-python.win` on Windows and `.host-python` in WSL;
+  a shared checkout must not consume the other platform's interpreter binding.
   Do not add parallel JSON preferences, infer project defaults from controller settings, or pass
   a caller's config file into the other platform.
+- Queries describe plans; action commands execute validated plans. Keep `--json` an output
+  format, independent of execution behavior. Do not expose `--dry-run` switches.
 - Resolve language from config before constructing help. Default to Chinese and allow zh/en
   through config only. Keep translations in the central catalogs; translate controller messages
   at presentation boundaries, preserving raw third-party output, JSON keys and status identifiers.

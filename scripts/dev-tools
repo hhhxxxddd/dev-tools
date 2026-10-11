@@ -45,10 +45,14 @@ startup_error() {
 }
 
 get_internal_python() {
-  if [[ -f "$repo_root/.host-python" ]]; then
+  if [[ -e "$repo_root/.host-python" || -L "$repo_root/.host-python" ]]; then
     local installed_python
+    [[ -f "$repo_root/.host-python" && -r "$repo_root/.host-python" ]] || {
+      startup_error '已安装的 dev-tools 宿主绑定不可读；请重新运行 scripts/install.sh。' 'Installed dev-tools host binding is unreadable; rerun scripts/install.sh.'
+      return 1
+    }
     installed_python=$(cat "$repo_root/.host-python")
-    [[ -x "$installed_python" ]] || {
+    [[ "$installed_python" == /* && -f "$installed_python" && -x "$installed_python" ]] || {
       startup_error '已安装的 dev-tools 宿主缺失；请重新运行 scripts/install.sh。' 'Installed dev-tools host is missing; rerun scripts/install.sh.'
       return 1
     }

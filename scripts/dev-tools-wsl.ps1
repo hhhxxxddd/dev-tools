@@ -26,7 +26,7 @@ function Start-WslKeepAlive {
     }
 }
 
-if ($Arguments.Count -gt 0 -and $Arguments[0] -in @('start', 'restart', 'prepare') -and $Arguments -notcontains '--dry-run' -and $Arguments -notcontains '--help' -and $Arguments -notcontains '-h') {
+if ($Arguments.Count -gt 0 -and $Arguments[0] -in @('start', 'restart', 'prepare') -and $Arguments -notcontains '--help' -and $Arguments -notcontains '-h') {
     Start-WslKeepAlive
 }
 function Find-SourceArgument([string[]]$tokens) {
@@ -62,7 +62,7 @@ if ($pathIndex -ge 0) {
     }
 }
 $control = $Arguments.Count -gt 0 -and $Arguments[0] -in @('register', 'prepare', 'start', 'stop', 'restart', 'build', 'rename', 'unregister') -and
-    $Arguments -notcontains '--help' -and $Arguments -notcontains '-h' -and $Arguments -notcontains '--dry-run'
+    $Arguments -notcontains '--help' -and $Arguments -notcontains '-h'
 if ($control -and $Arguments[0] -eq 'register' -and -not ($Arguments | Where-Object { $_ -eq '--user' -or $_.StartsWith('--user=') })) {
     $nativeUser = & wsl.exe -d $Distro --exec id -un
     if ($LASTEXITCODE -ne 0) { throw (Get-DevToolsMessage 'Could not resolve the WSL runtime user' $Language) }
