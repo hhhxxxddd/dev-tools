@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from dev_tools.i18n import language_scope
 from dev_tools.report import (
     Runner,
     collect_report,
@@ -12,6 +13,7 @@ from dev_tools.report import (
     render_report,
     scrub,
 )
+from dev_tools.report_store import collect_store_updates
 from dev_tools.report_updates import mise_updates, query_updates, rustup_updates, store_packages
 from dev_tools.settings import SettingsError, load_settings, render_settings
 
@@ -283,13 +285,23 @@ class ReportTests(unittest.TestCase):
                         "├──────┼───────────┼─────────┼──────┤\n"
                         "│ Windows Web Experience │ Microsoft │ 1.2.3 │ today │\n"
                         "│ Pack │ │ │ │\n",
-                    }
+                    },
+                    "store update Windows Web Experience Pack": {
+                        "status": "ok",
+                        "output": "🔄 Update available for 'Windows Web Experience Pack'\n",
+                    },
                 }
             )
             with patch("dev_tools.report.os.name", "nt"):
                 value = collect_report(settings=settings, runner=runner)
-            self.assertEqual(runner.calls, [["store", "updates"]])
-            self.assertEqual(runner.options, [{"input": "n\n"}])
+            self.assertEqual(
+                runner.calls,
+                [["store", "updates"], ["store", "update", "Windows Web Experience Pack"]],
+            )
+            self.assertTrue(all(options["input"] == "n\n" for options in runner.options))
+            self.assertGreater(runner.options[1]["timeout"], 0)
+            self.assertLessEqual(runner.options[1]["timeout"], 90)
+            self.assertFalse(any("--apply" in command for command in runner.calls))
             result = value["collectors"]["store_updates"]
             self.assertEqual(result["status"], "updates")
             self.assertEqual(result["updates"][0]["name"], "Windows Web Experience Pack")
@@ -318,7 +330,11 @@ class ReportTests(unittest.TestCase):
                         "status": "ok",
                         "output": "Updates available (2 found)\n│ Name │ Publisher │ Version │\n"
                         "│ Example │ Microsoft │ 1.2.3 │\n",
-                    }
+                    },
+                    "store update Example": {
+                        "status": "ok",
+                        "output": "🔄 Update available for 'Example'\n",
+                    },
                 }
             )
             with patch("dev_tools.report.os.name", "nt"):
@@ -340,7 +356,11 @@ class ReportTests(unittest.TestCase):
                         "output": "Updates available (1 found)\n│ Name │ Publisher │ Version │\n"
                         "│ Example │ Microsoft │ 1.2.3 │\n"
                         "Failed to read input in non-interactive mode.",
-                    }
+                    },
+                    "store update Example": {
+                        "status": "ok",
+                        "output": "🔄 Update available for 'Example'\n",
+                    },
                 }
             )
             with patch("dev_tools.report.os.name", "nt"):
@@ -348,6 +368,202 @@ class ReportTests(unittest.TestCase):
             result = value["collectors"]["store_updates"]
             self.assertEqual(result["status"], "partial")
             self.assertEqual(len(result["updates"]), 1)
+
+    def test_store_bulk_false_positives_are_removed_from_json_and_text(self):
+        candidates = (
+            "Updates available (2 found)\n│ Name │ Publisher │ Version │\n"
+            "│ AVC 编码器视频扩展 │ Microsoft │ 1.1.23.0 │\n"
+            "│ 移动设备 │ Microsoft │ 1.26082.68.0 │\n"
+            "Failed to read input in non-interactive mode."
+        )
+        runner = FakeRunner(
+            {
+                "store updates": {"status": "ok", "exit_code": 0, "output": candidates},
+                "store update AVC 编码器视频扩展": {
+                    "status": "ok",
+                    "output": "✅ 'AVC 编码器视频扩展' is already up to date\n",
+                },
+                "store update 移动设备": {
+                    "status": "ok",
+                    "output": "✅ '移动设备' is already up to date\n",
+                },
+            }
+        )
+        result = collect_store_updates(runner, 90)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["updates"], [])
+        self.assertEqual(result["unverified"], [])
+        self.assertEqual([check["update_available"] for check in result["checks"]], [False, False])
+        self.assertEqual(result["discovery"]["output"], candidates)
+        self.assertNotIn("Updates available (2 found)", result["output"])
+        self.assertIn("AVC 编码器视频扩展：未发现更新", result["output"])
+        self.assertIn("移动设备：未发现更新", result["output"])
+
+    def test_store_unconfirmed_candidates_are_not_updates_or_current(self):
+        for response, status in (
+            ({"status": "ok", "exit_code": 0, "output": "Error: missing metadata"}, "failed"),
+            ({"status": "ok", "output": "Unexpected response"}, "parse-error"),
+            ({"status": "ok", "output": "🔄 Update available for 'Other'"}, "parse-error"),
+            ({"status": "ok", "output": "✅ 'Other' is already up to date"}, "parse-error"),
+            ({"status": "missing", "output": "not found"}, "missing"),
+            ({"status": "timeout", "output": "Checking updates…"}, "timeout"),
+            (
+                {"status": "failed", "exit_code": 1, "output": "'Example' is already up to date"},
+                "failed",
+            ),
+            (
+                {
+                    "status": "ok",
+                    "output": "'Example' is already up to date\nUpdate available for 'Example'",
+                },
+                "parse-error",
+            ),
+        ):
+            with self.subTest(response=response):
+                runner = FakeRunner(
+                    {
+                        "store updates": {
+                            "status": "ok",
+                            "output": "Updates available (1 found)\n"
+                            "│ Name │ Publisher │ Version │\n│ Example │ Microsoft │ 1.2.3 │\n",
+                        },
+                        "store update Example": response,
+                    }
+                )
+                result = collect_store_updates(runner, 90)
+                self.assertEqual(result["status"], "partial")
+                self.assertEqual(result["updates"], [])
+                self.assertEqual(result["unverified"][0]["status"], status)
+                self.assertIsNone(result["checks"][0]["update_available"])
+
+    def test_store_keeps_only_confirmed_updates_in_mixed_results(self):
+        runner = FakeRunner(
+            {
+                "store updates": {
+                    "status": "ok",
+                    "output": "Updates available (3 found)\n│ Name │ Publisher │ Version │\n"
+                    "│ Current │ Microsoft │ 1 │\n│ Outdated │ Microsoft │ 2 │\n"
+                    "│ Unknown │ Microsoft │ 3 │\n",
+                },
+                "store update Current": {
+                    "status": "ok",
+                    "output": "✅ 'Current' is already up to date",
+                },
+                "store update Outdated": {
+                    "status": "ok",
+                    "output": "🔄 Update available for 'Outdated'",
+                },
+                "store update Unknown": {"status": "ok", "output": "Error: missing metadata"},
+            }
+        )
+        result = collect_store_updates(runner, 90)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual([item["name"] for item in result["updates"]], ["Outdated"])
+        self.assertIsNone(result["updates"][0]["available"])
+        self.assertEqual([item["name"] for item in result["unverified"]], ["Unknown"])
+
+    def test_store_single_confirmation_failure_keeps_explicit_update_fact(self):
+        runner = FakeRunner(
+            {
+                "store updates": {
+                    "status": "ok",
+                    "output": "│ Name │ Publisher │ Version │\n│ Example │ Microsoft │ 1 │\n",
+                },
+                "store update Example": {
+                    "status": "failed",
+                    "exit_code": 1,
+                    "output": "🔄 Update available for 'Example'\n"
+                    "Failed to read input in non-interactive mode.",
+                },
+            }
+        )
+        result = collect_store_updates(runner, 90)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["checks"][0]["status"], "partial")
+        self.assertEqual(result["updates"][0]["name"], "Example")
+        self.assertEqual(result["unverified"], [])
+
+    def test_store_verification_stops_at_shared_timeout_and_keeps_valid_results(self):
+        runner = FakeRunner(
+            {
+                "store updates": {
+                    "status": "ok",
+                    "output": "│ Name │ Publisher │ Version │\n"
+                    "│ First │ Microsoft │ 1 │\n│ Second │ Microsoft │ 2 │\n",
+                },
+                "store update First": {"status": "ok", "output": "Update available for 'First'"},
+            }
+        )
+        with patch("dev_tools.report_store.time.monotonic", side_effect=[0, 0.75, 2, 2, 2]):
+            result = collect_store_updates(runner, 1)
+        self.assertEqual(runner.calls, [["store", "updates"], ["store", "update", "First"]])
+        self.assertEqual(runner.options[1]["timeout"], 0.25)
+        self.assertEqual(result["updates"][0]["name"], "First")
+        self.assertEqual(result["unverified"][0]["status"], "timeout")
+        self.assertEqual(result["status"], "partial")
+
+    def test_store_rejects_option_names_and_ambiguous_display_names(self):
+        for rows in (
+            "│ --apply │ Microsoft │ 1 │\n",
+            "│ Example │ One │ 1 │\n│ Example │ Two │ 2 │\n",
+        ):
+            with self.subTest(rows=rows):
+                runner = FakeRunner(
+                    {
+                        "store updates": {
+                            "status": "ok",
+                            "output": "│ Name │ Publisher │ Version │\n" + rows,
+                        }
+                    }
+                )
+                result = collect_store_updates(runner, 90)
+                self.assertEqual(runner.calls, [["store", "updates"]])
+                self.assertEqual(result["updates"], [])
+                self.assertTrue(result["unverified"])
+
+    def test_store_no_candidates_does_not_start_single_queries(self):
+        runner = FakeRunner(
+            {"store updates": {"status": "ok", "output": "All apps are up to date"}}
+        )
+        result = collect_store_updates(runner, 90)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["updates"], [])
+        self.assertEqual(runner.calls, [["store", "updates"]])
+
+    def test_store_confirmation_summary_uses_selected_language(self):
+        runner = FakeRunner(
+            {
+                "store updates": {
+                    "status": "ok",
+                    "output": "│ Name │ Publisher │ Version │\n│ Example │ Microsoft │ 1 │\n",
+                },
+                "store update Example": {
+                    "status": "ok",
+                    "output": "Update available for 'Example'",
+                },
+            }
+        )
+        with language_scope("en"):
+            result = collect_store_updates(runner, 90)
+        self.assertNotRegex(result["output"] + result["coverage_note"], r"[\u4e00-\u9fff]")
+        self.assertIn("Example: 1 → Unknown", result["output"])
+
+    def test_store_disabled_refresh_does_not_query_or_verify(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.toml"
+            path.write_text('[report]\ncollectors = ["store"]\n', encoding="utf-8")
+            settings = load_settings(path)
+            runner = FakeRunner()
+            with patch("dev_tools.report.os.name", "nt"):
+                value = collect_report(settings=settings, refresh=False, runner=runner)
+            self.assertEqual(value["collectors"]["store_updates"]["status"], "skipped")
+            self.assertEqual(runner.calls, [])
+
+    def test_runner_honors_shorter_query_timeout(self):
+        import sys
+
+        result = Runner(10).run([sys.executable, "-c", "import time; time.sleep(2)"], timeout=0.1)
+        self.assertEqual(result["status"], "timeout")
 
     def test_missing_snap_inside_wsl_is_reported_as_missing(self):
         runner = FakeRunner({"snap": {"status": "failed", "exit_code": 127, "output": "not found"}})

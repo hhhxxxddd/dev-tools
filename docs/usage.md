@@ -70,7 +70,7 @@ dev-tools report --json --output report.json
 | git | 在 roots 内发现仓库，查看工作区、分支和远端差异；刷新时 fetch 引用，不 pull |
 | mise | 读取当前平台已安装版本；刷新时用 outdated 查询当前声明允许的更新，遵守版本固定、缓存及发布冷却策略；启用 wsl 时也查询目标发行版 |
 | winget | Windows 查询可更新软件；关闭刷新时跳过，避免软件源自行刷新 |
-| store | Windows 用微软 Store CLI 查询全部已安装商店应用的更新，不使用 --apply，仅提供否定确认；CLI 拒绝非交互输入时保留结果并标记 partial；缺少 CLI 时记录 missing；未提供目标版本时记为未知 |
+| store | Windows 用微软 Store CLI 批量发现候选，再按应用名称逐项查询；只有明确确认有更新的应用才列入 updates，已是最新的应用排除，无法确认的记录为 unverified；共用单项采集超时，不使用 --apply，仅提供否定确认；缺少 CLI 时记录 missing，目标版本缺失时记为未知 |
 | scoop | Windows 查看软件状态；刷新时更新 Scoop/桶索引，不更新已安装应用 |
 | apt | WSL 查看可升级包；刷新时更新 APT 索引，非 root 使用非交互 sudo，权限不足会记录失败 |
 | snap | WSL 读取已安装包，刷新时仅用 refresh --list 查询版本和 revision 更新，不执行安装 |
@@ -82,6 +82,7 @@ report 默认刷新，可能联网或更新本机索引；不会安装或升级�
 明确采集失败、超时、部分结果、解析错误或仓库发现问题时保留报告并返回 1；可选工具缺失、禁用项或正常发现更新本身不算执行失败。
 `--no-refresh` 禁止 Git fetch、索引刷新及 mise/Store/Snap/Rustup 更新查询，但 npm 更新查询仍可能联网；无需该查询时从 collectors 移除 npm。无法确定 mise 管理的 npm 清单时跳过 npm 更新查询。WSL 跳过 Windows 采集器。
 mise、Store、Snap、Rustup 更新查询输出结构化 updates；Rustup 的更新退出码 100 不作为失败，部分有效结果会保留。未知响应格式标记 parse-error，不据此报告全部最新。
+Store 的 `discovery` 保留批量原始输出和候选，`checks` 保留逐项状态、原始输出及 `update_available` 判定（true/false/null）。批量确认输入失败、候选数量不完整或逐项失败/超时时标记 partial；未确认项不列入 updates，也不视为最新。文本报告只展示确认结果，避免重复显示批量误报。
 
 ## 生命周期与平台边界
 

@@ -13,12 +13,12 @@ from pathlib import Path
 
 from .i18n import language_scope, t
 from .presentation import label as display_label
+from .report_store import collect_store_updates
 from .report_updates import (
     mise_updates,
     query_updates,
     rustup_updates,
     snap_packages,
-    store_packages,
 )
 from .settings import Settings, load_settings, native_path
 
@@ -46,7 +46,14 @@ class Runner:
     def __init__(self, timeout: int = 90):
         self.timeout = timeout
 
-    def run(self, command: list[str], *, cwd: Path | None = None, input: str | None = None) -> dict:
+    def run(
+        self,
+        command: list[str],
+        *,
+        cwd: Path | None = None,
+        input: str | None = None,
+        timeout: float | None = None,
+    ) -> dict:
         started = time.monotonic()
         executable = shutil.which(command[0])
         if not executable and os.name == "nt":
@@ -83,7 +90,8 @@ class Runner:
             )
             try:
                 output, _ = process.communicate(
-                    input=input.encode() if input is not None else None, timeout=self.timeout
+                    input=input.encode() if input is not None else None,
+                    timeout=self.timeout if timeout is None else timeout,
                 )
                 status = "ok" if process.returncode == 0 else "failed"
             except subprocess.TimeoutExpired:
@@ -251,26 +259,7 @@ def _collect_report(
                 skip("winget_upgrades", t("未查询：软件源可能自动刷新"))
         if "store" in enabled:
             if refresh:
-                # Supply only a negative answer; never use --apply. Some CLI
-                # versions reject redirected input after completing the query.
-                store = run("store_updates", ["store", "updates"], input="n\n")
-                query_updates(
-                    store,
-                    lambda output: [{**item, "available": None} for item in store_packages(output)],
-                )
-                count = re.search(r"Updates available\s*\((\d+) found\)", store.get("output", ""))
-                if (
-                    count
-                    and store.get("updates") is not None
-                    and len(store["updates"]) != int(count[1])
-                ):
-                    store["status"] = "partial"
-                if (
-                    "Failed to read input in non-interactive mode" in store.get("output", "")
-                    and store.get("updates") is not None
-                ):
-                    store["status"] = "partial"
-                store["coverage_note"] = t("Store CLI 查询全部已安装应用；未提供目标版本时记为未知")
+                collectors["store_updates"] = collect_store_updates(runner, timeout)
             else:
                 skip("store_updates", t("已禁用刷新"))
         if "scoop" in enabled:

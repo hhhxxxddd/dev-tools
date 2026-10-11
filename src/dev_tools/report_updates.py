@@ -29,7 +29,7 @@ def mise_updates(output: str) -> list[dict]:
 
 
 def store_packages(output: str) -> list[dict]:
-    """Store CLI shows installed versions, including in its updates table."""
+    """Read candidates; the bulk table can include apps that are already current."""
     packages = []
     columns = None
     for line in output.splitlines():
@@ -57,6 +57,24 @@ def store_packages(output: str) -> list[dict]:
     ):
         raise ValueError("unrecognized Store response")
     return packages
+
+
+def store_update_available(output: str, name: str) -> bool:
+    """Require an explicit single-app verdict for the requested display name."""
+    app = re.escape(name).replace(r"\ ", r"\s+")
+    current = re.search(
+        rf"^\s*(?:✅\s*)?'{app}'\s+is already up to date[.!]?\s*$",
+        output,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    available = re.search(
+        rf"^\s*(?:🔄\s*)?Update available for '{app}'(?:\s|[.!]|$)",
+        output,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if bool(current) == bool(available):
+        raise ValueError("unrecognized or conflicting Store update verdict")
+    return bool(available)
 
 
 def snap_packages(output: str) -> list[dict]:

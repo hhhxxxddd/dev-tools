@@ -70,7 +70,7 @@ dev-tools report --json --output report.json
 | git | Discover repositories in roots and inspect worktree, branch and remote differences; refresh fetches refs without pulling |
 | mise | Read installed native versions; refresh uses outdated for updates allowed by current declarations, preserving pins, caches and release-age policy; also query the target distro when wsl is enabled |
 | winget | Query available Windows application updates; skipped without refresh to avoid automatic source updates |
-| store | Query updates for all installed Store apps using Microsoft's Store CLI, without --apply and with only a negative confirmation; retain results as partial if the CLI rejects redirected input; a missing CLI is recorded as missing, and unavailable target versions remain unknown |
+| store | Discover candidates in bulk with Microsoft's Store CLI, then query each app by name; only explicitly confirmed updates enter updates, current apps are excluded, and unresolved candidates enter unverified; share the collector timeout, never use --apply and only provide negative confirmation; a missing CLI is recorded as missing and unavailable target versions remain unknown |
 | scoop | Read Windows application status; refresh updates Scoop/bucket indexes without updating installed apps |
 | apt | List upgradable WSL packages; refresh updates APT indexes using noninteractive sudo when not root, recording permission failures |
 | snap | Read installed WSL packages; refresh only queries version and revision updates using refresh --list, without installing |
@@ -82,6 +82,7 @@ Report refreshes by default and may use the network or update local indexes. It 
 Explicit collection failures, timeouts, partial results, parse errors or repository discovery issues retain the report and exit 1. Missing optional tools, disabled entries or normal update findings do not themselves count as execution failures.
 `--no-refresh` disables Git fetch, index refresh and mise/Store/Snap/Rustup update queries, but npm update queries may still use the network; remove npm from collectors when those queries are unwanted. npm update queries are skipped when the mise-managed inventory cannot be determined. WSL skips Windows collectors.
 mise, Store, Snap and Rustup update queries provide structured updates. Rustup's update exit code 100 is not a failure, and partial valid results are retained. Unknown response formats are marked parse-error rather than reported as fully up to date.
+Store's `discovery` retains the raw bulk output and candidates; `checks` retains each query's status, raw output and `update_available` verdict (true/false/null). Rejected bulk confirmation input, incomplete candidate counts, or failed/timed-out verification mark the collector partial; unverified apps are neither included in updates nor reported as current. Text reports show confirmation results rather than repeating bulk false positives.
 
 ## Lifecycle and platform boundaries
 
