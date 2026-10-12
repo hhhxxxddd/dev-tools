@@ -243,8 +243,10 @@ class ProjectEngine:
                     if not self.backend.active(name):
                         started.append(name)
                         self.backend.start(name)
-                    deadline = time.monotonic() + 30
+                    # Initial snapshots on mounted filesystems can take tens of seconds.
+                    deadline = time.monotonic() + 120
                     while self.backend.phase(name).get("phase") != "running":
+                        self._check_intent(intent_token)
                         if (
                             self.backend.phase(name).get("phase") == "failed"
                             or time.monotonic() >= deadline

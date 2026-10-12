@@ -20,7 +20,7 @@ After reviewing the declaration, register and preview preparation:
 
 ```text
 dev-tools register
-dev-tools prepare --dry-run --json
+dev-tools check --json
 ```
 
 确认后执行 prepare/start；原生 WSL 的修改操作使用 sudo。预览不会运行项目命令或安装工具。

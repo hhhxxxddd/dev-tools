@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import stat
 import time
 from pathlib import Path
 from threading import Event
@@ -18,35 +19,42 @@ from .planning import fingerprint
 def file_snapshot(root: Path, policy: BuildSpec) -> dict[str, tuple[int, int]]:
     root = root.resolve()
     result = {}
+
+    def record(path: Path, entry: os.DirEntry[str] | None = None) -> None:
+        key = path.relative_to(root).as_posix()
+        if path.suffix not in policy.extensions and not any(
+            fnmatch.fnmatch(key, pattern) for pattern in policy.structural
+        ):
+            return
+        try:
+            metadata = (entry or path).stat(follow_symlinks=False)
+            if stat.S_ISREG(metadata.st_mode):
+                result[key] = metadata.st_mtime_ns, metadata.st_size
+        except FileNotFoundError:
+            pass
+
     for relative in policy.watch:
         directory = within(root, relative)
-        entries = (
-            [(str(directory.parent), [], [directory.name])]
-            if directory.is_file()
-            else os.walk(directory, followlinks=False)
-        )
-        for current, directories, files in entries:
-            directories[:] = sorted(
-                name
-                for name in directories
-                if name not in IGNORED_DIRECTORIES
-                and not name.startswith(".cache")
-                and not (Path(current) / name).is_symlink()
-            )
-            for name in sorted(files):
-                path = Path(current) / name
-                if path.is_symlink():
-                    continue
-                key = path.relative_to(root).as_posix()
-                if path.suffix not in policy.extensions and not any(
-                    fnmatch.fnmatch(key, pattern) for pattern in policy.structural
-                ):
-                    continue
-                try:
-                    stat = path.stat()
-                    result[key] = stat.st_mtime_ns, stat.st_size
-                except FileNotFoundError:
-                    continue
+        if directory.is_file():
+            record(directory)
+            continue
+        pending = [directory]
+        while pending:
+            current = pending.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in sorted(entries, key=lambda item: item.name):
+                        if entry.is_symlink():
+                            continue
+                        if entry.is_dir(follow_symlinks=False):
+                            if entry.name not in IGNORED_DIRECTORIES and not entry.name.startswith(
+                                ".cache"
+                            ):
+                                pending.append(Path(entry.path))
+                        else:
+                            record(Path(entry.path), entry)
+            except FileNotFoundError:
+                continue
     return result
 
 
@@ -127,10 +135,8 @@ def sync_loop(engine, stop: Event, ready=lambda: None) -> None:
 
 
 def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
-    snapshots = {
-        policy.service: file_snapshot(engine.binding.source, policy)
-        for policy in engine.spec.builds
-    }
+    watch_root = engine.binding.workspace
+    snapshots = {policy.service: file_snapshot(watch_root, policy) for policy in engine.spec.builds}
     observed_git = git_snapshot(engine.executor)
     observed_files = snapshots
     observed_revision = fingerprint(engine.binding, spec=engine.spec)
@@ -144,8 +150,7 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
         try:
             current_revision = fingerprint(engine.binding, spec=engine.spec)
             current_files = {
-                policy.service: file_snapshot(engine.binding.source, policy)
-                for policy in engine.spec.builds
+                policy.service: file_snapshot(watch_root, policy) for policy in engine.spec.builds
             }
         except (ValueError, OSError) as exc:
             if time.monotonic() >= retry_after:
@@ -179,9 +184,7 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
                 engine.maintain(structural=bool(branch_changed))
                 engine.save(git=current_git)
                 snapshots = {
-                    policy.service: current_files.get(
-                        policy.service, file_snapshot(engine.binding.source, policy)
-                    )
+                    policy.service: file_snapshot(watch_root, policy)
                     for policy in engine.spec.builds
                 }
                 observed_files = snapshots
@@ -190,7 +193,10 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
             elif recovery.get("operation") == "build" and recovery.get("service") is None:
                 engine.rebuild(kind="branch", lock_timeout=0)
                 engine.save(git=current_git)
-                snapshots = current_files
+                snapshots = {
+                    policy.service: file_snapshot(watch_root, policy)
+                    for policy in engine.spec.builds
+                }
             else:
                 for policy in engine.spec.builds:
                     kind = change_kind(
@@ -200,7 +206,7 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
                         kind = recovery.get("kind", kind)
                     if kind:
                         engine.rebuild(service=policy.service, kind=kind, lock_timeout=0)
-                        snapshots[policy.service] = current_files[policy.service]
+                        snapshots[policy.service] = file_snapshot(watch_root, policy)
             retry_after = 0.0
         except (ValueError, OSError) as exc:
             if "operation is in progress" not in str(exc):

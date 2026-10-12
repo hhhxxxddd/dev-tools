@@ -238,6 +238,8 @@ Watch must be nonempty and may contain project-relative files or directories. Ex
 - Resource suffixes or changes within resources directories trigger resource builds.
 - Other monitored changes trigger source builds.
 
+Source monitoring reads the platform's working directory: source directly on Windows, and the synchronized Linux workspace in WSL. Project declarations and Git state still come from the original source directory. WSL watch paths must be included in synchronization. Maintenance and builds refresh workspace snapshots afterward to avoid duplicate builds.
+
 Source builds keep processes running. Resource/structural builds stop affected services and dependents, then restore them after building.
 Branch builds synchronize source and run preparation tasks and structural builds using prepared runtimes.
 Run `dev-tools build [NAME]` for a full build, or add `--service SERVICE` to build one service.

@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.0](https://img.shields.io/badge/Version-0.5.0-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.1](https://img.shields.io/badge/Version-0.5.1-blue)](CHANGELOG.md)
 
 为 Windows 和 WSL 开发项目提供热部署与热更新：识别依赖、准备环境、启动服务，并跟进代码和依赖变化。
 支持 Node.js、Python / uv、Maven / Spring Boot 和已有 Docker Compose 项目。

@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.0](https://img.shields.io/badge/Version-0.5.0-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.1](https://img.shields.io/badge/Version-0.5.1-blue)](CHANGELOG.md)
 
 Hot deployment and updates for Windows and WSL development projects: discover dependencies, prepare environments, start services, and follow code and dependency changes.
 Supports Node.js, Python / uv, Maven / Spring Boot, and existing Docker Compose projects.

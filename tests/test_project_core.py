@@ -13,7 +13,7 @@ from unittest.mock import patch
 from dev_tools.projects.config import parse_project, render_toml
 from dev_tools.projects.discovery import discover_project
 from dev_tools.projects.initialization import initialize
-from dev_tools.projects.models import ProjectBinding, ProjectError, within
+from dev_tools.projects.models import BuildSpec, ProjectBinding, ProjectError, within
 from dev_tools.projects.monitoring import change_kind, file_snapshot
 from dev_tools.projects.planning import fingerprint, preparation_plan
 from dev_tools.runtimes.platforms.base import Backend
@@ -416,6 +416,40 @@ class ProjectCoreTests(unittest.TestCase):
             (root / "target").mkdir()
             (root / "target/A.java").write_text("output")
             self.assertEqual(set(file_snapshot(root, policy)), {"A.java"})
+
+    def test_monitor_tracks_nested_sources_structural_files_and_individual_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "src").mkdir()
+            (root / "src/A.java").write_text("source")
+            (root / "src/image.png").write_bytes(b"ignored")
+            (root / ".mvn").mkdir()
+            (root / ".mvn/jvm.config").write_text("-Xmx1g")
+            (root / ".cache-assets").mkdir()
+            (root / ".cache-assets/A.java").write_text("ignored")
+            policy = BuildSpec("api", (".", "missing"), "", "", "")
+            snapshot = file_snapshot(root, policy)
+            self.assertEqual(set(snapshot), {"src/A.java", ".mvn/jvm.config"})
+            for name, value in snapshot.items():
+                metadata = (root / name).stat()
+                self.assertEqual(value, (metadata.st_mtime_ns, metadata.st_size))
+            policy = BuildSpec("api", ("src/A.java",), "", "", "")
+            self.assertEqual(file_snapshot(root, policy), {"src/A.java": snapshot["src/A.java"]})
+
+    @unittest.skipIf(os.name == "nt", "native Unix symlinks and FIFOs required")
+    def test_monitor_skips_linked_files_linked_directories_and_nonregular_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, outside = root / "source", root / "outside"
+            source.mkdir()
+            outside.mkdir()
+            (source / "A.java").write_text("source")
+            (outside / "B.java").write_text("outside")
+            (source / "link.java").symlink_to(outside / "B.java")
+            (source / "link").symlink_to(outside, target_is_directory=True)
+            os.mkfifo(source / "pipe.java")
+            policy = BuildSpec("api", (".",), "", "", "")
+            self.assertEqual(set(file_snapshot(source, policy)), {"A.java"})
 
     def test_concurrent_operations_cannot_share_a_project(self):
         with tempfile.TemporaryDirectory() as temporary:

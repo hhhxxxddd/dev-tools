@@ -157,6 +157,77 @@ class EngineContractTests(unittest.TestCase):
             self.assertEqual(engine.backend.running, expected)
             self.assertTrue(engine.status()["ready"])
 
+    def test_slow_initial_monitor_snapshot_does_not_roll_back_ready_services(self):
+        for engine in self.both():
+            clock = {"time": 0.0}
+            original_phase = engine.backend.phase
+
+            def phase(worker, clock=clock, original_phase=original_phase):
+                if worker == "__watch" and clock["time"] < 45:
+                    return {"phase": "starting"}
+                return original_phase(worker)
+
+            with (
+                patch.object(engine.backend, "phase", side_effect=phase),
+                patch(
+                    "dev_tools.projects.engine.time.monotonic",
+                    side_effect=lambda clock=clock: clock["time"],
+                ),
+                patch(
+                    "dev_tools.projects.engine.time.sleep",
+                    side_effect=lambda _, clock=clock: clock.update(time=clock["time"] + 10),
+                ),
+            ):
+                engine._start(("api",), infrastructure=True)
+            self.assertGreaterEqual(clock["time"], 45)
+            self.assertTrue({"api", "__watch"} <= engine.backend.running)
+            self.assertIsNone(engine.state().get("recovery"))
+
+    def test_stop_cancels_a_monitor_that_is_still_initializing(self):
+        for engine in self.both():
+            original_phase = engine.backend.phase
+            with (
+                patch.object(
+                    engine.backend,
+                    "phase",
+                    side_effect=lambda worker, original_phase=original_phase: (
+                        {"phase": "starting"} if worker == "__watch" else original_phase(worker)
+                    ),
+                ),
+                patch(
+                    "dev_tools.projects.engine.time.sleep",
+                    side_effect=lambda _, engine=engine: engine.set_intent(running=False),
+                ),
+                self.assertRaisesRegex(ProjectError, "project stopped during maintenance"),
+            ):
+                engine.start()
+            self.assertFalse(engine.backend.running)
+            self.assertFalse(engine.intent()["running"])
+
+    def test_monitor_startup_remains_bounded_and_rolls_back_on_timeout(self):
+        for engine in self.both():
+            clock = {"time": 0.0}
+            original_phase = engine.backend.phase
+
+            def phase(worker, original_phase=original_phase):
+                return {"phase": "starting"} if worker == "__watch" else original_phase(worker)
+
+            with (
+                patch.object(engine.backend, "phase", side_effect=phase),
+                patch(
+                    "dev_tools.projects.engine.time.monotonic",
+                    side_effect=lambda clock=clock: clock["time"],
+                ),
+                patch(
+                    "dev_tools.projects.engine.time.sleep",
+                    side_effect=lambda _, clock=clock: clock.update(time=clock["time"] + 10),
+                ),
+                self.assertRaisesRegex(ProjectError, "monitor __watch failed to start"),
+            ):
+                engine._start(("api",), infrastructure=True)
+            self.assertFalse(engine.backend.running)
+            self.assertEqual(engine.state()["recovery"]["restore_workers"], ["api"])
+
     def test_runtime_change_cannot_be_committed_as_prepared_by_build(self):
         for engine in self.both():
             raw = copy.deepcopy(engine.spec.raw)
