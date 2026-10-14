@@ -16,7 +16,7 @@ scoop uninstall dev-tools
 
 清单自动安装 `main/git`、`main/pwsh`、`main/mise` 和 Python 3.14.8 控制程序宿主，创建 `dev-tools` shim。无需 Git 克隆或 profile 函数。旧安装器写入的 dev-tools 标记块会被移除；已有终端需重新打开以清除已加载的旧函数。
 
-更新和卸载前须停止活动的 Windows 项目，例如 `dev-tools -e win stop my-app`。钩子校验 PID 与启动时间，拒绝移除活动 worker 使用的程序。用户偏好、注册、状态、缓存和项目运行时保留；WSL 不随 Scoop 操作更新或卸载。
+`dev-tools upgrade` 会列出活动的 Windows 项目，输入 `Y`（或加 `--yes`）后停止、更新并恢复原先运行的服务。直接执行 Scoop 更新或卸载时仍须先手动停止项目，例如 `dev-tools -e win stop my-app`。钩子校验 PID 与启动时间，拒绝移除活动 worker 使用的程序。用户偏好、注册、状态、缓存和项目运行时保留；WSL 不随 Scoop 操作更新或卸载。
 
 ## WSL 部署与更新
 
@@ -27,11 +27,12 @@ dev-tools self update -e wsl
 dev-tools self status --json
 ```
 
-`self update` 同时用于首次部署和更新，可重复执行；将本机包的同版本部署到配置的 `[wsl].distro`，无需进入 Linux 克隆仓库。先停止目标发行版中的项目，例如 `dev-tools -e wsl stop my-app`，完成后按需 `start`。安装器拒绝覆盖活动 worker 使用的文件，保留注册、偏好、状态、缓存和项目运行时，不自动准备或启动项目。
+`self update` 同时用于首次部署和更新，可重复执行；将本机包的同版本部署到配置的 `[wsl].distro`，无需进入 Linux 克隆仓库。发现活动项目时提示确认，输入 `Y` 后记录并停止服务与监控，部署完成后通过新入口恢复原先运行的部分；原本停止的项目保持停止。`--yes` 可用于脚本。安装器仍拒绝覆盖活动 worker，保留注册、偏好、状态、缓存和项目运行时。首次部署不注册或启动项目。
 
 发行版须已安装并启用 systemd。缺少 rsync，或首次部署未绑定外部 Python 且缺少 mise 时，Debian/Ubuntu 通过 extrepo/APT 安装；其他发行版须先自行安装工具。Linux 程序位于 `/opt/dev-tools`，入口为 `/usr/local/bin/dev-tools`。未指定外部解释器的首次安装会在 `/opt/dev-tools/host-mise` 准备 Python 宿主；后续部署沿用 `.host-python` 绑定。不共享 Windows 可执行目录和缓存。
 
-`dev-tools`、`dev-tools help` 和顶层 `--help` 共用总览，最多 5 秒的只读文件探测检查 WSL 入口、源码和宿主。缺失或不完整时提示部署；WSL 不可用、发行版配置错误或超时时提示检查发行版。帮助不安装、升级或执行 WSL 中的 dev-tools；单个命令的帮助不执行探测。
+`dev-tools`、`help` 和命令帮助显示部署缺失或两端版本差异提示。显式 `-e wsl` / `-e win` 的帮助和 `-v` 查询实际目标端；不安装、升级或启动项目。跨端不支持的命令或执行约定会在执行前阻止，停止与更新通道保留。
+两端分别维护安装副本：Windows 更新后，从 Windows 执行一次 `dev-tools self update -e wsl` 即可将当前代码部署到 WSL，版本相同也可重新部署。`list` 默认查询两端；某端连接失败只以黄色提示保留另一端结果，不代表需要升级。`dev-tools list -e wsl` 只查 WSL。
 
 原生 WSL 可获取新版，或重新部署安装时记录的源码：
 
@@ -44,7 +45,7 @@ sudo dev-tools self update -e wsl --source /path/to/dev-tools
 
 ### 直接升级工具
 
-`dev-tools -v` / `--version` 只输出工具版本。`dev-tools upgrade` 获取新版并部署当前平台，`-e wsl` 选择 WSL；`dev-tools self upgrade` 是同一操作的另一入口，接受相同的 `-e` 和 `--source` 参数。Windows 的 Scoop 安装使用 Scoop；源码安装使用已验证的 Git origin，拒绝本地修改、脱离分支、未跟踪 origin 或分叉的历史，只允许快进合并。Windows 升级前须停止 Windows 项目，WSL 部署前须停止 WSL 项目；WSL 升级若会更新 Windows 控制程序正在使用的同一份源码仓库，也须先停止 Windows 项目。
+`dev-tools -v` / `--version` 只输出工具版本。`dev-tools upgrade` 获取新版并部署当前平台，`-e wsl` 选择 WSL；`dev-tools self upgrade` 是同一操作的另一入口，接受相同的 `-e` 和 `--source` 参数。Windows 的 Scoop 安装使用 Scoop；源码安装使用已验证的 Git origin，拒绝本地修改、脱离分支、未跟踪 origin 或分叉的历史，只允许快进合并。活动项目经 `Y` 或 `--yes` 确认后停止并恢复；更新共享 Windows 控制程序源码时也处理使用该源码的 Windows 项目。WSL 部署失败时恢复控制器备份；恢复失败保留本机记录，使用 `dev-tools self recover -e wsl` 重试，原生 WSL 需 `sudo`。Windows 使用 `dev-tools self recover -e win`。更新期间用户主动停止的项目跳过恢复。
 
 原生 WSL 的 `upgrade` 优先使用安装器记录的 `.source` 仓库；没有可用 Git 仓库时下载最新稳定 Release，验证 SHA256SUMS 和包内逐文件校验清单后部署。升级时显式 `--source` 要求可信 Git 仓库。源码安装可执行 `dev-tools upgrade -e win`，无需先手动拉取；也可用 `dev-tools upgrade --source <仓库目录>` 指定来源。`self update` 重新部署当前代码，不拉取源码或下载 Release；记录的源码不可用时显式提供 `--source`。
 
@@ -82,7 +83,7 @@ sudo env DEV_TOOLS_PYTHON=/opt/dev-runtimes/python/3.14.8/bin/python3 bash scrip
 $env:PYTHONPATH = "$PWD\src"
 python -m dev_tools.validation
 python -m dev_tools.release --output dist
-python -m dev_tools.package_smoke dist/dev-tools-0.5.1.zip
+python -m dev_tools.package_smoke dist/dev-tools-0.5.2.zip
 ```
 
 产物为 `dev-tools-<版本>.zip`、`SHA256SUMS` 和 `dev-tools.json`。完整 ZIP 包含两端入口、配置、示例与文档，排除本机绑定、缓存与本地覆盖。`.release.json` 记录逐文件哈希、版本、源码提交及 dirty 标记。SHA256 用于确认字节完整性；来源真实性依赖从官方 GitHub Release 或 Scoop 渠道取得包与校验值。

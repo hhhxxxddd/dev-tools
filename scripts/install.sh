@@ -66,12 +66,12 @@ for target in "$install_root/src" "$install_root/scripts" "$install_root/config"
 done
 # The controller stays available when its Windows checkout is unavailable.
 # Copy only owned source; existing project registrations and caches are preserved.
-rsync -a --delete --exclude '__pycache__' "$repo_root/src/dev_tools/" "$install_root/src/dev_tools/"
-rsync -a --delete "$repo_root/scripts/" "$install_root/scripts/"
-rsync -a --delete --exclude "*.local.*" "$repo_root/config/" "$install_root/config/"
-rsync -a --delete "$repo_root/docs/" "$install_root/docs/"
-rsync -a --delete "$repo_root/examples/" "$install_root/examples/"
-rsync -a --delete "$repo_root/systemd/" "$install_root/systemd/"
+rsync -a --checksum --delete --delete-excluded --exclude '__pycache__' "$repo_root/src/dev_tools/" "$install_root/src/dev_tools/"
+rsync -a --checksum --delete "$repo_root/scripts/" "$install_root/scripts/"
+rsync -a --checksum --delete --exclude "*.local.*" "$repo_root/config/" "$install_root/config/"
+rsync -a --checksum --delete "$repo_root/docs/" "$install_root/docs/"
+rsync -a --checksum --delete "$repo_root/examples/" "$install_root/examples/"
+rsync -a --checksum --delete "$repo_root/systemd/" "$install_root/systemd/"
 install -m 0644 "$repo_root/pyproject.toml" "$install_root/pyproject.toml"
 install -m 0644 "$repo_root/README.md" "$install_root/README.md"
 install -m 0644 "$repo_root/README.en.md" "$install_root/README.en.md"

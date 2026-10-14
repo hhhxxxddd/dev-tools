@@ -82,6 +82,10 @@
 | `timeout` | 子进程、只读查询或服务就绪等待超时 | 数字 `timeout_seconds`（已知时） |
 | `preparation_failed` | prepare/start 项目操作失败 | 整数 `returncode`（已知时） |
 | `operation_failed` | 其他运行错误或目标环境未返回有效 JSON | 整数 `returncode`（已知时） |
+| `target_unavailable` | 目标控制器缺失或连接检查失败 | `environment/controller_version/target_version/returncode`（已知时） |
+| `target_version_mismatch` | 目标执行约定不兼容 | `environment/controller_version/target_version/returncode`（已知时） |
+| `target_command_unsupported` | 目标版本不支持命令或参数 | `environment/controller_version/target_version/returncode`（已知时） |
+| `target_response_invalid` | 目标 JSON 或协议不符合约定 | `environment/controller_version/target_version/returncode`（已知时） |
 | `interrupted` | 用户中断 | 无 |
 
 `details` 始终为对象，没有可公开的安全事实时为 `{}`。脚本应按 code 分支，不解析 message。原始第三方过程日志仍可能出现在 stderr，应作为日志处理。
@@ -89,3 +93,7 @@
 扫描/初始化/检查阻塞及列表/报告部分结果保留各自诊断 payload，不强行改成错误文档。无效配置的 `config --json` / `config check --json` 保留配置字段并增加 `schema_version/action/error`。非零退出码不意味着只有 error；按命令检查错误字段、`ready`、`complete` 或采集状态。
 
 源码仓库中的 `tests/test_cli_contract.py` 集中验证接口约定，执行行为与只读边界另有功能测试覆盖。
+
+`list` 默认与 `list --all` 相同；显式 `-e` 只查目标端。列表项目新增整数数组 `ports` 与字符串数组 `types`，来自显式健康检查、根 mise 和任务/服务工具声明；未知时为空数组，人类表格显示 `-`。
+
+`start --all` 只操作当前或指定环境，不接受项目名或 `--service`。JSON 包含 `projects` 和布尔 `complete`，每项有 `name/status`（`started|skipped|failed`）；单项失败继续处理其余项目，整体退出 `1`。已有活动 worker 的项目跳过，不重新准备或启动。

@@ -46,7 +46,35 @@ ERROR_MESSAGES = {
     "preparation_failed": "Project preparation failed; inspect project logs and retry",
     "operation_failed": "Operation failed; check the environment or project logs and retry",
     "interrupted": "Operation interrupted",
+    "target_unavailable": "Target controller is unavailable; check its deployment and connection",
+    "target_version_mismatch": "Target controller version is incompatible; update the target controller",
+    "target_command_unsupported": "Target controller does not support this command; update the target controller",
+    "target_response_invalid": "Target controller returned an invalid response; check both controller versions",
 }
+
+
+class TargetError(ProjectError):
+    """A transport failure with explicitly selected public facts, never raw output."""
+
+    def __init__(self, code, explanation, *, environment, target_version=None, returncode=None):
+        from . import __version__
+
+        super().__init__(explanation)
+        self.code = code
+        self.details = {"environment": environment, "controller_version": __version__}
+        if target_version is not None:
+            self.details["target_version"] = target_version
+        if type(returncode) is int:
+            self.details["returncode"] = returncode
+
+
+class RemoteError(ProjectError):
+    """Preserve a validated target error document and its exit code."""
+
+    def __init__(self, payload, returncode):
+        super().__init__(payload["error"]["message"])
+        self.payload = payload
+        self.returncode = returncode
 
 
 @dataclass(frozen=True)
@@ -111,6 +139,18 @@ def error_payload(error: BaseException, *, code: str | None = None, action: str 
     """Classify errors without serializing arbitrary exception text, argv or output."""
     request = _request.get()
     action = action or (request.action if request else None)
+    if isinstance(error, RemoteError):
+        return error.payload
+    if isinstance(error, TargetError):
+        return {
+            "schema_version": CLI_SCHEMA_VERSION,
+            "action": action,
+            "error": {
+                "code": error.code,
+                "message": t(ERROR_MESSAGES[error.code]),
+                "details": error.details,
+            },
+        }
     value = error.args[0] if error.args else None
     source = getattr(value, "source", "")
     parameters = getattr(value, "parameters", {})
@@ -163,7 +203,9 @@ def emit_error(error: BaseException, *, code: str | None = None) -> None:
     elif isinstance(error, subprocess.SubprocessError):
         error = ValueError(message("Controller command failed; check the environment and retry"))
     if not isinstance(error, KeyboardInterrupt):
-        print(f"dev-tools: {render(error)}", file=sys.stderr)
+        from .presentation import error as error_text
+
+        print(error_text(f"dev-tools: {render(error)}", stream=sys.stderr), file=sys.stderr)
 
 
 def exit_code(value: int | None) -> int:

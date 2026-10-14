@@ -90,6 +90,18 @@ class SourceUpgradeTests(unittest.TestCase):
 
 
 class SelfUpgradeCliTests(unittest.TestCase):
+    def setUp(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(
+            patch.dict(
+                os.environ,
+                {
+                    "DEV_TOOLS_STATE_ROOT": str(root / "state"),
+                    "DEV_TOOLS_REGISTRY_ROOT": str(root / "registry"),
+                },
+            )
+        )
+
     def test_top_level_upgrade_uses_the_controller_without_project_transport(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = Path(temporary) / "config.toml"
@@ -113,6 +125,33 @@ class SelfUpgradeCliTests(unittest.TestCase):
                     (args.self_action, args.env, args.source), ("upgrade", "wsl", temporary)
                 )
                 self.assertFalse(hasattr(args, "project_command"))
+
+    def test_successful_windows_upgrade_from_another_checkout_restores_from_new_entry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            old, new = root / "old", root / "new"
+            (new / ".git").mkdir(parents=True)
+            args = SimpleNamespace(env="win", source=str(new), yes=True)
+            session = SimpleNamespace(entry=old / "scripts/dev-tools.ps1", stop=lambda: None)
+
+            def transaction(current, action, **kwargs):
+                self.assertIs(current, session)
+                code = action()
+                self.assertEqual(session.entry.resolve(), (new / "scripts/dev-tools.ps1").resolve())
+                return code
+
+            with (
+                patch.object(controller, "WINDOWS", True),
+                patch.object(controller, "REPOSITORY", old),
+                patch.object(controller, "verify_source"),
+                patch.object(controller, "_refresh_checkout"),
+                patch("dev_tools.controller_update.UpdateSession", return_value=session),
+                patch("dev_tools.controller_update.update_with_recovery", side_effect=transaction),
+                patch.object(
+                    controller.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)
+                ),
+            ):
+                self.assertEqual(controller._upgrade(args), 0)
 
     def test_top_level_help_lists_upgrade_and_its_help_is_readonly_in_both_languages(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -173,7 +212,7 @@ class SelfUpgradeCliTests(unittest.TestCase):
                 patch.object(controller, "_install_wsl", return_value=0) as install,
             ):
                 self.assertEqual(controller.run(args), 0)
-                install.assert_called_once_with(source, "Ubuntu")
+                install.assert_called_once_with(source, "Ubuntu", yes=False)
                 (root / ".source").unlink()
                 with self.assertRaisesRegex(ValueError, "Redeployment source is unavailable"):
                     controller.run(args)
@@ -221,10 +260,12 @@ class SelfUpgradeCliTests(unittest.TestCase):
             patch.object(controller, "WINDOWS", True),
             patch("dev_tools.projects.registry.Registry.names", return_value=()),
             patch.object(
-                controller, "_refresh_checkout", side_effect=lambda _: events.append("fetch")
+                controller, "_refresh_checkout", side_effect=lambda _, **kw: events.append("fetch")
             ),
             patch.object(
-                controller, "_install_wsl", side_effect=lambda *_: events.append("install") or 0
+                controller,
+                "_install_wsl",
+                side_effect=lambda *_, **kw: events.append("install") or 0,
             ),
         ):
             self.assertEqual(controller._upgrade(args), 0)

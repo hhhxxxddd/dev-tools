@@ -190,9 +190,16 @@ class ProjectEngine:
                 )
             )
 
-    def _wait(self, name: str) -> None:
+    def _wait(self, name: str, *, intent_token=None) -> None:
+        from ..progress import stage
+
+        with stage("Health check: {service}", service=name):
+            self._wait_ready(name, intent_token=intent_token)
+
+    def _wait_ready(self, name: str, *, intent_token=None) -> None:
         deadline = time.monotonic() + float(self.spec.services[name].health.get("timeout", 15))
         while time.monotonic() < deadline:
+            self._check_intent(intent_token)
             status = self.service_status(name)
             if status["ready"]:
                 return
@@ -208,8 +215,15 @@ class ProjectEngine:
         raise ProjectError(message("service {name} did not become ready before timeout", name=name))
 
     def _start(
-        self, names: tuple[str, ...], *, infrastructure: bool = False, intent_token=None
+        self,
+        names: tuple[str, ...],
+        *,
+        infrastructure: bool = False,
+        intent_token=None,
+        monitors: tuple[str, ...] | None = None,
     ) -> None:
+        from ..progress import stage
+
         names = dependency_order(
             {name: service.depends_on for name, service in self.spec.services.items()}, names
         )
@@ -231,34 +245,13 @@ class ProjectEngine:
                                     )
                                 )
                     started.append(name)
-                    self.backend.start(name)
-                self._wait(name)
-            if infrastructure:
-                workers = []
-                if self.binding.source != self.binding.workspace:
-                    workers.append("__sync")
-                workers.append("__watch")
-                for name in workers:
-                    self._check_intent(intent_token)
-                    if not self.backend.active(name):
-                        started.append(name)
+                    with stage("Start service: {service}", service=name):
                         self.backend.start(name)
-                    # Initial snapshots on mounted filesystems can take tens of seconds.
-                    deadline = time.monotonic() + 120
-                    while self.backend.phase(name).get("phase") != "running":
-                        self._check_intent(intent_token)
-                        if (
-                            self.backend.phase(name).get("phase") == "failed"
-                            or time.monotonic() >= deadline
-                        ):
-                            raise ProjectError(
-                                message(
-                                    "monitor {name} failed to start; inspect project logs",
-                                    name=name,
-                                )
-                            )
-                        time.sleep(0.2)
-        except (ProjectError, OSError) as exc:
+                self._wait(name, intent_token=intent_token)
+            if infrastructure:
+                with stage("Start file and dependency monitors"):
+                    self._start_monitors(started, intent_token, monitors)
+        except (ProjectError, OSError, KeyboardInterrupt) as exc:
             cleanup_error = ""
             try:
                 self._stop(tuple(started))
@@ -274,6 +267,34 @@ class ProjectEngine:
                 }
             )
             raise
+
+    def _start_monitors(self, started, intent_token, monitors):
+        workers = []
+        if self.binding.source != self.binding.workspace:
+            workers.append("__sync")
+        workers.append("__watch")
+        if monitors is not None:
+            workers = [worker for worker in workers if worker in monitors]
+        for name in workers:
+            self._check_intent(intent_token)
+            if not self.backend.active(name):
+                started.append(name)
+                self.backend.start(name)
+            # Initial snapshots on mounted filesystems can take tens of seconds.
+            deadline = time.monotonic() + 120
+            while self.backend.phase(name).get("phase") != "running":
+                self._check_intent(intent_token)
+                if (
+                    self.backend.phase(name).get("phase") == "failed"
+                    or time.monotonic() >= deadline
+                ):
+                    raise ProjectError(
+                        message(
+                            "monitor {name} failed to start; inspect project logs",
+                            name=name,
+                        )
+                    )
+                time.sleep(0.2)
 
     def _validate_plan(self, plan: PreparationPlan) -> None:
         if plan.unresolved:
@@ -342,6 +363,8 @@ class ProjectEngine:
         intent_token=None,
         structural=False,
     ) -> None:
+        from ..progress import stage
+
         self._validate_plan(plan)
         recovery = self.state().get("recovery") or {}
         active = tuple(dict.fromkeys([*self._active(), *recovery.get("restore_workers", [])]))
@@ -364,28 +387,36 @@ class ProjectEngine:
                 atomic_write(self.binding.source / CONFIG_NAME, render_toml(self.spec.raw).encode())
                 revision = fingerprint(self.binding, spec=self.spec)
             self.save(last_project=self.spec.raw)
-            self.backend.install_requirements(plan.requirements)
+            with stage("Check platform prerequisites"):
+                self.backend.install_requirements(plan.requirements)
             self._check_intent(intent_token)
             if plan.runtime_install:
-                self.executor.run(
-                    [
-                        "mise",
-                        "--yes",
-                        "-C",
-                        str(self.binding.source),
-                        "install",
-                        *plan.runtime_versions,
-                    ],
-                    cwd=self.binding.source,
-                )
+                with stage(
+                    "Install declared runtimes: {versions}",
+                    versions=", ".join(plan.runtime_versions),
+                ):
+                    self.executor.run(
+                        [
+                            "mise",
+                            "--yes",
+                            "-C",
+                            str(self.binding.source),
+                            "install",
+                            *plan.runtime_versions,
+                        ],
+                        cwd=self.binding.source,
+                    )
             self._check_intent(intent_token)
-            self.backend.sync(self.spec)
+            with stage("Synchronize native workspace"):
+                self.backend.sync(self.spec)
             if revision != fingerprint(self.binding, spec=self.spec):
                 raise ProjectError(message("project declarations changed during prepare"))
             if plan.resolution_tasks:
-                revision = self._resolve_dependencies(plan, revision, intent_token)
-            for service in self.spec.services.values():
-                install_spring_artifact(self.executor, service)
+                with stage("Resolve dependency and lockfile changes"):
+                    revision = self._resolve_dependencies(plan, revision, intent_token)
+            with stage("Prepare service artifacts"):
+                for service in self.spec.services.values():
+                    install_spring_artifact(self.executor, service)
             selected = plan.tasks if structural else plan.pending_tasks
             if structural:
                 selected = self.spec.task_order(
@@ -397,7 +428,10 @@ class ProjectEngine:
                 )
             for name in selected:
                 self._check_intent(intent_token)
-                self.executor.task(clean_venv_task(self.spec.tasks[name], self.binding.workspace))
+                with stage("Run dependency/build task: {task}", task=name):
+                    self.executor.task(
+                        clean_venv_task(self.spec.tasks[name], self.binding.workspace)
+                    )
                 completed.append(name)
                 self.save(
                     recovery={
@@ -444,7 +478,7 @@ class ProjectEngine:
                         intent_token=intent.get("token"),
                     )
             self.save(recovery=None)
-        except (ProjectError, OSError) as exc:
+        except (ProjectError, OSError, KeyboardInterrupt) as exc:
             self.save(
                 recovery={
                     "operation": "prepare",
@@ -483,12 +517,35 @@ class ProjectEngine:
                 self.save(maintenance_error=error_detail(exc))
                 raise
 
+    def _prepare_for_start(self, plan, token):
+        if (
+            self.state().get("recovery")
+            or self.state().get("prepared_revision") != plan.revision
+            or plan.pending_tasks
+            or plan.runtime_install
+            or plan.configuration_update
+        ):
+            self._prepare_locked(plan, restore=False, intent_token=token)
+        else:
+            self._set_spec(plan.spec)
+
     def start(self, selected: tuple[str, ...] | None = None) -> None:
+        from ..progress import stage
+        from ..runtimes.platforms.layout import storage
+
+        update = read_json(
+            storage(self.binding.environment)[1] / ".controller-update/recovery.json"
+        )
+        if update.get("phase") in {"stopping", "stopped"}:
+            raise ProjectError(
+                message("Controller update is in progress; retry start after it finishes")
+            )
         self.backend.require_control()
         with operation_lock(self.binding.state, timeout=15):
             previous = self.intent()
-            plan = self.plan()
-            self._validate_plan(plan)
+            with stage("Analyze declarations and dependency changes"):
+                plan = self.plan()
+                self._validate_plan(plan)
             graph = {name: service.depends_on for name, service in plan.spec.services.items()}
             names = dependency_order(graph, selected)
             if not names:
@@ -509,23 +566,16 @@ class ProjectEngine:
             )
             intent = self.set_intent(running=True, selected=desired)
             token = intent["token"]
-            if (
-                self.state().get("recovery")
-                or self.state().get("prepared_revision") != plan.revision
-                or plan.pending_tasks
-                or plan.runtime_install
-                or plan.configuration_update
-            ):
-                self._prepare_locked(plan, restore=False, intent_token=token)
-            else:
-                self._set_spec(plan.spec)
+            with stage("Prepare project environment"):
+                self._prepare_for_start(plan, token)
             names = (
                 self.spec.service_order() if desired is None else dependency_order(graph, desired)
             )
             self._check_intent(token)
-            self.backend.sync(self.spec)
-            for name in names:
-                spring_classpath(self.binding, self.backend, self.spec.services[name])
+            with stage("Synchronize native workspace and service artifacts"):
+                self.backend.sync(self.spec)
+                for name in names:
+                    spring_classpath(self.binding, self.backend, self.spec.services[name])
             from .monitoring import git_snapshot
 
             self.save(git=git_snapshot(self.executor), last_project=self.spec.raw)

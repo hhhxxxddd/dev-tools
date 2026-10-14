@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 import urllib.request
@@ -65,6 +66,16 @@ def deployment_status(distro: str) -> dict:
 def deployment_notice(settings) -> str:
     status = deployment_status(settings.distro)
     if status["state"] == "installed":
+        if status.get("version") and status["version"] != __version__:
+            from .runtimes.diagnostics import version_notice
+
+            return version_notice("wsl", status["version"])
+        if not WINDOWS and shutil.which("pwsh.exe"):
+            from .runtimes.diagnostics import target_status, version_notice
+
+            windows = target_status("win", settings)
+            if windows.get("version") and windows["version"] != __version__:
+                return version_notice("win", windows["version"])
         return ""
     instruction = "dev-tools self update -e wsl"
     if not WINDOWS:
@@ -234,7 +245,7 @@ def download_release(destination: Path) -> Path:
     return root
 
 
-def _install_wsl(source: Path, distro: str) -> int:
+def _install_wsl(source: Path, distro: str, *, yes: bool = False) -> int:
     verify_source(source)
     if WINDOWS:
         command = [
@@ -248,16 +259,31 @@ def _install_wsl(source: Path, distro: str) -> int:
             "-Language",
             language(),
         ]
+        if yes:
+            command.append("-Yes")
     else:
         if os.geteuid() != 0:
             raise ValueError(message("controller deployment requires root; rerun with sudo"))
-        command = ["bash", str(source / "scripts/install.sh")]
+        command = [sys.executable, "-P", "-m", "dev_tools.controller_update", str(source)]
+        if yes:
+            command.append("--yes")
     environment = os.environ.copy()
     environment["DEV_TOOLS_TRANSPORT_LANGUAGE"] = language()
+    if not WINDOWS:
+        environment["PYTHONPATH"] = str(source / "src")
     return subprocess.run(command, check=False, env=environment).returncode
 
 
-def _refresh_checkout(source: Path) -> None:
+def clear_controller_bytecode(source: Path) -> None:
+    boundary = (source / "src/dev_tools").resolve()
+    if not boundary.is_relative_to(source.resolve()):
+        raise ValueError(message("Invalid controller installation target"))
+    for cache in boundary.rglob("__pycache__"):
+        if cache.is_dir() and not cache.is_symlink() and cache.resolve().is_relative_to(boundary):
+            shutil.rmtree(cache)
+
+
+def _refresh_checkout(source: Path, *, before_merge=None) -> None:
     """Fetch only the verified origin, and never merge into local work."""
     verify_source(source)
     prefix = ["git", "-c", f"safe.directory={source.resolve()}", "-C", str(source)]
@@ -287,7 +313,11 @@ def _refresh_checkout(source: Path) -> None:
             message("Source branch must track the verified origin before self upgrade")
         )
     git("fetch", "--no-tags", "origin", reference)
+    git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD")
+    if before_merge is not None:
+        before_merge()
     git("merge", "--ff-only", "FETCH_HEAD")
+    clear_controller_bytecode(source)
     verify_source(source)
 
 
@@ -318,23 +348,30 @@ def _require_stopped_windows() -> None:
 
 
 def _upgrade(args: argparse.Namespace) -> int:
+    from .controller_update import UpdateSession, update_with_recovery
+
     if args.env == "win" and not WINDOWS:
         raise ValueError(message("Windows controller upgrades must run on Windows"))
     if args.env == "wsl" and not WINDOWS and os.geteuid() != 0:
         raise ValueError(message("controller deployment requires root; rerun with sudo"))
-    if WINDOWS and args.env == "win":
-        _require_stopped_windows()
+    yes = getattr(args, "yes", False)
     if args.env == "win" and not args.source and _scoop_installation():
-        return subprocess.run(
-            [
-                "pwsh",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "$ErrorActionPreference='Stop'; & scoop update dev-tools; exit $LASTEXITCODE",
-            ],
-            check=False,
-        ).returncode
+        session = UpdateSession(yes=yes, scoop=True)
+        return update_with_recovery(
+            session,
+            lambda: (
+                subprocess.run(
+                    [
+                        "pwsh",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "$ErrorActionPreference='Stop'; & scoop update dev-tools; exit $LASTEXITCODE",
+                    ],
+                    check=False,
+                ).returncode
+            ),
+        )
     source = Path(args.source).expanduser().resolve() if args.source else REPOSITORY
     if not args.source and not (source / ".git").exists():
         binding = source / ".source"
@@ -346,30 +383,83 @@ def _upgrade(args: argparse.Namespace) -> int:
                 message("Source upgrade requires a verified Git checkout; use --source")
             )
         with tempfile.TemporaryDirectory(prefix="dev-tools-release-") as temporary:
-            return _install_wsl(download_release(Path(temporary)), args.settings.distro)
-    if WINDOWS and args.env == "wsl" and source.resolve() == REPOSITORY.resolve():
-        # Fetching the shared checkout also replaces code used by Windows workers.
-        _require_stopped_windows()
-    _refresh_checkout(source)
-    if args.env == "wsl":
-        return _install_wsl(source, args.settings.distro)
+            return _install_wsl(download_release(Path(temporary)), args.settings.distro, yes=yes)
     verify_source(source)
-    environment = os.environ.copy()
-    binding = REPOSITORY / ".host-python.win"
-    if binding.is_file():
-        environment["DEV_TOOLS_PYTHON"] = binding.read_text(encoding="utf-8").strip()
-    return subprocess.run(
-        ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(source / "scripts/install.ps1")],
-        check=False,
-        env=environment,
-    ).returncode
+
+    if not WINDOWS and re.match(r"^/mnt/[a-zA-Z]/", source.as_posix()):
+        # Windows coordinates both sides before changing a shared checkout.
+        from .runtimes.router import _windows_path, forward_remote
+
+        arguments = [
+            "-Distro",
+            args.settings.distro,
+            "upgrade",
+            "-e",
+            "wsl",
+            "--source",
+            _windows_path(source),
+        ]
+        if yes:
+            arguments.append("--yes")
+        return forward_remote("win", arguments, settings=args.settings, timeout=None)
+
+    session = None
+    if WINDOWS and (args.env == "win" or source.resolve() == REPOSITORY.resolve()):
+        session = UpdateSession(yes=yes, entry=REPOSITORY / "scripts/dev-tools.ps1")
+
+    def deploy():
+        _refresh_checkout(source, before_merge=session.stop if session is not None else None)
+        if args.env == "wsl":
+            return _install_wsl(source, args.settings.distro, yes=yes)
+        environment = os.environ.copy()
+        binding = REPOSITORY / ".host-python.win"
+        if binding.is_file():
+            environment["DEV_TOOLS_PYTHON"] = binding.read_text(encoding="utf-8").strip()
+        code = subprocess.run(
+            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(source / "scripts/install.ps1")],
+            check=False,
+            env=environment,
+        ).returncode
+        if code == 0 and session is not None:
+            session.entry = source / "scripts/dev-tools.ps1"
+        return code
+
+    if session is not None:
+        return update_with_recovery(session, deploy, stop=False)
+    return deploy()
 
 
 def run(args: argparse.Namespace) -> int:
     if args.json and args.self_action != "status":
         raise ValueError(message("self --json requires status"))
-    if args.source and args.self_action == "status":
+    if args.source and args.self_action in {"status", "recover"}:
         raise ValueError(message("self --source requires update or upgrade"))
+    if args.self_action == "recover":
+        from .controller_update import recover_controller, recovery_path
+        from .runtimes.platforms.locking import operation_lock
+
+        if args.env == "wsl" and WINDOWS:
+            return subprocess.run(
+                [
+                    "pwsh",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    str(REPOSITORY / "scripts/install-wsl.ps1"),
+                    "-Distro",
+                    args.settings.distro,
+                    "-Language",
+                    language(),
+                    "-Recover",
+                ],
+                check=False,
+            ).returncode
+        if args.env == "win" and not WINDOWS:
+            raise ValueError(message("Windows controller upgrades must run on Windows"))
+        if not WINDOWS and os.geteuid() != 0:
+            raise ValueError(message("controller deployment requires root; rerun with sudo"))
+        with operation_lock(recovery_path().parent, timeout=15):
+            return recover_controller()
     if args.self_action == "status":
         value = {"controller_version": __version__, "wsl": deployment_status(args.settings.distro)}
         if args.json:
@@ -393,12 +483,20 @@ def run(args: argparse.Namespace) -> int:
     if not WINDOWS and os.geteuid() != 0:
         raise ValueError(message("controller deployment requires root; rerun with sudo"))
     if args.source:
-        return _install_wsl(Path(args.source).expanduser().resolve(), args.settings.distro)
+        return _install_wsl(
+            Path(args.source).expanduser().resolve(),
+            args.settings.distro,
+            yes=getattr(args, "yes", False),
+        )
     if WINDOWS or (REPOSITORY / ".git").exists():
-        return _install_wsl(REPOSITORY, args.settings.distro)
+        return _install_wsl(REPOSITORY, args.settings.distro, yes=getattr(args, "yes", False))
     binding = REPOSITORY / ".source"
     if binding.is_file():
-        return _install_wsl(Path(binding.read_text(encoding="utf-8").strip()), args.settings.distro)
+        return _install_wsl(
+            Path(binding.read_text(encoding="utf-8").strip()),
+            args.settings.distro,
+            yes=getattr(args, "yes", False),
+        )
     raise ValueError(
         message("Redeployment source is unavailable; use self update --source or self upgrade")
     )
@@ -413,6 +511,9 @@ def add_commands(catalog) -> None:
     )
     add_environment(upgrade)
     upgrade.add_argument("--source", metavar=t("目录"), help=t("用于升级的可信 Git 仓库目录"))
+    upgrade.add_argument(
+        "-y", "--yes", action="store_true", help=t("确认停止受影响项目，更新后恢复运行")
+    )
     upgrade.set_defaults(func=run, self_action="upgrade", json=False)
     command = catalog.add_parser(
         "self",
@@ -423,9 +524,11 @@ def add_commands(catalog) -> None:
     add_environment(command)
     command.add_argument(
         "self_action",
-        choices=("update", "upgrade", "status"),
+        choices=("update", "upgrade", "status", "recover"),
         metavar=t("操作"),
-        help=t("upgrade 获取新版并部署；update 部署当前代码到 WSL；status 查看部署状态"),
+        help=t(
+            "upgrade 获取新版并部署；update 部署当前代码到 WSL；status 查看部署状态；recover 重试恢复运行"
+        ),
     )
     command.add_argument(
         "--source",
@@ -434,5 +537,8 @@ def add_commands(catalog) -> None:
     )
     command.add_argument(
         "--json", action="store_true", help=t("以 JSON 输出部署状态，仅用于 status")
+    )
+    command.add_argument(
+        "-y", "--yes", action="store_true", help=t("确认停止受影响项目，更新后恢复运行")
     )
     command.set_defaults(func=run)

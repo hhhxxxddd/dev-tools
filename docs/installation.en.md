@@ -16,7 +16,7 @@ scoop uninstall dev-tools
 
 The manifest installs `main/git`, `main/pwsh`, `main/mise` and the Python 3.14.8 controller host, and creates a `dev-tools` shim. No Git clone or profile function is required. The marked dev-tools blocks from older installers are removed; open a new terminal to discard an already loaded function.
 
-Stop active Windows projects before updating or uninstalling, for example `dev-tools -e win stop my-app`. Hooks verify PID and start time and reject removal of files used by active workers. Preferences, registrations, state, caches and project runtimes remain. Scoop operations do not update or uninstall WSL.
+`dev-tools upgrade` lists active Windows projects and accepts `Y` (or `--yes`) to stop, update and restore their previously active services. Direct Scoop updates and uninstall still require stopping projects first, for example `dev-tools -e win stop my-app`. Hooks verify PID and start time and reject removal of files used by active workers. Preferences, registrations, state, caches and project runtimes remain. Scoop operations do not update or uninstall WSL.
 
 ## Deploy and update WSL
 
@@ -27,11 +27,12 @@ dev-tools self update -e wsl
 dev-tools self status --json
 ```
 
-`self update` handles both first installation and updates and can be repeated. They deploy the same local package version into `[wsl].distro`, without entering Linux to clone a repository. Stop projects in that distro first, for example `dev-tools -e wsl stop my-app`, then `start` as needed after deployment. The installer rejects overwriting files used by active workers, preserves registrations, preferences, state, caches and project runtimes, and never prepares or starts projects automatically.
+`self update` handles both first installation and updates and can be repeated. They deploy the same local package version into `[wsl].distro`, without entering Linux to clone a repository. When projects are active, enter `Y` to record and stop services and monitors, deploy, and restore only what was previously running through the new entrypoint. Previously stopped projects stay stopped. Use `--yes` for unattended operation. The installer still rejects active workers and preserves registrations, preferences, state, caches and project runtimes. First installation does not register or start projects.
 
 The distro must already exist with systemd enabled. Debian/Ubuntu use extrepo/APT for missing rsync, or for missing mise when a first deployment has no external Python binding; install them yourself on other distributions. The program lives in `/opt/dev-tools`, with its entrypoint in `/usr/local/bin/dev-tools`. A first installation without an external interpreter prepares Python in `/opt/dev-tools/host-mise`; subsequent deployments preserve the `.host-python` binding. Windows executable directories and caches are not shared.
 
-`dev-tools`, `dev-tools help` and top-level `--help` share the overview. A read-only file probe with a five-second timeout checks WSL source, entrypoint and host. Missing or incomplete deployment shows deployment instructions; unavailable WSL, invalid distro or timeout shows a distro diagnostic. Help never installs, upgrades or executes the WSL controller. Individual command help skips the probe.
+`dev-tools`, `help` and command help report missing deployments or differing versions. Explicit `-e wsl` / `-e win` help and `-v` query the actual target. These queries never install, update or start projects. Unsupported cross-platform commands or execution contracts are blocked before execution; stopping and controller updates remain available.
+Each side maintains its own installation. After updating Windows, run `dev-tools self update -e wsl` from Windows to deploy the current code to WSL; redeployment also works when versions match. `list` queries both sides by default. An unavailable side produces a yellow notice while retaining the other side's results, and does not imply that an update is required. `dev-tools list -e wsl` queries WSL alone.
 
 Native WSL can fetch a new version or redeploy its recorded source:
 
@@ -44,7 +45,7 @@ sudo dev-tools self update -e wsl --source /path/to/dev-tools
 
 ### Upgrade the controller directly
 
-`dev-tools -v` / `--version` only print the controller version. `dev-tools upgrade` fetches and deploys new code on the current platform; `-e wsl` selects WSL. `dev-tools self upgrade` is another entrypoint for the same operation and accepts the same `-e` and `--source` options. Scoop installations on Windows use Scoop. Source installations verify Git origin, reject local changes, detached branches, tracking outside origin and divergent histories, and only fast-forward. Stop Windows projects before Windows source updates and WSL projects before WSL deployment. A WSL upgrade that refreshes the same checkout used by the Windows controller also requires stopping Windows projects first.
+`dev-tools -v` / `--version` only print the controller version. `dev-tools upgrade` fetches and deploys new code on the current platform; `-e wsl` selects WSL. `dev-tools self upgrade` is another entrypoint for the same operation and accepts the same `-e` and `--source` options. Scoop installations on Windows use Scoop. Source installations verify Git origin, reject local changes, detached branches, tracking outside origin and divergent histories, and only fast-forward. Confirm with `Y` or `--yes` to stop and restore active projects. Updating shared Windows controller source also handles Windows projects using that source. Failed WSL deployment restores a controller backup. Failed restoration keeps a native recovery record; retry with `dev-tools self recover -e wsl` (use `sudo` in native WSL) or `dev-tools self recover -e win`. Projects explicitly stopped by the user during the update are skipped during restoration.
 
 Native WSL `upgrade` prefers the checkout recorded in `.source`; if no Git checkout is available, it downloads the latest stable Release and verifies SHA256SUMS and the per-file package inventory before deployment. Explicit `--source` for upgrades requires a verified Git checkout. Source installations can run `dev-tools upgrade -e win` without manually pulling first, or select a source with `dev-tools upgrade --source <checkout>`. `self update` redeploys current code without fetching source or downloading a Release; supply `--source` if the recorded source is unavailable.
 
@@ -82,7 +83,7 @@ Versions in the controller, pyproject and tag must agree. Build and verify a loc
 $env:PYTHONPATH = "$PWD\src"
 python -m dev_tools.validation
 python -m dev_tools.release --output dist
-python -m dev_tools.package_smoke dist/dev-tools-0.5.1.zip
+python -m dev_tools.package_smoke dist/dev-tools-0.5.2.zip
 ```
 
 Outputs are `dev-tools-<version>.zip`, `SHA256SUMS` and `dev-tools.json`. The complete ZIP contains both entrypoints, configuration, examples and documentation; machine bindings, caches and local overrides are excluded. File hashes, version and source commit/dirty provenance are recorded in `.release.json`. SHA256 detects changed bytes; authenticity depends on obtaining the archive and checksums from the official GitHub release or Scoop channel.

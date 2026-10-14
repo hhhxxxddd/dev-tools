@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string] $Distro = 'Ubuntu', [ValidateSet('zh', 'en')][string] $Language, [ValidateNotNullOrEmpty()][string] $Python)
+param([string] $Distro = 'Ubuntu', [ValidateSet('zh', 'en')][string] $Language, [ValidateNotNullOrEmpty()][string] $Python, [switch] $Yes, [switch] $Recover)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -16,13 +16,24 @@ function Invoke-Native {
 
 function Invoke-WslRootShell([string] $Script) {
     # Carry shell source as base64, rather than interpolating paths or distro names.
-    $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script.Replace("`r`n", "`n")))
+    $scopedScript = ('unset DEV_TOOLS_CONFIG; export SUDO_USER=$(printf %s {0} | base64 -d)' -f $script:invokingUserPayload) + "`n" + $Script
+    $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($scopedScript.Replace("`r`n", "`n")))
     Invoke-Native -FilePath wsl.exe -Arguments @('-d', $Distro, '-u', 'root', '--', 'bash', '-c', "bash -e <(printf '%s' '$payload' | base64 -d)")
 }
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { throw (Get-DevToolsMessage 'WSL is unavailable. Install WSL first.' $Language) }
 $distros = @(& wsl.exe --list --quiet) | ForEach-Object { ("$_" -replace "`0", '').Trim() }
 if ($LASTEXITCODE -ne 0 -or $Distro -notin $distros) { throw (Get-DevToolsMessage 'WSL distro not found: {distro}' $Language @{distro=$Distro}) }
+$invokingUser = (& wsl.exe -d $Distro -- id -un | Select-Object -First 1)
+if ($LASTEXITCODE -ne 0 -or -not $invokingUser) { throw (Get-DevToolsMessage 'WSL is unavailable. Install WSL first.' $Language) }
+$script:invokingUserPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(([string]$invokingUser).Trim()))
+if ($Recover) {
+    $recoverySource = & wsl.exe -d $Distro -- wslpath -a ($repoRoot -replace '\\', '/')
+    if ($LASTEXITCODE -ne 0 -or -not $recoverySource) { throw (Get-DevToolsMessage 'Cannot map controller source into WSL: {path}' $Language @{path=$repoRoot}) }
+    $recoveryPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($recoverySource | Select-Object -First 1)))
+    Invoke-WslRootShell ('source_root=$(printf %s {0} | base64 -d); install_root=${{DEV_TOOLS_INSTALL_ROOT:-/opt/dev-tools}}; host=$(cat "$install_root/.host-python"); PYTHONPATH="$source_root/src" DEV_TOOLS_TRANSPORT_LANGUAGE={1} "$host" -P -m dev_tools.cli self recover -e wsl' -f $recoveryPayload, $Language)
+    return
+}
 
 # Only an explicit target-WSL path crosses the platform boundary.
 $pythonSetup = 'unset DEV_TOOLS_PYTHON' + "`n"
@@ -60,6 +71,15 @@ $mapped = & wsl.exe -d $Distro -- wslpath -a ($repoRoot -replace '\\', '/')
 if ($LASTEXITCODE -ne 0 -or -not $mapped) { throw (Get-DevToolsMessage 'Cannot map controller source into WSL: {path}' $Language @{path=$repoRoot}) }
 $installer = "$($mapped | Select-Object -First 1)/scripts/install.sh"
 $installerPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($installer))
-Invoke-WslRootShell ($pythonSetup + ('installer=$(printf %s {0} | base64 -d); DEV_TOOLS_TRANSPORT_LANGUAGE={1} bash "$installer"' -f $installerPayload, $Language))
+$yesArgument = if ($Yes) { '--yes' } else { '' }
+Invoke-WslRootShell ($pythonSetup + ('installer=$(printf %s {0} | base64 -d)
+source_root=$(dirname "$(dirname "$installer")")
+install_root=${{DEV_TOOLS_INSTALL_ROOT:-/opt/dev-tools}}
+host=$(cat "$install_root/.host-python" 2>/dev/null || true)
+if [[ -x "$host" ]]; then
+  PYTHONPATH="$source_root/src" DEV_TOOLS_TRANSPORT_LANGUAGE={1} "$host" -P -m dev_tools.controller_update "$source_root" {2}
+else
+  DEV_TOOLS_TRANSPORT_LANGUAGE={1} bash "$installer"
+fi' -f $installerPayload, $Language, $yesArgument))
 $windowsSourcePayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($repoRoot))
-Invoke-WslRootShell ('target=/opt/dev-tools/.windows-source; test ! -L "$target"; printf %s {0} | base64 -d > "$target"; chmod 0644 "$target"' -f $windowsSourcePayload)
+Invoke-WslRootShell ('target=${{DEV_TOOLS_INSTALL_ROOT:-/opt/dev-tools}}/.windows-source; test ! -L "$target"; printf %s {0} | base64 -d > "$target"; chmod 0644 "$target"' -f $windowsSourcePayload)

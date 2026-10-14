@@ -277,6 +277,7 @@ class CliTests(unittest.TestCase):
             )
             with (
                 patch("dev_tools.projects.cli.Registry.names", return_value=names),
+                patch("dev_tools.projects.cli.project_columns", return_value={}),
                 patch("dev_tools.projects.cli.engine_for", side_effect=engines),
                 contextlib.redirect_stdout(output),
             ):
@@ -304,6 +305,7 @@ class CliTests(unittest.TestCase):
                     environment_column = header.index("Environment")
                 for row, case in zip(lines[3:], cases):
                     self.assertEqual(row.index(environment_label), environment_column)
+                    self.assertIn(case[-2] if language == "zh" else case[-1], row)
                     self.assertTrue(row.endswith(case[-2] if language == "zh" else case[-1]), row)
                 self.assertIn("broken", lines[3 + len(cases)])
                 self.assertIn(

@@ -14,6 +14,71 @@ from dev_tools import __version__
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "Windows PowerShell required")
 class WindowsEntrypointTests(unittest.TestCase):
+    def test_chinese_list_survives_cp936_capture_and_nested_scoop_shim(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = Path(__file__).resolve().parents[1]
+            deployment = root / "deployment"
+            scripts = deployment / "scripts"
+            scripts.mkdir(parents=True)
+            for name in ("dev-tools.ps1", "dev-tools-messages.ps1", "scoop-entry.ps1"):
+                shutil.copyfile(repository / "scripts" / name, scripts / name)
+            shutil.copytree(repository / "src/dev_tools", deployment / "src/dev_tools")
+            (deployment / ".host-python.win").write_text(
+                str(Path(sys.executable).resolve()), encoding="utf-8"
+            )
+            config = root / "config.toml"
+            config.write_text('language="zh"\n', encoding="utf-8")
+            registry = root / "registry"
+            registry.mkdir()
+            (registry / "broken.json").write_text("{}", encoding="utf-8")
+            check = root / "capture.ps1"
+            check.write_text(
+                """param($Entrypoint, $Config, $Registry)
+$env:DEV_TOOLS_CONFIG = $Config
+$env:DEV_TOOLS_REGISTRY_ROOT = $Registry
+$env:DEV_TOOLS_TERMINAL = '0'
+$env:WSL_UTF8 = 'fixture-previous'
+[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(936)
+$OutputEncoding = [Text.Encoding]::ASCII
+$text = (& $Entrypoint list -e win | Out-String)
+$restored = [Console]::OutputEncoding.CodePage
+$pipeRestored = $OutputEncoding.CodePage
+$wslRestored = $env:WSL_UTF8
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+@{text=$text; restored=$restored; pipeRestored=$pipeRestored; wslRestored=$wslRestored} | ConvertTo-Json -Compress
+""",
+                encoding="utf-8",
+            )
+            for entry in ("dev-tools.ps1", "scoop-entry.ps1"):
+                with self.subTest(entry=entry):
+                    result = subprocess.run(
+                        [
+                            "pwsh",
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-File",
+                            str(check),
+                            str(scripts / entry),
+                            str(config),
+                            str(registry),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        check=False,
+                        timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    payload = json.loads(result.stdout)
+                    self.assertEqual(payload["restored"], 936)
+                    self.assertEqual(payload["pipeRestored"], 20127)
+                    self.assertEqual(payload["wslRestored"], "fixture-previous")
+                    self.assertIn("项目列表", payload["text"])
+                    self.assertIn("检查失败", payload["text"])
+                    self.assertTrue(payload["text"].splitlines()[1].endswith("状态"))
+                    self.assertNotIn("\ufffd", payload["text"])
+
     def test_bound_python_runs_without_mise_and_install_override_is_ignored(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -32,7 +97,7 @@ class WindowsEntrypointTests(unittest.TestCase):
             config.write_text('language = "en"\n', encoding="utf-8")
             check = root / "check.ps1"
             check.write_text(
-                """param($Entrypoint, $Config, $FallbackPythonRoot)
+                """param($Entrypoint, $Config, $FallbackPythonRoot, $NativePython)
 $ErrorActionPreference = 'Stop'
 $env:DEV_TOOLS_CONFIG = $Config
 $env:DEV_TOOLS_PYTHON = 'missing-install-override.exe'
@@ -40,8 +105,13 @@ function mise {
   if (-not $FallbackPythonRoot) { throw 'Bound startup must not invoke mise' }
   if ($args -notcontains 'where') { throw 'Startup may only query mise' }
   $global:LASTEXITCODE = 0
+  if ($NativePython) {
+    & $NativePython -c "import sys; sys.stdout.buffer.write(sys.argv[1].encode('utf-8'))" $FallbackPythonRoot
+    return
+  }
   $FallbackPythonRoot
 }
+if ($NativePython) { [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(936) }
 & $Entrypoint --version
 """,
                 encoding="utf-8",
@@ -88,6 +158,42 @@ function mise {
             )
             self.assertEqual(fallback.returncode, 0, fallback.stderr)
             self.assertEqual(fallback.stdout.strip(), "dev-tools " + __version__)
+            native_root = root / "宿主 Python"
+            link_script = root / "link.ps1"
+            link_script.write_text(
+                "param($Link, $Target)\nNew-Item -ItemType Junction -Path $Link -Value $Target | Out-Null\n",
+                encoding="utf-8",
+            )
+            junction = subprocess.run(
+                [
+                    "pwsh",
+                    "-NoProfile",
+                    "-File",
+                    str(link_script),
+                    str(native_root),
+                    sys.prefix,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(junction.returncode, 0, junction.stderr)
+            unicode_fallback = subprocess.run(
+                [*command, str(native_root), sys.executable],
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(
+                unicode_fallback.returncode,
+                0,
+                unicode_fallback.stderr.decode("cp936", errors="replace"),
+            )
+            self.assertEqual(
+                unicode_fallback.stdout.decode("utf-8").strip(), "dev-tools " + __version__
+            )
             self.assertEqual(wsl_binding.read_text(), "/opt/shared/python/bin/python3\n")
 
     def test_native_flags_and_scan_cannot_import_project_python_code(self):

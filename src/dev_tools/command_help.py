@@ -8,6 +8,7 @@ import re
 import sys
 
 from .i18n import t
+from .presentation import error, warning
 
 
 class LocalizedHelpFormatter(argparse.RawDescriptionHelpFormatter):
@@ -35,7 +36,8 @@ class LocalizedArgumentParser(argparse.ArgumentParser):
         if self.deployment_notice:
             notice = self.deployment_notice()
             if notice:
-                self._print_message("\n" + notice + "\n", file or sys.stdout)
+                stream = file or sys.stdout
+                self._print_message("\n" + warning(notice, stream=stream) + "\n", stream)
 
     def error(self, message):
         from .cli_errors import emit_error, json_requested
@@ -72,7 +74,14 @@ class LocalizedArgumentParser(argparse.ArgumentParser):
             return t(value)
 
         self.print_usage(sys.stderr)
-        self.exit(2, t("{prog}：错误：{detail}\n", prog=self.prog, detail=localize(message)))
+        self.exit(
+            2,
+            error(
+                t("{prog}：错误：{detail}", prog=self.prog, detail=localize(message)),
+                stream=sys.stderr,
+            )
+            + "\n",
+        )
 
 
 def add_config(parser: argparse.ArgumentParser, *, root: bool = False) -> None:
@@ -118,6 +127,7 @@ class CommandCatalog:
         helper = self.add_parser(
             "help", help=t("查看全部命令或某个命令的参数"), group=t("辅助命令"), project=False
         )
+        add_environment(helper)
         helper.add_argument(
             "topic",
             nargs="?",
@@ -142,5 +152,7 @@ class CommandCatalog:
         self.root.epilog = "\n".join(lines)
 
     def show_help(self, args: argparse.Namespace) -> int:
-        (self.parsers[args.topic] if args.topic else self.root).print_help()
+        target = self.parsers[args.topic] if args.topic else self.root
+        target.deployment_notice = self.root.deployment_notice
+        target.print_help()
         return 0

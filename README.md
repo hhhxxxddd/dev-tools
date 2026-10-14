@@ -2,9 +2,10 @@
 
 **简体中文** · [English](README.en.md)
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.1](https://img.shields.io/badge/Version-0.5.1-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.2](https://img.shields.io/badge/Version-0.5.2-blue)](CHANGELOG.md)
 
-为 Windows 和 WSL 开发项目提供热部署与热更新：识别依赖、准备环境、启动服务，并跟进代码和依赖变化。
+为 Windows 和 WSL 项目提供近乎无感的开发部署体验：自动发现依赖、准备环境、启动服务，持续跟进代码和依赖声明的变化。
+依赖新增、删除或升级后，按项目配置自动同步并继续开发，适合频繁调整项目的 Vibe Coding。
 支持 Node.js、Python / uv、Maven / Spring Boot 和已有 Docker Compose 项目。
 
 ## 环境要求
@@ -76,7 +77,7 @@ dev-tools start
 
 | 命令 | 用途 |
 | --- | --- |
-| `dev-tools list --all` | 查看 Windows 与 WSL 项目 |
+| `dev-tools list` | 查看 Windows 与 WSL 项目 |
 | `dev-tools check my-app` | 只读检查准备计划 |
 | `dev-tools status my-app` | 查看项目状态 |
 | `dev-tools logs my-app web --follow` | 跟踪服务日志 |
@@ -87,8 +88,10 @@ dev-tools start
 | `dev-tools -v` / `dev-tools help` | 查看版本或帮助 |
 
 在唯一匹配项目的目录中可省略项目名；替换示例中的项目和服务名。
-`list` 查看当前平台，`list --all` 查看 Windows 和 WSL。
-更新工具前先停止相关平台的项目，更新 WSL 使用 `dev-tools upgrade -e wsl`。
+`list` 默认汇总 Windows 和 WSL；加 `-e win` 或 `-e wsl` 只查看一端，按名称、环境、端口、类型、状态显示。
+终端中错误为红色、提示为黄色；运行中为绿色，待恢复为黄色，已停止为灰色。`start` 显示阶段和耗时，长任务每 5 秒更新提示。
+`start --all` 启动当前端或指定端的全部项目，跳过已有活动 worker 的项目。
+更新工具时提示停止受影响的运行项目，输入 `Y` 后更新并恢复；脚本可加 `--yes`。`dev-tools upgrade -e wsl` 升级 WSL。
 默认中文，在 `config` 中设置 `language = "en"` 切换英文。
 
 ## 文档

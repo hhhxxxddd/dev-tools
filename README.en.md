@@ -2,9 +2,10 @@
 
 [简体中文](README.md) · **English**
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.1](https://img.shields.io/badge/Version-0.5.1-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.2](https://img.shields.io/badge/Version-0.5.2-blue)](CHANGELOG.md)
 
-Hot deployment and updates for Windows and WSL development projects: discover dependencies, prepare environments, start services, and follow code and dependency changes.
+A nearly seamless development deployment experience for Windows and WSL: discover dependencies, prepare environments, start services, and follow code and dependency declarations.
+Add, remove, or upgrade dependencies and keep developing as project configuration synchronizes them automatically. A good fit for fast-moving Vibe Coding projects.
 Supports Node.js, Python / uv, Maven / Spring Boot, and existing Docker Compose projects.
 
 ## Requirements
@@ -76,7 +77,7 @@ Omit `-e` for the current platform; add `-e wsl` to manage WSL projects from Win
 
 | Command | Purpose |
 | --- | --- |
-| `dev-tools list --all` | List Windows and WSL projects |
+| `dev-tools list` | List Windows and WSL projects |
 | `dev-tools check my-app` | Inspect the preparation plan read-only |
 | `dev-tools status my-app` | Inspect project status |
 | `dev-tools logs my-app web --follow` | Follow service logs |
@@ -87,8 +88,10 @@ Omit `-e` for the current platform; add `-e wsl` to manage WSL projects from Win
 | `dev-tools -v` / `dev-tools help` | Show the version or help |
 
 Omit the project name in a directory that uniquely matches it; replace the sample project and service names.
-`list` shows the current platform; `list --all` shows Windows and WSL.
-Stop projects on the affected platforms before updating the tool; use `dev-tools upgrade -e wsl` to update WSL.
+`list` defaults to Windows and WSL; add `-e win` or `-e wsl` to query one side. Columns are name, environment, ports, type and state.
+Terminal errors are red and notices yellow; running is green, recovery pending yellow and stopped gray. `start` shows stages and elapsed time, with updates every 5 seconds during long operations.
+`start --all` starts projects on the current or selected side, skipping projects with active workers.
+Updates prompt to stop affected running projects and restore them afterward. Enter `Y`, or use `--yes`; `dev-tools upgrade -e wsl` updates WSL.
 Chinese is the default; set `language = "en"` through `config` for English.
 
 ## Documentation

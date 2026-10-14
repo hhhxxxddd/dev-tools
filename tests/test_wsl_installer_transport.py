@@ -27,6 +27,7 @@ $global:fixtureWslScripts = [Collections.Generic.List[string]]::new()
 function global:wsl.exe {
     $global:LASTEXITCODE = 0
     if ($args[0] -eq '--list') { return 'Fixture-Distro' }
+    if ($args -contains 'id') { return 'fixture-user' }
     if ($args -contains 'wslpath') { return '/fixture/controller source' }
     $carrier = [string]$args[-1]
     if ($carrier -notmatch "printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d") {
@@ -62,7 +63,9 @@ if ($PythonPath) { $options.Python = $PythonPath }
         scripts = self.capture_installation()
         self.assertEqual(len(scripts), 3)
         for script in scripts[:2]:
-            self.assertTrue(script.startswith("unset DEV_TOOLS_PYTHON\n"))
+            self.assertIn("unset DEV_TOOLS_PYTHON\n", script)
+            self.assertIn("unset DEV_TOOLS_CONFIG", script)
+            self.assertIn("export SUDO_USER=", script)
             self.assertNotIn("caller-windows-python.exe", script)
 
     def test_explicit_wsl_python_is_transported_as_data(self):

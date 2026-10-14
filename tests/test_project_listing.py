@@ -9,6 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from dev_tools import __version__
 from dev_tools.cli import main, parser
 from dev_tools.i18n import language_scope
 from dev_tools.projects.cli import list_projects, run
@@ -25,6 +26,14 @@ def project(environment):
 
 
 class ProjectListingTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(
+            patch(
+                "dev_tools.runtimes.diagnostics.target_status",
+                return_value={"state": "installed", "version": __version__},
+            )
+        )
+
     def invoke(self, arguments):
         output, errors = io.StringIO(), io.StringIO()
         with (

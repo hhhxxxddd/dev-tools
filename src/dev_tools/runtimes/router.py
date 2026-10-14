@@ -9,9 +9,29 @@ import subprocess
 from pathlib import Path
 
 from ..i18n import language, message
+from ..presentation import color_enabled
 from ..settings import Settings, load_settings
 
 REPOSITORY = Path(__file__).resolve().parents[3]
+
+
+def _run_transport(command, environment, **options):
+    try:
+        return subprocess.run(command, check=False, **options)
+    except subprocess.TimeoutExpired:
+        # Preserve timeout classification and duration at the presentation boundary.
+        raise
+    except OSError, subprocess.SubprocessError:
+        from ..cli_errors import TargetError
+
+        raise TargetError(
+            "target_unavailable",
+            message(
+                "Target {environment} could not be reached; check deployment, connection and target diagnostics",
+                environment=environment,
+            ),
+            environment=environment,
+        ) from None
 
 
 def split_environment(arguments: list[str]) -> tuple[str, list[str]]:
@@ -78,7 +98,12 @@ def _windows_entry(arguments: list[str]) -> list[str]:
         entry = root.rstrip("/\\") + "/scripts/dev-tools.ps1"
     else:
         entry = _windows_path(REPOSITORY / "scripts/dev-tools.ps1")
-    if not entry.startswith("\\\\"):
+    scoop_source = re.search(
+        r"[\\/]apps[\\/]dev-tools[\\/](?:current|[0-9]+\.[0-9]+\.[0-9]+)[\\/]scripts[\\/]dev-tools\.ps1$",
+        entry,
+        re.IGNORECASE,
+    )
+    if not entry.startswith("\\\\") and not scoop_source:
         return ["-File", entry, "-e", "win", *arguments]
 
     def quote(value: str) -> str:
@@ -106,8 +131,6 @@ def forward_remote(
     capture: bool = False,
     timeout: float | None = 30,
 ) -> int | subprocess.CompletedProcess[str] | None:
-    if any(token in {"--help", "-h"} for token in arguments):
-        return None
     native = "win" if os.name == "nt" else "wsl"
     if environment == native:
         return None
@@ -125,8 +148,16 @@ def forward_remote(
     )
     if environment == "wsl":
         if shutil.which("wsl.exe") is None:
-            raise ValueError(message("WSL is unavailable"))
-        result = subprocess.run(
+            from ..cli_errors import TargetError
+
+            raise TargetError(
+                "target_unavailable", message("WSL is unavailable"), environment="wsl"
+            )
+        transport_environment = os.environ.copy()
+        transport_environment["DEV_TOOLS_TERMINAL"] = (
+            "1" if not capture and color_enabled() else "0"
+        )
+        result = _run_transport(
             [
                 "pwsh",
                 "-NoProfile",
@@ -139,12 +170,19 @@ def forward_remote(
                 language(),
                 *arguments,
             ],
-            check=False,
+            environment,
+            env=transport_environment,
             **options,
         )
         return result if capture else result.returncode
     if shutil.which("pwsh.exe") is None:
-        raise ValueError(message("Windows control requires PowerShell 7 and WSL interop"))
+        from ..cli_errors import TargetError
+
+        raise TargetError(
+            "target_unavailable",
+            message("Windows control requires PowerShell 7 and WSL interop"),
+            environment="win",
+        )
     forwarded = list(arguments)
     if (
         forwarded
@@ -159,8 +197,9 @@ def forward_remote(
     environment_variables = os.environ.copy()
     environment_variables["DEV_TOOLS_CONFIG"] = ""
     environment_variables["DEV_TOOLS_TRANSPORT_LANGUAGE"] = language()
+    environment_variables["DEV_TOOLS_TERMINAL"] = "1" if not capture and color_enabled() else "0"
     # WSL interop only transfers explicitly listed variables to Windows.
-    transported = {"DEV_TOOLS_CONFIG", "DEV_TOOLS_TRANSPORT_LANGUAGE"}
+    transported = {"DEV_TOOLS_CONFIG", "DEV_TOOLS_TRANSPORT_LANGUAGE", "DEV_TOOLS_TERMINAL"}
     wslenv = [
         entry
         for entry in environment_variables.get("WSLENV", "").split(":")
@@ -169,7 +208,7 @@ def forward_remote(
     environment_variables["WSLENV"] = ":".join(
         [*wslenv, *(name + "/w" for name in sorted(transported))]
     )
-    result = subprocess.run(
+    result = _run_transport(
         [
             "pwsh.exe",
             "-NoProfile",
@@ -178,12 +217,12 @@ def forward_remote(
             _windows_path(Path.cwd()),
             *_windows_entry(forwarded),
         ],
+        environment,
         env=environment_variables,
         # The interop server may outlive this process. Its Linux cwd must not
         # hold a Windows project directory open; -WorkingDirectory preserves
         # the caller's directory in the actual Windows command.
         cwd=REPOSITORY,
-        check=False,
         **options,
     )
     return result if capture else result.returncode

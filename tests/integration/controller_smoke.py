@@ -49,6 +49,7 @@ def main() -> None:
         # adapters record/check installer calls rather than changing real services.
         wsl(f"""set -eu
 mkdir -p {native}/fake {native}/config/projects.d {native}/state
+chmod 0755 {native}
 cat > {native}/fake/mise <<'EOF'
 #!/bin/sh
 test "$1" = --no-config || exit 1
@@ -65,7 +66,12 @@ case "$1" in daemon-reload|list-units) exit 0 ;; *) exit 1 ;; esac
 EOF
 chmod 0755 {native}/fake/*
 printf 'export PATH={native}/fake:$PATH\n' > {native}/shell-env
-printf keep-registration > {native}/config/projects.d/existing.json
+mkdir -p {native}/source
+printf 'schema=1\nname="existing"\ntoolchain="system"\n' > {native}/source/dev-tools.toml
+cat > {native}/config/projects.d/existing.json <<'EOF'
+{{"schema_version":3,"name":"existing","environment":"wsl","source":"{native}/source","workspace":"{native}/cache/existing-id","cache_root":"{native}/cache","state":"{native}/state/existing-id","run_user":"root"}}
+EOF
+cp {native}/config/projects.d/existing.json {native}/registration.expected
 printf keep-state > {native}/state/existing
 """)
         with tempfile.TemporaryDirectory(prefix="dev-tools-controller-") as temporary:
@@ -80,6 +86,7 @@ printf keep-state > {native}/state/existing
                 "DEV_TOOLS_COMMAND_ROOT": native + "/bin",
                 "DEV_TOOLS_UNIT_DIR": native + "/units",
                 "DEV_TOOLS_CONFIG_ROOT": native + "/config",
+                "DEV_TOOLS_REGISTRY_ROOT": native + "/config/projects.d",
                 "DEV_TOOLS_STATE_ROOT": native + "/state",
                 "BASH_ENV": native + "/shell-env",
             }
@@ -118,7 +125,7 @@ printf keep-state > {native}/state/existing
                 if result.returncode:
                     raise RuntimeError(result.stdout + result.stderr)
             result = wsl(f"""set -eu
-test "$(cat {native}/config/projects.d/existing.json)" = keep-registration
+cmp {native}/config/projects.d/existing.json {native}/registration.expected
 test "$(cat {native}/state/existing)" = keep-state
 test -f {native}/deployment/docs/installation.md
 test -f {native}/deployment/docs/installation.en.md

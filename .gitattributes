@@ -3,3 +3,4 @@
 *.py text eol=lf
 *.service text eol=lf
 scripts/dev-tools text eol=lf
+scripts/dev-info text eol=lf

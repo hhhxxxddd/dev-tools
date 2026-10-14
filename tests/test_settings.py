@@ -28,6 +28,16 @@ from dev_tools.settings import (
 
 
 class SettingsTests(unittest.TestCase):
+    def setUp(self):
+        from dev_tools import __version__
+
+        self.enterContext(
+            patch(
+                "dev_tools.runtimes.diagnostics.target_status",
+                return_value={"state": "installed", "version": __version__},
+            )
+        )
+
     def test_workers_ignore_interactive_preferences_and_diagnostics_survive_serialization(self):
         with (
             patch(

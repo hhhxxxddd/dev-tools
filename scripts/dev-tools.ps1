@@ -54,13 +54,27 @@ function Get-InternalPython {
 function Invoke-InternalCli {
     param([Parameter(Mandatory)][string[]] $CliArguments)
 
-    $python = Get-InternalPython
     $previousPythonPath = $env:PYTHONPATH
     $previousPythonUtf8 = $env:PYTHONUTF8
     $previousDistro = $env:DEV_TOOLS_DISTRO
+    $previousWslUtf8 = $env:WSL_UTF8
+    $previousConsoleEncoding = [Console]::OutputEncoding
+    $previousOutputEncoding = $OutputEncoding
+    $terminalStyle = Get-Variable PSStyle -ValueOnly -ErrorAction SilentlyContinue
+    $previousOutputRendering = if ($terminalStyle) { $terminalStyle.OutputRendering }
     try {
+        # Match Python/WSL UTF-8 bytes when PowerShell captures native output.
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        $OutputEncoding = [Console]::OutputEncoding
+        # Remote terminal output traverses native pipes; preserve its ANSI colors.
+        if ($terminalStyle -and $env:DEV_TOOLS_TERMINAL -eq '1' -and
+            -not (Test-Path Env:NO_COLOR) -and $env:TERM -ne 'dumb') {
+            $terminalStyle.OutputRendering = 'Ansi'
+        }
+        $python = Get-InternalPython
         $env:PYTHONPATH = $sourcePath
         $env:PYTHONUTF8 = '1'
+        $env:WSL_UTF8 = '1'
         if ($Distro) { $env:DEV_TOOLS_DISTRO = $Distro }
         & $python -P -m dev_tools.cli @CliArguments
         $exitCode = $LASTEXITCODE
@@ -69,6 +83,10 @@ function Invoke-InternalCli {
         $env:PYTHONPATH = $previousPythonPath
         $env:PYTHONUTF8 = $previousPythonUtf8
         $env:DEV_TOOLS_DISTRO = $previousDistro
+        $env:WSL_UTF8 = $previousWslUtf8
+        [Console]::OutputEncoding = $previousConsoleEncoding
+        $OutputEncoding = $previousOutputEncoding
+        if ($terminalStyle) { $terminalStyle.OutputRendering = $previousOutputRendering }
     }
     exit $exitCode
 }

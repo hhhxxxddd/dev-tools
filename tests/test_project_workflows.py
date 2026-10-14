@@ -123,6 +123,10 @@ class ProjectWorkflowTests(unittest.TestCase):
         output = io.StringIO()
         with (
             patch("dev_tools.runtimes.router.forward_remote", return_value=response) as route,
+            patch(
+                "dev_tools.runtimes.diagnostics.target_status",
+                return_value={"state": "installed", "version": "0.5.2"},
+            ),
             contextlib.redirect_stdout(output),
             self.assertRaises(SystemExit) as stopped,
         ):

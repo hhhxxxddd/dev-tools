@@ -51,7 +51,7 @@ class ControllerTests(unittest.TestCase):
                 probe.assert_called_with("CustomDistro")
                 self.invoke(["--config", str(config), "help", "scan"])
                 self.invoke(["--config", str(config), "--version"])
-                self.assertEqual(probe.call_count, 3)
+                self.assertEqual(probe.call_count, 4)
             with patch(
                 "dev_tools.controller.deployment_status", return_value={"state": "installed"}
             ):

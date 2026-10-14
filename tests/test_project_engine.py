@@ -144,6 +144,45 @@ class EngineContractTests(unittest.TestCase):
             self.assertFalse(engine.backend.running)
             self.assertEqual(engine.state()["recovery"]["operation"], "start")
 
+    def test_stop_cancels_health_wait_before_timeout_and_rolls_back_started_workers(self):
+        for engine in self.both():
+            raw = copy.deepcopy(engine.spec.raw)
+            raw["services"]["api"]["health"] = {"timeout": 60}
+            (engine.binding.source / "dev-tools.toml").write_text(
+                render_toml(raw), encoding="utf-8"
+            )
+
+            def not_ready(name, engine=engine):
+                engine.set_intent(running=False)
+                return {"phase": "running", "ready": False}
+
+            with (
+                patch.object(engine, "service_status", side_effect=not_ready) as probe,
+                patch("dev_tools.projects.engine.time.sleep"),
+                self.assertRaisesRegex(ProjectError, "stopped during maintenance"),
+            ):
+                engine.start(("api",))
+            self.assertEqual(probe.call_count, 1)
+            self.assertFalse(engine.backend.running)
+            self.assertFalse(engine.intent()["running"])
+
+    def test_interrupted_start_rolls_back_new_workers_and_retains_recovery(self):
+        for engine in self.both():
+            engine.prepare()
+            start = engine.backend.start
+
+            def interrupted(worker, start=start):
+                start(worker)
+                raise KeyboardInterrupt
+
+            with (
+                patch.object(engine.backend, "start", side_effect=interrupted),
+                self.assertRaises(KeyboardInterrupt),
+            ):
+                engine.start(("api",))
+            self.assertFalse(engine.backend.running)
+            self.assertEqual(engine.state()["recovery"]["operation"], "start")
+
     def test_prepare_after_failed_first_start_restores_services_and_monitors(self):
         for engine in self.both():
             engine.backend.fail_start = "web"

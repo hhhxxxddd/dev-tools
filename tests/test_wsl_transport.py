@@ -16,6 +16,8 @@ class WslCheckTransportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             log = root / "calls.json"
+            cwd = root / "项目 with spaces"
+            cwd.mkdir()
             harness = root / "relay.ps1"
             harness.write_text(
                 r"""param($Relay, $Log)
@@ -25,6 +27,7 @@ $global:fixtureWslLog = $Log
 function global:Get-CimInstance { throw 'Read-only check tried to start a keepalive process' }
 function global:New-CimInstance { throw 'Read-only check tried to start a keepalive process' }
 function global:wsl.exe {
+    if ($env:WSL_UTF8 -ne '1') { throw 'WSL diagnostics must use UTF-8' }
     $global:fixtureWslCalls.Add([string[]]$args)
     [IO.File]::WriteAllText($global:fixtureWslLog, (ConvertTo-Json -Depth 5 -InputObject $global:fixtureWslCalls), [Text.UTF8Encoding]::new($false))
     $global:LASTEXITCODE = 0
@@ -44,6 +47,7 @@ function global:wsl.exe {
                     str(relay),
                     str(log),
                 ],
+                cwd=cwd,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -52,13 +56,15 @@ function global:wsl.exe {
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             calls = json.loads(log.read_text(encoding="utf-8"))
-            self.assertEqual(len(calls), 2)
-            self.assertIn("wslpath", calls[0])
-            self.assertEqual(calls[1][-4:], ["wsl", "check", "fixture-project", "--json"])
-            self.assertNotIn("-u", calls[1][: calls[1].index("--exec")])
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][-4:], ["wsl", "check", "fixture-project", "--json"])
+            self.assertTrue(any(value.startswith("DEV_TOOLS_TERMINAL=") for value in calls[0]))
+            self.assertNotIn("-u", calls[0][: calls[0].index("--exec")])
+            self.assertEqual(Path(calls[0][calls[0].index("--cd") + 1]).resolve(), cwd.resolve())
             for arguments in calls:
                 self.assertNotIn("sudo", arguments)
                 self.assertNotIn("install", arguments)
+                self.assertNotIn("wslpath", arguments)
 
 
 if __name__ == "__main__":

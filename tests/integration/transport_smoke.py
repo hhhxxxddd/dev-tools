@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -17,12 +18,33 @@ class TransportDirectory(tempfile.TemporaryDirectory):
         deadline = time.monotonic() + 10
         while True:
             try:
-                return super().cleanup()
+                super().cleanup()
+                break
             except PermissionError:
                 # WSL relay handles can close slightly after wsl.exe returns.
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.1)
+        cache = getattr(self, "native_cache", None)
+        if cache:
+            subprocess.run(
+                [
+                    "wsl.exe",
+                    "-d",
+                    self.distro,
+                    "-u",
+                    "root",
+                    "--exec",
+                    "bash",
+                    "-c",
+                    'cache="$1"; [[ "$cache" =~ ^/tmp/dev-tools-transport-[A-Za-z0-9]+$ && ! -L "$cache" && $(readlink -f -- "$cache") == "$cache" ]] || exit 1; rm -rf -- "$cache"',
+                    "bash",
+                    cache,
+                ],
+                check=True,
+                timeout=30,
+            )
+            self.native_cache = None
 
 
 def smoke() -> dict:
@@ -45,7 +67,26 @@ def smoke() -> dict:
             encoding="utf-8",
         ).strip()
 
-    with TransportDirectory(prefix="dev-tools-transport-") as temporary:
+    directory = TransportDirectory(prefix="dev-tools-transport-")
+    with directory as temporary:
+        directory.distro = distro
+        native_cache = subprocess.check_output(
+            [
+                "wsl.exe",
+                "-d",
+                distro,
+                "--exec",
+                "mktemp",
+                "-d",
+                "/tmp/dev-tools-transport-XXXXXXXX",
+            ],
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+        ).strip()
+        if not re.fullmatch(r"/tmp/dev-tools-transport-[A-Za-z0-9]+", native_cache):
+            raise RuntimeError("Unexpected native test cache path")
+        directory.native_cache = native_cache
         root = Path(temporary).resolve()
         preferences = root / "settings.toml"
         preferences.write_text(
@@ -78,14 +119,20 @@ def smoke() -> dict:
             linux_path(preferences),
         ]
         environment = os.environ.copy()
-        environment.pop("DEV_TOOLS_CACHE_ROOT", None)
-        variables = {"DEV_TOOLS_REGISTRY_ROOT", "DEV_TOOLS_STATE_ROOT"}
+        environment["DEV_TOOLS_CACHE_ROOT"] = native_cache
+        variables = {"DEV_TOOLS_REGISTRY_ROOT", "DEV_TOOLS_STATE_ROOT", "DEV_TOOLS_CACHE_ROOT"}
         wslenv = [
             entry
             for entry in environment.get("WSLENV", "").split(":")
             if entry and entry.split("/")[0] not in variables
         ]
-        environment["WSLENV"] = ":".join([*wslenv, *(name + "/p" for name in sorted(variables))])
+        environment["WSLENV"] = ":".join(
+            [
+                *wslenv,
+                "DEV_TOOLS_CACHE_ROOT/u",
+                *(name + "/p" for name in sorted(variables - {"DEV_TOOLS_CACHE_ROOT"})),
+            ]
+        )
 
         def invoke(entry: list[str], *arguments: str, cwd: Path = child) -> dict:
             result = subprocess.run(

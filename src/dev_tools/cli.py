@@ -13,14 +13,13 @@ from .command_help import CommandCatalog, LocalizedArgumentParser, add_config, a
 from .controller import add_commands as add_controller_commands
 from .controller import deployment_notice
 from .i18n import language_scope, message, render, t
-from .presentation import label
+from .presentation import error, label, warning
 from .project_models import ScanResult
 from .projects.cli import add_commands
 from .projects.initialization import initialize
 from .projects.models import ProjectError, validate_name
 from .report import collect_report, render_report
 from .scanner import scan_project
-from .schemas import CLI_SCHEMA_VERSION
 from .settings import SettingsError, config_command, load_settings, split_config
 from .sysinfo import collect_sysinfo, print_sysinfo
 
@@ -44,29 +43,34 @@ def _print_human(result: ScanResult) -> None:
                 value=wrapper.source,
             )
         )
-    for warning in result.warnings:
-        print(t("警告：{warning}", warning=render(warning)))
+    for notice in result.warnings:
+        print(warning(t("警告：{warning}", warning=render(notice))))
     for item in result.unresolved:
         print(
-            t(
-                "待确定：{tool} ({value}): {raw} {reason}",
-                tool=item.tool,
-                value=item.source,
-                raw=item.raw,
-                reason=render(item.reason),
+            warning(
+                t(
+                    "待确定：{tool} ({value}): {raw} {reason}",
+                    tool=item.tool,
+                    value=item.source,
+                    raw=item.raw,
+                    reason=render(item.reason),
+                )
             )
         )
     for diagnostic in result.diagnostics:
         print(
-            t(
-                "元数据错误：{value}: {message}",
-                value=diagnostic.source,
-                message=render(diagnostic.message),
+            error(
+                t(
+                    "元数据错误：{value}: {message}",
+                    value=diagnostic.source,
+                    message=render(diagnostic.message),
+                ),
+                stream=sys.stderr,
             ),
             file=sys.stderr,
         )
     for conflict in result.conflicts:
-        print(t("冲突：{tool}", tool=conflict.tool), file=sys.stderr)
+        print(error(t("冲突：{tool}", tool=conflict.tool), stream=sys.stderr), file=sys.stderr)
         for version, sources in conflict.versions.items():
             print(f"  {version}: {', '.join(sources)}", file=sys.stderr)
 
@@ -238,7 +242,52 @@ def parser() -> argparse.ArgumentParser:
 
 
 def _dispatch(arguments: list[str], forwarded: list[str], environment: str, settings) -> None:
+    from .cli_errors import TargetError
+    from .runtimes.diagnostics import preflight, response_payload, target_status
     from .runtimes.router import forward_remote
+
+    scope = forwarded[: forwarded.index("--")] if "--" in forwarded else forwarded
+    if environment != ("win" if os.name == "nt" else "wsl") and (
+        any(flag in scope for flag in ("-h", "--help", "-v", "--version"))
+        or not scope
+        or scope[0] == "help"
+    ):
+        status = target_status(environment, settings)
+        if status["state"] != "installed":
+            raise TargetError(
+                "target_unavailable",
+                message(
+                    "Could not reach {environment}. Check its dev-tools entrypoint, Windows/WSL interop and PATH; this does not imply that an update is required.",
+                    environment=environment,
+                ),
+                environment=environment,
+            )
+        if any(flag in scope for flag in ("-v", "--version")):
+            print(f"dev-tools {status['version']} ({environment})")
+            raise SystemExit(0)
+        requested = scope or ["--help"]
+        if requested[0] == "help":
+            requested = [*requested[1:], "--help"]
+        print(
+            t(
+                "Target controller: {environment} {version}",
+                environment=environment,
+                version=status["version"],
+            )
+        )
+        result = forward_remote(environment, requested, settings=settings, capture=True)
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        if result.returncode:
+            raise TargetError(
+                "target_command_unsupported" if result.returncode == 2 else "target_unavailable",
+                message("Target help query failed in {environment}", environment=environment),
+                environment=environment,
+                target_version=status["version"],
+                returncode=result.returncode,
+            )
+        print(result.stdout, end="")
+        raise SystemExit(0)
 
     command_parser = parser()
     command_parser.deployment_notice = lambda: deployment_notice(settings)
@@ -250,7 +299,7 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
     if args.command == "self":
         if args.json and args.self_action != "status":
             command_parser.error(t("self --json requires status"))
-        if args.source and args.self_action == "status":
+        if args.source and args.self_action in {"status", "recover"}:
             command_parser.error(t("self --source requires update or upgrade"))
     for field in ("name", "new_name", "service"):
         value = getattr(args, field, None)
@@ -265,32 +314,25 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
         raise SettingsError(settings.errors[0], language=settings.language)
     if hasattr(args, "project_command"):
         if args.project_command == "list":
-            if args.all_environments and arguments != forwarded:
+            if "--all" in forwarded and arguments != forwarded:
                 command_parser.error(t("list --all 不能与 -e/--env 同时使用"))
+            args.all_environments = arguments == forwarded
         else:
+            if (
+                args.project_command == "start"
+                and args.all_projects
+                and (args.name or args.service)
+            ):
+                command_parser.error(
+                    t("start --all cannot be combined with a project name or --service")
+                )
+            preflight(environment, forwarded, settings)
             if getattr(args, "json", False):
                 result = forward_remote(
                     environment, forwarded, settings=settings, capture=True, timeout=None
                 )
                 if result is not None:
-                    try:
-                        value = json.loads(result.stdout)
-                        if (
-                            not isinstance(value, dict)
-                            or type(value.get("schema_version")) is not int
-                            or value.get("schema_version") != CLI_SCHEMA_VERSION
-                            or not isinstance(value.get("action"), str)
-                            or args.command != "init"
-                            and value.get("action") != args.command
-                            or result.returncode not in {0, 1, 2, 130}
-                        ):
-                            raise ValueError
-                    except TypeError, ValueError:
-                        raise ProjectError(
-                            message("Invalid JSON response from target environment")
-                        ) from None
-                    if result.stderr:
-                        print(result.stderr, end="", file=sys.stderr)
+                    value = response_payload(result, environment, args.command)
                     print(json.dumps(value, ensure_ascii=False, indent=2))
                     raise SystemExit(exit_code(result.returncode))
             else:
@@ -342,6 +384,17 @@ def _main(arguments: list[str]) -> None:
     # language override or a foreign machine's settings file. Do not leak it to tasks.
     inherited = os.environ.pop("DEV_TOOLS_TRANSPORT_LANGUAGE", None)
     with language_scope(inherited if inherited in {"zh", "en"} else settings.language):
+        if local == ["_controller-restore"]:
+            from .controller_update import recovery_path, restore_receipt
+
+            try:
+                raise SystemExit(restore_receipt(recovery_path()))
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                emit_error(exc)
+                raise SystemExit(1) from None
+            except KeyboardInterrupt as exc:
+                emit_error(exc)
+                raise SystemExit(130) from None
         try:
             environment, forwarded = split_environment(local)
         except ValueError as exc:
@@ -351,7 +404,11 @@ def _main(arguments: list[str]) -> None:
             _dispatch(local, forwarded, environment, settings)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             emit_error(exc)
-            raise SystemExit(1) from None
+            from .cli_errors import RemoteError
+
+            raise SystemExit(
+                exit_code(exc.returncode) if isinstance(exc, RemoteError) else 1
+            ) from None
         except KeyboardInterrupt as exc:
             emit_error(exc)
             raise SystemExit(130) from None

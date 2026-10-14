@@ -2,9 +2,49 @@
 
 from __future__ import annotations
 
+import os
+import re
+import sys
 import unicodedata
 
 from .i18n import t
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+COLORS = {"red": 31, "green": 32, "yellow": 33, "muted": 90}
+
+
+def color_enabled(stream=None) -> bool:
+    stream = sys.stdout if stream is None else stream
+    if "NO_COLOR" in os.environ or os.environ.get("TERM") == "dumb":
+        return False
+    transported = os.environ.get("DEV_TOOLS_TERMINAL")
+    return transported == "1" if transported in {"0", "1"} else stream.isatty()
+
+
+def colored(value: str, color: str, *, stream=None) -> str:
+    return f"\x1b[{COLORS[color]}m{value}\x1b[0m" if color_enabled(stream) else value
+
+
+def warning(value: str, *, stream=None) -> str:
+    return colored(value, "yellow", stream=stream)
+
+
+def error(value: str, *, stream=None) -> str:
+    return colored(value, "red", stream=stream)
+
+
+def status_label(value: str) -> str:
+    color = (
+        "green"
+        if value in {"running", "healthy", "ok", "created", "started"}
+        else "red"
+        if value in {"error", "failed", "unhealthy", "invalid", "timeout"}
+        else "muted"
+        if value in {"stopped", "unknown"}
+        else "yellow"
+    )
+    return colored(label(value), color)
+
 
 LABELS = {
     "windows": "Windows",
@@ -84,7 +124,7 @@ def format_table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
             else 2
             if unicodedata.east_asian_width(char) in "WF"
             else 1
-            for char in value
+            for char in ANSI.sub("", value)
         )
 
     widths = [max(width(row[index]) for row in [headers, *rows]) for index in range(len(headers))]

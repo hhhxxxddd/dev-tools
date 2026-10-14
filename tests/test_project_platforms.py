@@ -22,6 +22,30 @@ from dev_tools.runtimes.router import (
 
 
 class RouterTests(unittest.TestCase):
+    def test_remote_timeout_keeps_duration_and_is_not_reclassified_as_unavailable(self):
+        target = "wsl" if os.name == "nt" else "win"
+        timeout = subprocess.TimeoutExpired(["private-argv"], 30)
+        with (
+            patch("dev_tools.runtimes.router.shutil.which", return_value="available"),
+            patch("dev_tools.runtimes.router._windows_path", return_value="C:/fixture"),
+            patch("dev_tools.runtimes.router.subprocess.run", side_effect=timeout),
+            self.assertRaises(subprocess.TimeoutExpired) as failed,
+        ):
+            forward_remote(target, ["list", "--json"], capture=True)
+        self.assertIs(failed.exception, timeout)
+
+    def test_recorded_scoop_version_routes_through_current_application(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".windows-source").write_text(
+                "Z:/scoop/apps/dev-tools/0.5.1\n", encoding="utf-8"
+            )
+            with patch("dev_tools.runtimes.router.REPOSITORY", root):
+                command = _windows_entry(["--version"])
+            self.assertEqual(command[0], "-Command")
+            self.assertIn("-CommandType Application", command[1])
+            self.assertNotIn("0.5.1/scripts", command[1])
+
     def test_wsl_deployment_uses_recorded_native_windows_source(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

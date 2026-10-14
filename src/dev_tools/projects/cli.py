@@ -4,9 +4,11 @@ import argparse
 import json
 import os
 import subprocess
+from urllib.parse import urlsplit
 
 from ..i18n import error_detail, message, render, t
-from ..presentation import format_table, label
+from ..presentation import colored, error, format_table, label, status_label, warning
+from ..progress import progress_scope, stage
 from ..runtimes.platforms.factory import backend_for
 from ..runtimes.platforms.layout import require_registration_control
 from ..runtimes.platforms.locking import operation_lock
@@ -35,11 +37,19 @@ def engine_for(environment: str, name: str, *, allow_stale: bool = False) -> Pro
 def list_projects(environment: str, settings=None) -> list[dict]:
     native = "windows" if os.name == "nt" else "wsl"
     if environment != native:
+        from ..cli_errors import RemoteError, TargetError
+        from ..runtimes.diagnostics import preflight, response_payload
         from ..runtimes.router import forward_remote
 
+        target = "win" if environment == "windows" else environment
+        if settings is None:
+            from ..settings import load_settings
+
+            settings = load_settings()
+        preflight(target, ["list"], settings)
         try:
             result = forward_remote(
-                "win" if environment == "windows" else environment,
+                target,
                 ["list", "--json"],
                 settings=settings,
                 capture=True,
@@ -50,18 +60,13 @@ def list_projects(environment: str, settings=None) -> list[dict]:
                     "project list query timed out in {environment}", environment=label(environment)
                 )
             ) from None
-        if result.returncode:
-            raise ProjectError(
-                message(
-                    "could not list projects in {environment}: {detail}",
-                    environment=label(environment),
-                    detail=result.stderr.strip() or str(result.returncode),
-                )
-            )
+        payload = response_payload(result, target, "list")
+        if "error" in payload:
+            raise RemoteError(payload, result.returncode)
         try:
-            payload = json.loads(result.stdout)
             if (
-                not isinstance(payload, dict)
+                result.returncode != 0
+                or not isinstance(payload, dict)
                 or payload.get("schema_version") != CLI_SCHEMA_VERSION
                 or payload.get("action") != "list"
                 or payload.get("environment") != environment
@@ -75,14 +80,18 @@ def list_projects(environment: str, settings=None) -> list[dict]:
             ):
                 raise ValueError
         except ValueError:
-            raise ProjectError(
-                message("invalid project list from {environment}", environment=label(environment))
+            raise TargetError(
+                "target_response_invalid",
+                message("invalid project list from {environment}", environment=label(environment)),
+                environment=target,
+                returncode=result.returncode,
             ) from None
         return [{**item, "environment": environment} for item in payload["projects"]]
     projects = []
     for name in Registry(environment).names():
         try:
-            projects.append(engine_for(environment, name).status())
+            engine = engine_for(environment, name)
+            projects.append({**engine.status(), **project_columns(engine)})
         except (ProjectError, OSError) as exc:
             projects.append(
                 {
@@ -94,6 +103,98 @@ def list_projects(environment: str, settings=None) -> list[dict]:
                 }
             )
     return projects
+
+
+def project_columns(engine):
+    """Display explicit declarations only; never execute tools or parse shell scripts."""
+    from .toolchain import root_runtime_versions
+
+    ports, tools = set(), set()
+    for service in engine.spec.services.values():
+        if service.health.get("tcp"):
+            ports.add(service.health["tcp"])
+        if service.health.get("http"):
+            url = urlsplit(service.health["http"])
+            port = url.port or {"http": 80, "https": 443}.get(url.scheme)
+            if port:
+                ports.add(port)
+        tools.update(service.tools)
+        if service.driver == "spring":
+            tools.add("java")
+    for task in engine.spec.tasks.values():
+        tools.update(task.tools)
+        tools.add(
+            {
+                "uv": "python",
+                "pip": "python",
+                "npm": "node",
+                "pnpm": "node",
+                "yarn": "node",
+                "maven": "java",
+            }.get(task.manager, task.manager)
+        )
+    tools.update(item.rsplit("@", 1)[0] for item in root_runtime_versions(engine.binding.source))
+    languages = {"python", "java", "node", "bun", "go", "ruby", "rust", "dotnet", "deno"}
+    return {"ports": sorted(ports), "types": sorted(tools & languages)}
+
+
+def start_all(environment, as_json):
+    from ..cli_errors import error_payload
+
+    results = []
+    for name in Registry(environment).names():
+        try:
+            engine = engine_for(environment, name)
+            if engine._active():
+                results.append({"name": name, "status": "skipped"})
+            else:
+                with progress_scope(name, enabled=not as_json), stage("Prepare and start project"):
+                    engine.start()
+                results.append({"name": name, "status": "started"})
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            results.append(
+                {
+                    "name": name,
+                    "status": "failed",
+                    "error": error_payload(exc, action="start")["error"],
+                    "error_detail": error_detail(exc),
+                }
+            )
+    payload = {
+        "schema_version": CLI_SCHEMA_VERSION,
+        "action": "start",
+        "environment": environment,
+        "projects": results,
+        "complete": not any(item["status"] == "failed" for item in results),
+    }
+    if as_json:
+        payload["projects"] = [
+            {key: value for key, value in item.items() if key != "error_detail"} for item in results
+        ]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        for item in results:
+            print(
+                t(
+                    "{project}: {result}",
+                    project=item["name"],
+                    result=colored(
+                        t(
+                            {
+                                "skipped": "Already running; skipped",
+                                "started": "Started",
+                                "failed": "Failed",
+                            }[item["status"]]
+                        ),
+                        {"started": "green", "skipped": "yellow", "failed": "red"}[item["status"]],
+                    ),
+                )
+            )
+            if item.get("error_detail"):
+                print(error(render(item["error_detail"])))
+        if not results:
+            print(t("  暂无已注册项目。"))
+    return 0 if payload["complete"] else 1
 
 
 def _list_state(project: dict) -> str:
@@ -140,7 +241,7 @@ def emit(payload: dict, as_json: bool) -> None:
                 "  准备有效：{prepared}；服务就绪：{ready}；健康检查：{value}",
                 prepared=label(payload["prepared"]),
                 ready=label(payload["ready"]),
-                value=label(
+                value=status_label(
                     "unknown"
                     if payload["healthy"] is None
                     else "healthy"
@@ -150,12 +251,16 @@ def emit(payload: dict, as_json: bool) -> None:
             )
         )
         for name, value in payload["services"].items():
-            print(f"  {name}：{label(value['phase'])}（{label(value['health'])}）")
+            print(f"  {name}：{status_label(value['phase'])}（{status_label(value['health'])}）")
         if payload.get("maintenance_error"):
-            print(t("自动维护待处理：{error}", error=render(payload["maintenance_error"])))
+            print(warning(t("自动维护待处理：{error}", error=render(payload["maintenance_error"]))))
         if payload.get("recovery"):
             recovery = payload["recovery"]
-            print(t("  待恢复操作：{value}", value=label(recovery.get("operation", "unknown"))))
+            print(
+                warning(
+                    t("  待恢复操作：{value}", value=label(recovery.get("operation", "unknown")))
+                )
+            )
             print(
                 t("  待恢复服务与监控：")
                 + (", ".join(recovery.get("restore_workers", [])) or t("无"))
@@ -170,12 +275,14 @@ def emit(payload: dict, as_json: bool) -> None:
     if "projects" in payload:
         print(
             format_table(
-                (t("Name"), t("Environment"), t("State")),
+                (t("Name"), t("Environment"), t("Ports"), t("Type"), t("State")),
                 [
                     (
                         project["name"],
                         label(project.get("environment", payload["environment"])),
-                        label(_list_state(project)),
+                        ", ".join(str(port) for port in project.get("ports", [])) or "-",
+                        ", ".join(project.get("types", [])) or "-",
+                        status_label(_list_state(project)),
                     )
                     for project in payload["projects"]
                 ],
@@ -184,18 +291,22 @@ def emit(payload: dict, as_json: bool) -> None:
         for project in payload["projects"]:
             if project.get("error") or project.get("error_detail"):
                 print(
-                    t(
-                        "  {name}：{value}",
-                        name=project["name"],
-                        value=render(project.get("error_detail") or project["error"]),
+                    error(
+                        t(
+                            "  {name}：{value}",
+                            name=project["name"],
+                            value=render(project.get("error_detail") or project["error"]),
+                        )
                     )
                 )
-        for error in payload.get("errors", []):
+        for diagnostic in payload.get("errors", []):
             print(
-                t(
-                    "  {environment}：{value}",
-                    environment=label(error["environment"]),
-                    value=render(error.get("error_detail") or error["error"]),
+                warning(
+                    t(
+                        "  {environment}：{value}",
+                        environment=label(diagnostic["environment"]),
+                        value=render(diagnostic.get("error_detail") or diagnostic["error"]),
+                    )
                 )
             )
         if not payload["projects"] and not payload.get("errors"):
@@ -244,8 +355,15 @@ def run(args: argparse.Namespace) -> int:
             try:
                 projects.extend(list_projects(target, settings))
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                from ..cli_errors import error_payload
+
                 errors.append(
-                    {"environment": target, "error": str(exc), "error_detail": error_detail(exc)}
+                    {
+                        "environment": target,
+                        "error": str(exc),
+                        "error_detail": error_detail(exc),
+                        "diagnostic": error_payload(exc, action="list")["error"],
+                    }
                 )
         emit(
             {
@@ -259,6 +377,8 @@ def run(args: argparse.Namespace) -> int:
         )
         return 1 if errors else 0
     registry = Registry(environment)
+    if action == "start" and getattr(args, "all_projects", False):
+        return start_all(environment, args.json)
     if action == "register":
         from pathlib import Path
 
@@ -289,11 +409,13 @@ def run(args: argparse.Namespace) -> int:
             return 1 if plan.unresolved else 0
         engine.prepare(plan)
     elif action == "start":
-        engine.start((args.service,) if args.service else None)
+        with progress_scope(args.name, enabled=not args.json), stage("Prepare and start project"):
+            engine.start((args.service,) if args.service else None)
     elif action == "stop":
         engine.stop()
     elif action == "restart":
-        engine.restart()
+        with progress_scope(args.name, enabled=not args.json), stage("Restart services"):
+            engine.restart()
     elif action == "status":
         emit(engine.status(), args.json)
         return 0
@@ -359,11 +481,14 @@ def add_commands(commands) -> None:
     )
     register.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
     register.set_defaults(func=run)
-    listing = commands.add_parser("list", help=t("列出所选环境的注册项目和状态"))
+    listing = commands.add_parser(
+        "list", help=t("列出全部环境的项目、状态、端口和类型；-e 查询单端")
+    )
     listing.add_argument(
         "--all",
         dest="all_environments",
         action="store_true",
+        default=None,
         help=t("汇总 Windows 和 WSL 的全部注册项目"),
     )
     listing.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
@@ -403,6 +528,13 @@ def add_commands(commands) -> None:
                 "--service",
                 metavar=t("服务名"),
                 help=t("仅操作指定服务；启动时包含其依赖，省略时操作全部服务"),
+            )
+        if action == "start":
+            command.add_argument(
+                "--all",
+                dest="all_projects",
+                action="store_true",
+                help=t("启动所选环境的全部项目，跳过已有活动服务的项目"),
             )
         if action == "logs":
             command.add_argument(

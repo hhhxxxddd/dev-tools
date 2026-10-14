@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from dev_tools import __version__
 from dev_tools.cli import main, parser
 from dev_tools.cli_errors import JSON_COMMANDS
 from dev_tools.i18n import message
@@ -40,6 +41,10 @@ class CliContractTests(unittest.TestCase):
                 side_effect=settings_error,
             ),
             patch("dev_tools.runtimes.router.forward_remote", return_value=remote) as transport,
+            patch(
+                "dev_tools.runtimes.diagnostics.target_status",
+                return_value={"state": "installed", "version": __version__},
+            ),
             contextlib.redirect_stdout(output),
             contextlib.redirect_stderr(errors),
             self.assertRaises(SystemExit) as stopped,
@@ -327,11 +332,12 @@ class CliContractTests(unittest.TestCase):
             subprocess.CompletedProcess([], 0, "{}\n{}", ""),
         ):
             with self.subTest(result=result):
-                self.assert_error(
-                    self.invoke("status", "demo", "--json", remote=result),
-                    "operation_failed",
-                    action="status",
-                )
+                code, output, errors = self.invoke("status", "demo", "--json", remote=result)
+                self.assertEqual(code, 1)
+                payload = json.loads(output)
+                self.assertEqual(payload["error"]["code"], "target_response_invalid")
+                self.assertNotIn("SECRET", output)
+                self.assertEqual(errors, result.stderr)
 
     def test_reports_keep_payloads_and_mark_only_explicit_failures_incomplete(self):
         base = {"collectors": {}, "repositories": [], "discovery_issues": []}

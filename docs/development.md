@@ -53,4 +53,4 @@ uvx ruff format --check src tests
 
 Ubuntu 适配器测试不能代替真实 WSL 验证。发布前运行已有隔离 WSL 生命周期、依赖、工具链脚本及 Windows→WSL 部署与传输脚本，要求 systemd 和已安装的原生运行时。控制器包检查在临时原生目录重复部署两次，确认解释器绑定、注册和状态保留。不要用活动注册或中间件数据充当测试数据。
 
-公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.1.zip`。候选可标记源码未提交；`--tag v0.5.1 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。
+公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.2.zip`。候选可标记源码未提交；`--tag v0.5.2 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。

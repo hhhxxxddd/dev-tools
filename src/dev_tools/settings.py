@@ -404,8 +404,10 @@ def config_command(args) -> int:
                 ),
             )
         )
+        from .presentation import error as error_text
+
         for error in settings.errors:
-            print(render(error))
+            print(error_text(render(error)))
         if args.config_action == "check":
             if not settings.errors:
                 print(

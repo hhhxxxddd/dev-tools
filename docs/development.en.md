@@ -53,4 +53,4 @@ A `vX.Y.Z` tag reuses these checks and builds official assets from a clean match
 
 Ubuntu adapter tests do not establish real WSL coverage. Before releasing, run the existing isolated WSL lifecycle/dependency/toolchain scripts and Windows-to-WSL controller/transport scripts, with systemd and installed native runtimes. The controller package check installs twice into temporary native directories and verifies retained bindings, registrations and state. Never use active registrations or middleware data as test fixtures.
 
-The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.1.zip`. Candidates may describe dirty sources; `--tag v0.5.1 --official` requires committed, clean, correctly tagged sources.
+The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.2.zip`. Candidates may describe dirty sources; `--tag v0.5.2 --official` requires committed, clean, correctly tagged sources.

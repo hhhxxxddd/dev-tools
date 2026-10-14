@@ -86,7 +86,10 @@ Store 的 `discovery` 保留批量原始输出和候选，`checks` 保留逐项�
 
 ## 生命周期与平台边界
 
-`dev-tools list` 只读查询当前平台；`list -e win` / `list -e wsl` 查询单侧，`list --all` 汇总 Windows 和配置的 WSL 发行版，同名注册按环境保留两行。输出由调用端按本机语言统一渲染；查询不会更新部署或改变项目运行状态。
+`dev-tools list` 默认只读汇总 Windows 和配置的 WSL 发行版，与 `list --all` 相同；`list -e win` / `list -e wsl` 查询单侧，同名注册按环境保留两行。输出由调用端按本机语言统一渲染，包含配置声明的端口与运行时类型；查询不会更新部署或改变项目运行状态。
+表格列顺序为名称、环境、端口、类型、状态。交互终端中，运行中/正常为绿色，待恢复/启动中/部分运行为黄色，失败/异常为红色，已停止/未知为灰色；工具自身的错误为红色、操作提示为黄色。重定向输出或设置 `NO_COLOR` 时不添加颜色，JSON 保留原始状态标识和结构。
+汇总列表中，某一端不可用时以黄色提示，保留另一端的结果；JSON 仍返回 `complete=false`、`errors` 和退出码 1。`list -e wsl` / `list -e win` 只查指定端。两端安装副本分别更新，查询不会安装或更新另一端；版本相同也可用 `self update -e wsl` 重新部署当前 Windows 源码。
+`start`（含 `--all`）和 `restart` 在终端显示依赖分析、环境准备、同步、依赖/构建任务、服务启动、健康检查及监控启动的阶段与耗时；长步骤每 5 秒显示一次等待提示。进度写到 stderr，`--json` 使用原有 JSON 结果，后台维护不输出终端进度。任务原始输出仍可通过 `dev-tools logs my-app install --task` 查看，将 `install` 替换为实际任务名。
 `list --all --json` 的 environment 为 all，projects 中保留每个项目的环境，并返回 complete 和 errors。一侧查询失败时保留另一侧项目、complete=false、退出码为 1；两侧成功时 complete=true、退出码为 0。远端查询超时为 30 秒。
 
 同一 Python worker 在两侧处理服务依赖、健康检查、重启、监控和恢复。依赖先启动并等待就绪，停止按相反顺序执行；启动失败回滚本次新增的进程。原生进程未声明健康检查时状态为 unknown；Compose 还会检查容器运行状态和容器报告的健康状态。

@@ -40,8 +40,13 @@ if [[ ${DEV_TOOLS_TRANSPORT_LANGUAGE:-} == en || ${DEV_TOOLS_TRANSPORT_LANGUAGE:
   startup_language="$DEV_TOOLS_TRANSPORT_LANGUAGE"
 fi
 startup_error() {
+  local color=false
+  if [[ -z ${NO_COLOR+x} && ${TERM:-} != dumb && ( -t 2 || ${DEV_TOOLS_TERMINAL:-} == 1 ) ]]; then
+    color=true; printf '\033[31m' >&2
+  fi
   if [[ "$startup_language" == en ]]; then printf '%s\n' "$2" >&2;
   else printf '%s\n' "$1" >&2; fi
+  if [[ $color == true ]]; then printf '\033[0m' >&2; fi
 }
 
 get_internal_python() {

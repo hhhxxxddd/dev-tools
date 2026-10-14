@@ -82,6 +82,10 @@ Runtime errors, argument errors and configuration errors occurring before parsin
 | `timeout` | Subprocess, read-only query or service-readiness timeout | Numeric `timeout_seconds`, when known |
 | `preparation_failed` | Failed prepare/start project operation | Integer `returncode`, when known |
 | `operation_failed` | Other runtime error or invalid JSON from the target environment | Integer `returncode`, when known |
+| `target_unavailable` | Missing controller or failed connection check | `environment/controller_version/target_version/returncode` (when known) |
+| `target_version_mismatch` | Incompatible execution contract | `environment/controller_version/target_version/returncode` (when known) |
+| `target_command_unsupported` | Unsupported command or parameter in target version | `environment/controller_version/target_version/returncode` (when known) |
+| `target_response_invalid` | Invalid target JSON or protocol | `environment/controller_version/target_version/returncode` (when known) |
 | `interrupted` | User interruption | None |
 
 `details` is always an object and is `{}` when no safe facts are available. Scripts should branch on code rather than parse message. Raw third-party progress can still appear on stderr and should be handled as logs.
@@ -89,3 +93,7 @@ Runtime errors, argument errors and configuration errors occurring before parsin
 Blocked scans, initialization and checks, and partial lists/reports retain their diagnostic payloads instead of becoming error documents. Invalid `config --json` / `config check --json` outputs retain configuration fields and add `schema_version/action/error`. A nonzero exit code therefore does not imply an error-only result. Handle the command's payload and inspect error fields, `ready`, `complete` or collector statuses as appropriate.
 
 The source checkout's `tests/test_cli_contract.py` centrally verifies these contracts. Functional tests separately cover execution and read-only boundaries.
+
+`list` defaults to the same query as `list --all`; explicit `-e` limits the query to one target. Project entries add integer-array `ports` and string-array `types`, derived from explicit health checks, root mise and task/service tool declarations. Unknown values use empty arrays and display `-`.
+
+`start --all` operates only on the current or selected environment and rejects a project name or `--service`. JSON includes `projects` and boolean `complete`; entries contain `name/status` (`started|skipped|failed`). Individual failures do not prevent later projects from starting, and return overall exit `1`. Projects with active workers are skipped without preparation or restart.
