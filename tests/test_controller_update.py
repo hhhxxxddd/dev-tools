@@ -299,6 +299,7 @@ class WslControllerRollbackTests(unittest.TestCase):
                         },
                     ),
                     patch("dev_tools.controller.verify_source"),
+                    patch("dev_tools.controller_update.os.geteuid", return_value=0),
                     patch("dev_tools.controller_update.Registry.names", return_value=()),
                     patch(
                         "dev_tools.controller_update.subprocess.run", side_effect=partial_install

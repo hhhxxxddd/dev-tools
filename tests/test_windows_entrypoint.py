@@ -237,7 +237,7 @@ if ($NativePython) { [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(93
             self.assertEqual(scan.returncode, 0, scan.stderr)
             self.assertEqual(json.loads(scan.stdout)["schema_version"], 3)
             help_result = subprocess.run(
-                [*command, "-e", "wsl", "--help"],
+                [*command, "-e", "win", "--help"],
                 cwd=root,
                 capture_output=True,
                 text=True,
