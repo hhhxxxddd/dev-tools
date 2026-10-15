@@ -369,6 +369,9 @@ def _collect_report(
 
     def npm_probe(prefix: list[str], installed_result: dict, label: str = "") -> None:
         npm = run(label + "npm_inventory", [*prefix, "npm", "list", "-g", "--depth=0", "--json"])
+        if not refresh:
+            skip(label + "npm_outdated", t("已禁用刷新"))
+            return
         try:
             managed = (
                 set(json.loads(installed_result["output"]))

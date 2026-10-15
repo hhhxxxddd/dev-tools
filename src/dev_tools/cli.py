@@ -24,6 +24,7 @@ from .scanner import scan_project
 from .settings import SettingsError, config_command, load_settings, split_config
 from .ssh import add_commands as add_ssh_commands
 from .sysinfo import collect_sysinfo, print_sysinfo
+from .toolbox.cli import add_commands as add_toolbox_commands
 
 
 def _print_human(result: ScanResult) -> None:
@@ -243,6 +244,7 @@ def parser() -> argparse.ArgumentParser:
     add_controller_commands(commands)
     add_ssh_commands(commands)
     add_hosts_commands(commands)
+    add_toolbox_commands(commands)
     commands.finish()
     return result
 
@@ -252,8 +254,10 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
     from .runtimes.diagnostics import preflight, response_payload, target_status, unavailable_target
     from .runtimes.router import forward_remote
 
-    # Opening a toolbox group requests its help, including on the other platform.
-    if forwarded in (["ssh"], ["hosts"]):
+    command_parser = parser()
+    # The catalog owns this policy for every toolbox command, including commands
+    # such as which that take a positional argument instead of subcommands.
+    if len(forwarded) == 1 and forwarded[0] in command_parser.toolbox_commands:
         arguments = [*arguments, "--help"]
         forwarded = [*forwarded, "--help"]
     scope = forwarded[: forwarded.index("--")] if "--" in forwarded else forwarded
@@ -292,7 +296,6 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
         print(result.stdout, end="")
         raise SystemExit(0)
 
-    command_parser = parser()
     command_parser.deployment_notice = lambda: deployment_notice(settings)
     args = command_parser.parse_args(arguments or ["help"])
     set_request(args)

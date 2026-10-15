@@ -10,6 +10,8 @@ src/dev_tools/
   settings.py、i18n.py、locales/           本机偏好与中英文输出
   scanner.py、metadata.py、versions.py     静态元数据与版本识别
   project_models.py、workflows.py          扫描模型、初始化与 mise 隔离
+  ssh.py、ssh_config.py、hosts*.py         SSH 与 Windows hosts 工具
+  toolbox/                                端口、PATH、网络诊断与原生采集
   projects/                               声明、计划、执行、驱动、生命周期和 worker
   runtimes/router.py                      跨环境命令与路径传输
   runtimes/platforms/                     原生存储、用户、同步、进程与 systemd
@@ -51,7 +53,24 @@ uvx ruff format --check src tests
 
 `tests/integration/ssh_smoke.py` 使用隔离的 Win/WSL 控制器、SSH 配置、编辑器和交互客户端，验证真实双向进程链、Include 原文件编辑、标准输入和原生会话退出码；不读取真实 SSH 配置、不使用密钥或连接外部服务器。
 
+## 性能与边界
+
+Ruff 同时检查导入排序、易错写法和 Python 现代语法。扫描与监控跳过符号链接、Windows 目录联接和非普通元数据文件；测试覆盖畸形声明、损坏注册隔离、Git 未提交状态、分离 HEAD、packed refs 和 worktree。
+
+Windows 端口采集直接调用 IP Helper 和 Toolhelp API，无第三方运行依赖；先过滤端口和协议，再读取关联进程及祖先进程。WSL 仅为匹配 socket 读取进程详情，无匹配时跳过 PID 与注册遍历。自动发现只遍历一次元数据目录；Git 监控每轮调用一次 Git，仍保留内容指纹和操作中标记检查。
+
+2026-10-16 本机 Windows、Python 3.14.8，以同一 PowerShell 入口分别运行 3 次、取端到端耗时中位数（含启动开销）：
+
+| 查询 | 优化前 | 优化后 |
+| --- | --- | --- |
+| 无匹配端口 | 8.58 秒 | 0.63 秒 |
+| 全部监听与绑定端口 | 8.16 秒 | 1.82 秒 |
+
+结果受进程数量、缓存和系统负载影响，不作为固定耗时承诺。真实 socket 的 IPv4/IPv6、TCP/UDP 和进程身份由原生测试验证；不以减少归属校验或持久化快照换取速度。
+
 ## CI 与发行
+
+`tests/integration/toolbox_smoke.py` 使用隔离的 Windows/WSL 控制器和临时 HTTP 服务，验证 ports/which/net 的两端原生执行及双向调用、实际 socket PID、HEAD 响应与查询参数隐藏；不修改业务注册或系统网络配置。
 
 普通 push/PR 在 Windows 和 Ubuntu 上运行 Python 3.14.8 单元/契约测试、Ruff、PowerShell 解析、Bash/ShellCheck、文档与 TOML 校验和解压包入口验证。运行 `python -m dev_tools.validation` 检查版本、本地链接、双语章节结构与 TOML。验证工具固定在 `requirements-dev.txt`，GitHub Actions 固定经核对的提交 SHA。
 
@@ -59,4 +78,4 @@ uvx ruff format --check src tests
 
 Ubuntu 适配器测试不能代替真实 WSL 验证。发布前运行已有隔离 WSL 生命周期、依赖、工具链脚本及 Windows→WSL 部署与传输脚本，要求 systemd 和已安装的原生运行时。控制器包检查在临时原生目录重复部署两次，确认解释器绑定、注册和状态保留。不要用活动注册或中间件数据充当测试数据。
 
-公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.2.zip`。候选可标记源码未提交；`--tag v0.5.2 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。
+公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.3.zip`。候选可标记源码未提交；`--tag v0.5.3 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。

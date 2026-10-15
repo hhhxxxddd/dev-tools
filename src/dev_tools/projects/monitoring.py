@@ -43,12 +43,14 @@ def file_snapshot(root: Path, policy: BuildSpec) -> dict[str, tuple[int, int]]:
             current = pending.pop()
             try:
                 with os.scandir(current) as entries:
-                    for entry in sorted(entries, key=lambda item: item.name):
+                    for entry in entries:
                         if entry.is_symlink():
                             continue
                         if entry.is_dir(follow_symlinks=False):
-                            if entry.name not in IGNORED_DIRECTORIES and not entry.name.startswith(
-                                ".cache"
+                            if (
+                                entry.name not in IGNORED_DIRECTORIES
+                                and not entry.name.startswith(".cache")
+                                and not os.path.isjunction(entry.path)
                             ):
                                 pending.append(Path(entry.path))
                         else:
@@ -75,21 +77,28 @@ def change_kind(before: dict, after: dict, policy: BuildSpec) -> str | None:
 
 
 def git_snapshot(executor) -> dict[str, str | bool]:
-    def query(*arguments: str) -> str:
+    try:
         result = executor.run(
-            ["git", "-c", f"safe.directory={executor.binding.source}", *arguments],
+            [
+                "git",
+                "-c",
+                f"safe.directory={executor.binding.source}",
+                "rev-parse",
+                "--absolute-git-dir",
+                "--verify",
+                "HEAD",
+            ],
             cwd=executor.binding.source,
             capture=True,
             check=False,
             timeout=10,
         )
-        return result.stdout.strip() if result.returncode == 0 else ""
-
-    try:
-        directory = query("rev-parse", "--absolute-git-dir")
-        if not directory:
+        lines = result.stdout.splitlines()
+        # An unborn repository still prints its Git directory before --verify fails.
+        if not lines or not Path(lines[0]).is_absolute():
             return {}
-        git = Path(directory)
+        git = Path(lines[0])
+        reference = (git / "HEAD").read_text(encoding="utf-8").strip()
         busy = any(
             (git / item).exists()
             for item in (
@@ -102,11 +111,13 @@ def git_snapshot(executor) -> dict[str, str | bool]:
             )
         )
         return {
-            "head": query("rev-parse", "HEAD"),
-            "branch": query("symbolic-ref", "--short", "-q", "HEAD"),
+            "head": lines[1] if result.returncode == 0 and len(lines) == 2 else "",
+            "branch": reference.removeprefix("ref: refs/heads/")
+            if reference.startswith("ref: refs/heads/")
+            else "",
             "busy": busy,
         }
-    except ProjectError, OSError:
+    except ProjectError, OSError, UnicodeError:
         return {}
 
 
@@ -144,7 +155,8 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
     retry_after = 0.0
     ready()
     while not stop.wait(0.5):
-        if engine.intent() and not engine.intent().get("running"):
+        intent = engine.intent()
+        if intent and not intent.get("running"):
             return
         current_git = git_snapshot(engine.executor)
         try:

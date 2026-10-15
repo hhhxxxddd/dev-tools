@@ -219,3 +219,45 @@ Before a worker or task starts, an existing log of at least 10 MiB is rotated, r
 WSL prepare can supply Git, rsync, runtime-user tools and requested Docker/Compose prerequisites. Windows requires a configured, reachable native Docker engine.
 Business services such as Redis/MySQL are declared by the project rather than inferred or installed automatically. This repository operates independently and does not read or migrate wsl-devctl registrations.
 Rename preserves caches, state and Maven/Compose storage identities. A valid snapshot still allows stop/unregister when the current declaration is broken.
+## Toolbox diagnostics
+
+The following utilities run natively on Windows and WSL and support bidirectional `-e win|wsl` calls. The current platform is the default. They read target-native preferences and data without requiring a registered project, installing dependencies or requesting elevation. Running any toolbox command (`ssh`, `hosts`, `ports`, `which`, `net`) alone displays its help, equivalent to `-h`; required arguments for specific operations are still validated.
+
+### Port ownership
+
+```text
+dev-tools ports list
+dev-tools ports list --protocol tcp -e wsl
+dev-tools ports show 3000 -e win --json
+```
+
+Inspect actual TCP listeners and bound UDP sockets: IPv4/IPv6, address, port, PID, process name, readable executable path and project ownership. Windows uses native APIs; WSL reads `/proc`. Collectors filter ports and protocols before reading related process details. Declared project ports are not treated as observed listeners.
+
+Windows project attribution cross-checks active worker PIDs, process birth times and the current process tree. WSL uses live systemd service cgroup identities to remain independent of wall-clock adjustments. Ports and process names alone never establish ownership. Compose forwarding and unverified ownership remain unattributed. Permissions or processes exiting during a snapshot may leave PIDs null; results are retained with warnings and exit 1. No matching ports returns an empty inventory and exit 0. Processes are never terminated.
+
+### Command paths
+
+```text
+dev-tools which python
+dev-tools which node -e wsl --json
+```
+
+List candidates in the target process's PATH order, also respecting PATHEXT extension order on Windows. The first match is selected; duplicate paths are removed and statically resolvable links show their targets. Sources identify native mise, Scoop and virtual-environment directories; other candidates use PATH provenance. Windows application execution aliases have a null target when it cannot be resolved statically.
+
+Commands, shims, shell profiles and project code are never executed. Shell aliases, functions and dynamic shim targets are not evaluated, and the controller Python binding is not interpreted as a project runtime. This is a PATH inventory, which can differ from an interactive shell or a project's mise environment. A complete match exits 0; missing commands or partial reads exit 1.
+
+### Network connections
+
+```text
+dev-tools net info -e win
+dev-tools net info -e wsl --json
+dev-tools net check localhost:3000 -e win
+dev-tools net check https://example.com/health -e wsl --timeout 5
+dev-tools net check [::1]:3000 --json
+```
+
+`info` reports target-native DNS servers and environment proxies with credentials hidden. Windows also reports selected networking declarations in `.wslconfig`; WSL reports its effective networking mode when native `wslinfo` is available. Declared and effective settings remain distinct; unavailable observations stay unknown. Proxy information comes only from environment variables and does not represent every application's or Windows system proxy's effective configuration.
+
+`check` connects directly: host/port targets probe DNS/TCP; HTTP URLs continue with HEAD; HTTPS URLs first verify TLS and certificates. HTTP 400 or higher fails. Redirects are not followed, bodies are not read and GET is never substituted. URL query parameters are sent but not echoed; embedded user credentials are rejected. Displayed environment proxies are diagnostic context and are not used for the connection.
+
+`--timeout` bounds each stage to 1–60 seconds, default 5. Total time may span several stages. DNS runs in an isolated standard-library child process, HTTP has a total stage deadline, and subsequent stages are skipped after failure. Success exits 0, any failed stage exits 1 and invalid arguments exit 2. DNS, proxies, hosts, firewall and WSL configuration are never modified.

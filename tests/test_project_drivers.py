@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from dev_tools.projects.config import parse_project
 from dev_tools.projects.drivers import (
@@ -26,6 +26,20 @@ from dev_tools.workflows import PROJECT_ISOLATION_CONFIG
 
 
 class DriverTests(unittest.TestCase):
+    def test_compose_health_timeout_is_bounded_and_reports_unhealthy(self):
+        from dev_tools.projects.engine import _probe
+
+        service = parse_project(
+            {"schema": 1, "name": "demo", "services": {"stack": {"driver": "compose"}}},
+            "windows",
+        ).services["stack"]
+        executor = Mock()
+        executor.resolve.return_value = (["docker", "compose", "ps"], Path.cwd(), {})
+        executor.run.side_effect = ProjectError("timeout")
+        with patch("dev_tools.projects.drivers.compose_command"):
+            self.assertEqual(_probe(service, executor), "unhealthy")
+        self.assertEqual(executor.run.call_args.kwargs["timeout"], 5)
+
     def test_compose_health_accepts_json_lists_and_lines_and_honors_tcp_probe(self):
         from dev_tools.projects.engine import _probe
 

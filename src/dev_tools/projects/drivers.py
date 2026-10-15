@@ -201,11 +201,18 @@ def compose_command(binding: ProjectBinding, service: ServiceSpec, *arguments: s
 
 
 def run_compose(
-    executor, service: ServiceSpec, *arguments: str, capture: bool = False, check: bool = True
+    executor,
+    service: ServiceSpec,
+    *arguments: str,
+    capture: bool = False,
+    check: bool = True,
+    timeout: float | None = None,
 ):
     argv, cwd, environment = executor.resolve(
         compose_command(executor.binding, service, *arguments),
         workdir=service.workdir,
         additions=service.env,
     )
-    return executor.run(argv, cwd=cwd, env=environment, project=False, capture=capture, check=check)
+    return executor.run(
+        argv, cwd=cwd, env=environment, project=False, capture=capture, check=check, timeout=timeout
+    )

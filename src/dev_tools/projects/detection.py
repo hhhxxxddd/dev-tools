@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..i18n import message
+from ..metadata import _read_json
 from ..scanner import IGNORED_DIRECTORIES
 from .models import ProjectError
 
@@ -26,16 +27,19 @@ def _find(source: Path, names: set[str], max_depth: int = 4) -> list[Path]:
             and not name.startswith(".cache")
             and depth < max_depth
             and not (current_path / name).is_symlink()
+            and not (current_path / name).is_junction()
         ]
         for name in files:
-            if name in names and not (current_path / name).is_symlink():
-                result.append(current_path / name)
+            if name in names:
+                path = current_path / name
+                if not path.is_symlink() and path.is_file():
+                    result.append(path)
     return sorted(result, key=lambda path: (len(path.relative_to(source).parts), str(path)))
 
 
 def _package_details(path: Path, boundary: Path) -> tuple[str | None, str]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
+        value = _read_json(path)
     except (OSError, json.JSONDecodeError) as exc:
         raise ProjectError(message("cannot inspect {path}: {exc}", path=path, exc=exc)) from exc
     dependencies: dict[str, Any] = {}

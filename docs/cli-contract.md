@@ -8,7 +8,7 @@
 
 环境参数为 `-e win|wsl`，所有命令省略时使用当前平台，包括 list、config、sysinfo、report 和 self。显式环境在同端和跨端均生效，支持放在命令前后。跨端读取目标侧配置，不传递调用端 --config；Windows hosts 的实际操作仍只支持 win，指定 wsl 明确报错。项目名可以省略，但当前目录必须唯一匹配注册的源码或工作目录；多重匹配不会猜测。`list --all` 不能与显式环境参数同时使用。
 
-`dev-tools ssh` 与 `dev-tools hosts` 不带子命令时显示对应帮助，等同于加 `-h` 或 `--help`，成功退出 0；显式 `-e` 查询目标端帮助。
+工具箱命令 `dev-tools ssh|hosts|ports|which|net` 单独执行时显示对应帮助，等同于加 `-h` 或 `--help`，成功退出 0；显式 `-e` 查询目标端帮助。此行为由命令目录统一决定，具体子命令的必需参数仍会校验。
 
 `--json` 只选择输出格式。`scan` 只读扫描；`check` 只读检查完整准备计划；`init` 创建缺少的配置；`prepare`、`start` 执行准备。没有公开的 `--dry-run`。
 
@@ -70,6 +70,16 @@
 `ssh show <别名> --json` 使用相同的 schema_version/action/environment，operation 为 show，以单个 host 对象替代 hosts 数组，另保留 files/warnings/complete；host 字段与 list 相同。show 仅做静态读取，不执行 ssh -G 或 Match exec。edit 使用声明原文件和目标侧编辑器，connect 调用目标原生 SSH；两者均不支持 JSON，缺少相应目标命令会在操作前明确报错。
 
 `hosts` 的 JSON 使用 `schema_version=3`、`action=hosts`、`operation=list|profiles|backups|use|off|restore`、`environment=windows` 和原生 `path`。`list` 提供 `entries/profile/invalid_lines/conflicts/complete`；每个条目有 `address/names/enabled/comment/line/profile`，冲突有 `domain/version/addresses/lines`。`profiles` 提供 `profiles` 数组，每项有 `name/path/entries/status`，状态为 `active|inactive|modified|invalid`。`backups` 提供备份记录数组（`id/before/after/operation/can_restore`），校验值为 SHA-256。写入操作提供布尔 `changed`、字符串或 null 的 `backup`、布尔或 null 的 `dns_flushed`。`hosts edit --json` 为参数错误。所有查询只读；写入校验失败退出 1，冲突或不完整的条目仍可在清单结果中检查。
+
+`ports`、`which`、`net` 均使用 `schema_version=3`、对应 `action`、`environment=windows|wsl`、布尔 `complete` 与字符串警告代码数组 `warnings`；支持两端原生执行与 `-e` 双向调用。旧目标端不支持时返回 `target_command_unsupported`，不自动部署。
+
+`ports list|show PORT --json` 提供 `operation/port/protocol/entries`；list 的 port 为 null，protocol 为 `all|tcp|udp`。条目含 `protocol/family/address/port/pid/process/executable/projects`，family 为 `ipv4|ipv6`；pid、process、executable 可为 null，projects 为 `{project,service}` 数组。查询为空仍完整成功；部分读取返回 1。
+
+`which COMMAND --json` 提供 `command/scope/found/candidates`，scope 固定 `path`。候选含 `path/resolved/origin/selected`，resolved 可为 null；仅第一项 selected=true。origin 为静态来源标记，例如 `mise|mise-shim|scoop|scoop-shim|venv|windows-app-alias|path`。不承诺 shell 或动态 shim 的最终执行目标。未找到或读取不完整返回 1。
+
+`net info --json` 提供 `hostname/dns_servers/proxies/proxy_scope/wsl_networking_mode/wsl_configuration`，proxy_scope 固定 `environment`；实际模式无法确定时为 null，Windows 声明另存于 wsl_configuration。代理项有 `variable/valid`，有效时另有 `scheme/host/port/credentials`；port 可为 null，credentials 为布尔，绝不输出用户名或密码。
+
+`net check TARGET --json` 提供 `target/host/port/connection_mode/timeout/proxies/stages/healthy`，connection_mode 固定 `direct`，target 不含 URL 查询参数。stages 为已执行阶段的顺序前缀（`dns/tcp/tls/http`，按协议取舍），各项含 `stage/status/code/duration_ms`，status 为 `ok|failed`；成功 DNS 可含 addresses，TCP 可含 peer，TLS 可含 version，HTTP 可含 http_status。失败后不再执行后续阶段；完整诊断与目标健康分开，探测失败时 complete=true、healthy=false、退出 1。阶段代码为 `ok|timeout|certificate_invalid|connection_refused|probe_failed|http_status`。
 
 ## 错误文档
 

@@ -124,6 +124,7 @@ class CommandCatalog:
         return parser
 
     def finish(self) -> None:
+        self.root.toolbox_commands = frozenset(name for name, _ in self.groups.get(t("工具箱"), []))
         helper = self.add_parser(
             "help", help=t("查看全部命令或某个命令的参数"), group=t("辅助命令"), project=False
         )

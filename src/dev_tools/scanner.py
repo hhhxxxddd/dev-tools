@@ -82,13 +82,18 @@ def _project_files(root: Path, max_depth: int = 4) -> list[Path]:
         directories[:] = [
             name
             for name in directories
-            if name not in IGNORED_DIRECTORIES and not name.startswith(".cache")
+            if name not in IGNORED_DIRECTORIES
+            and not name.startswith(".cache")
+            and not (base / name).is_symlink()
+            and not (base / name).is_junction()
         ]
         if depth >= max_depth:
             directories.clear()
         for name in files:
             if name in KNOWN_FILES or name == "maven-wrapper.properties":
-                result.append(base / name)
+                path = base / name
+                if not path.is_symlink() and path.is_file():
+                    result.append(path)
     return sorted(result)
 
 

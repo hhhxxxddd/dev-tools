@@ -92,7 +92,7 @@ def list_projects(environment: str, settings=None) -> list[dict]:
         try:
             engine = engine_for(environment, name)
             projects.append({**engine.status(), **project_columns(engine)})
-        except (ProjectError, OSError) as exc:
+        except (ValueError, OSError) as exc:
             projects.append(
                 {
                     "name": name,

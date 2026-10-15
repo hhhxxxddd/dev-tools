@@ -152,6 +152,25 @@ class SshTests(unittest.TestCase):
         self.write("Host from-home\n", self.home / ".ssh/parts/one.conf")
         self.assertEqual([host["name"] for host in self.collect()["hosts"]], ["from-home"])
 
+    def test_include_globs_stop_consuming_at_the_file_limit(self):
+        from dev_tools.ssh_config import MAX_FILES
+
+        self.write("Include parts/*.conf\nHost stable\n")
+        consumed = []
+
+        def filenames(_):
+            for index in range(MAX_FILES + 2):
+                consumed.append(index)
+                if index > MAX_FILES:
+                    self.fail("Include glob consumed beyond the read limit")
+                yield str(self.home / f".ssh/parts/{index}.conf")
+
+        with patch("dev_tools.ssh_config.glob.iglob", side_effect=filenames):
+            value = self.collect()
+        self.assertEqual(len(consumed), MAX_FILES + 1)
+        self.assertFalse(value["complete"])
+        self.assertIn("scan_limit", [item["code"] for item in value["warnings"]])
+
     def test_match_exec_and_proxy_commands_are_never_executed_or_echoed(self):
         marker = self.root / "executed"
         self.write(

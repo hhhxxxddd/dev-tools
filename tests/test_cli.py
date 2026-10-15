@@ -303,7 +303,7 @@ class CliTests(unittest.TestCase):
                     self.assertIn("Name", header)
                     self.assertIn("State", header)
                     environment_column = header.index("Environment")
-                for row, case in zip(lines[3:], cases):
+                for row, case in zip(lines[3 : 3 + len(cases)], cases, strict=True):
                     self.assertEqual(row.index(environment_label), environment_column)
                     self.assertIn(case[-2] if language == "zh" else case[-1], row)
                     self.assertTrue(row.endswith(case[-2] if language == "zh" else case[-1]), row)

@@ -416,10 +416,15 @@ class HostsTests(unittest.TestCase):
 $ErrorActionPreference="Stop"
 . $Helper
 Initialize-DevToolsHostsNative
+$principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { [DevToolsHostsNative]::EnableOwnerRestore() }
+$seed=Get-Acl -LiteralPath $Target
+$seed.SetGroup([Security.Principal.WindowsIdentity]::GetCurrent().User)
+Set-Acl -LiteralPath $Target -AclObject $seed
 $acl=Get-Acl -LiteralPath $Target
 Set-DevToolsHostsContent $Target ([IO.File]::ReadAllBytes($Content)) $Expected
 $updated=Get-Acl -LiteralPath $Target
-if ($updated.Owner -ne $acl.Owner -or $updated.Group -ne $acl.Group -or $updated.AccessToString -ne $acl.AccessToString -or $updated.AreAccessRulesProtected -ne $acl.AreAccessRulesProtected) { throw "ACL changed" }
+if ($updated.Owner -ne $acl.Owner -or $updated.Group -ne $acl.Group -or $updated.AccessToString -ne $acl.AccessToString -or $updated.AreAccessRulesProtected -ne $acl.AreAccessRulesProtected) { throw "ACL changed: $($acl.Sddl) -> $($updated.Sddl)" }
 try { Set-DevToolsHostsContent $Target ([IO.File]::ReadAllBytes($Content)) $Expected; throw "expected conflict" } catch { if ($_.Exception.Message -ne "hosts_changed") { throw } }
 """,
             encoding="utf-8",

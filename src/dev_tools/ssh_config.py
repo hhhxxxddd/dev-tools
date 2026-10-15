@@ -7,6 +7,7 @@ import os
 import re
 import stat
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 
 MAX_FILES = 128
@@ -202,7 +203,11 @@ class Inventory:
                     )
                     if not include.is_absolute():
                         include = base / include
-                    for filename in sorted(glob.iglob(str(include))):
+                    filenames = list(islice(glob.iglob(str(include)), MAX_FILES + 1))
+                    if len(filenames) > MAX_FILES:
+                        self.warn("scan_limit", path, line)
+                        directive.includes.append([Directive("unknown", [], path, line)])
+                    for filename in sorted(filenames[:MAX_FILES]):
                         directive.includes.append(self.read(Path(filename), base, (*stack, path)))
         self._cache[path, base] = directives
         return directives

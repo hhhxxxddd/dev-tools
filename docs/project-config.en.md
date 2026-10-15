@@ -151,7 +151,7 @@ Health supports:
 - http: a URL beginning with http:// or https://.
 - timeout: readiness wait in seconds, default 15, greater than 0 and at most 300.
 
-When both TCP and HTTP are declared, both must succeed. Native processes without a probe have health unknown; process readiness and confirmed health are reported separately. Compose also checks container state and container-reported health.
+When both TCP and HTTP are declared, both must succeed. Native processes without a probe have health unknown; process readiness and confirmed health are reported separately. Compose also checks container state and container-reported health. Each container-state query is limited to 5 seconds; failure or timeout reports unhealthy.
 
 ## Native driver options
 

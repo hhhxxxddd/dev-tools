@@ -194,6 +194,21 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(command[-1], "extra")
         self.assertNotIn("managed", command)
 
+    def test_disabled_refresh_never_queries_extra_npm_updates(self):
+        runner = FakeRunner(
+            {
+                "mise ls": {"status": "ok", "output": '{"npm:managed":[]}'},
+                "npm list": {
+                    "status": "ok",
+                    "output": '{"dependencies":{"managed":{},"extra":{}}}',
+                },
+            }
+        )
+        result = collect_report("/nonexistent/config.toml", refresh=False, runner=runner)
+        self.assertEqual(result["collectors"]["npm_outdated"]["status"], "skipped")
+        self.assertFalse(any("outdated" in command for command in runner.calls))
+        self.assertIn(["npm", "list", "-g", "--depth=0", "--json"], runner.calls)
+
     def test_report_does_not_invoke_removed_cli_management(self):
         runner = FakeRunner()
         value = collect_report("/nonexistent/report.json", refresh=False, runner=runner)

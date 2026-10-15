@@ -8,7 +8,7 @@ This contract applies from 0.5.0. Commands, exit codes and JSON outputs are publ
 
 The environment option is `-e win|wsl`. Every command defaults to the current platform, including list, config, sysinfo, report and self. Explicit targets work locally and across platforms, before or after the command. Cross-platform execution reads target-side configuration without forwarding the caller's --config. Windows hosts actions still support only win and reject wsl explicitly. Project names may be omitted only when the current directory uniquely matches a registered source or workspace; ambiguous matches are never guessed. `list --all` cannot be combined with an explicit environment option.
 
-Without a subcommand, `dev-tools ssh` and `dev-tools hosts` display their group's help, equivalent to `-h` or `--help`, and exit 0. An explicit `-e` queries the target's help.
+Running `dev-tools ssh|hosts|ports|which|net` alone displays the corresponding help, equivalent to `-h` or `--help`, and exits 0. An explicit `-e` queries the target's help. The command catalog applies this rule to all toolbox commands; required arguments for specific subcommands are still validated.
 
 `--json` selects output format only. `scan` reads declarations; `check` inspects the complete preparation plan read-only; `init` creates missing configuration; `prepare` and `start` execute preparation. There is no public `--dry-run`.
 
@@ -70,6 +70,16 @@ Main auxiliary fields: config provides `path/state/settings/origins/errors`, wit
 `ssh show <ALIAS> --json` uses the same schema_version/action/environment, operation=show, a single host object instead of the hosts array, and files/warnings/complete. Host fields match list. Show reads static configuration without executing ssh -G or Match exec. Edit opens the declaration file with the target editor; connect invokes native SSH on the target. Both reject JSON; unsupported target commands fail explicitly before the operation.
 
 `hosts` JSON uses `schema_version=3`, `action=hosts`, `operation=list|profiles|backups|use|off|restore`, `environment=windows` and native `path`. `list` provides `entries/profile/invalid_lines/conflicts/complete`; entries have `address/names/enabled/comment/line/profile`; conflicts have `domain/version/addresses/lines`. `profiles` contains records with `name/path/entries/status`, where status is `active|inactive|modified|invalid`. `backups` contains transaction records `id/before/after/operation/can_restore`, with SHA-256 checksums. Writes return boolean `changed`, string-or-null `backup` and boolean-or-null `dns_flushed`. `hosts edit --json` is an argument error. Queries are read-only; write validation failures exit 1, while conflict or incomplete diagnostics remain available in inventory results.
+
+`ports`, `which` and `net` use `schema_version=3`, the corresponding `action`, `environment=windows|wsl`, boolean `complete` and a string-code `warnings` array. Native execution and bidirectional `-e` calls are supported. Unsupported older targets return `target_command_unsupported` without automatic deployment.
+
+`ports list|show PORT --json` provides `operation/port/protocol/entries`; list uses port=null and protocol is `all|tcp|udp`. Entries contain `protocol/family/address/port/pid/process/executable/projects`, with family `ipv4|ipv6`; pid, process and executable may be null. Projects is an array of `{project,service}`. An empty complete inventory succeeds; partial reads exit 1.
+
+`which COMMAND --json` provides `command/scope/found/candidates`, with scope fixed to `path`. Candidates contain `path/resolved/origin/selected`; resolved may be null and only the first candidate is selected. Static origin markers include `mise|mise-shim|scoop|scoop-shim|venv|windows-app-alias|path`. The final shell or dynamic-shim execution target is not promised. Missing commands and partial reads exit 1.
+
+`net info --json` provides `hostname/dns_servers/proxies/proxy_scope/wsl_networking_mode/wsl_configuration`, with proxy_scope fixed to `environment`. Unknown effective modes are null; Windows declarations are stored separately in wsl_configuration. Proxy entries contain `variable/valid`; valid entries also include `scheme/host/port/credentials`, with nullable port and boolean credentials. Usernames and passwords are never emitted.
+
+`net check TARGET --json` provides `target/host/port/connection_mode/timeout/proxies/stages/healthy`, with connection_mode fixed to `direct` and URL query parameters omitted from target. Stages form the executed protocol-dependent prefix of `dns/tcp/tls/http`. Each has `stage/status/code/duration_ms`, status=`ok|failed`; successful DNS may include addresses, TCP peer, TLS version, and HTTP http_status. Failure skips subsequent stages. Completeness and health are distinct: a failed probe has complete=true, healthy=false and exit 1. Stage codes are `ok|timeout|certificate_invalid|connection_refused|probe_failed|http_status`.
 
 ## Error documents
 

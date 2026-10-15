@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import tomllib
 from pathlib import Path
 from typing import Any
 
 from ..i18n import message
-from .config import parse_project
+from ..metadata import _read_json
+from .config import _strings, _table, parse_project
 from .detection import (
     _find,
     _frontend_port,
@@ -70,7 +70,8 @@ def discover_project(
         identifiers[name] = identity
         return name
 
-    compose_files = _find(root, COMPOSE_NAMES)
+    metadata = _find(root, COMPOSE_NAMES | {"package.json", "pom.xml", "pyproject.toml"})
+    compose_files = [path for path in metadata if path.name in COMPOSE_NAMES]
     if runtime not in {"auto", "host", "compose"}:
         raise ProjectError(message("runtime must be auto, host or compose"))
     if runtime == "compose" and not compose_files:
@@ -94,8 +95,8 @@ def discover_project(
         parse_project(raw, "windows")
         parse_project(raw, "wsl")
         return raw
-    for package in _find(root, {"package.json"}):
-        value = json.loads(package.read_text(encoding="utf-8-sig"))
+    for package in (path for path in metadata if path.name == "package.json"):
+        value = _read_json(package)
         framework, manager = _package_details(package, root)
         workspace, classic = _package_root(package, root, manager)
         task = identifier("install-node", workspace)
@@ -114,7 +115,7 @@ def discover_project(
                 "tools": ["node", *([] if manager == "npm" else [manager])],
             },
         )
-        scripts = value.get("scripts", {})
+        scripts = _table(value.get("scripts", {}), "package.json scripts")
         script = "dev" if "dev" in scripts else "start" if "start" in scripts else ""
         if not script:
             continue
@@ -139,7 +140,7 @@ def discover_project(
             "health": {"tcp": port} if port else {},
             "restart": "on-failure",
         }
-    poms = _find(root, {"pom.xml"})
+    poms = [path for path in metadata if path.name == "pom.xml"]
     for pom in poms:
         ancestors = [
             item for item in poms if item.parent == pom.parent or item.parent in pom.parents
@@ -224,7 +225,7 @@ def discover_project(
             "resource_task": build_tasks[1],
             "structural_task": build_tasks[2],
         }
-    for path in _find(root, {"pyproject.toml"}):
+    for path in (path for path in metadata if path.name == "pyproject.toml"):
         value = tomllib.loads(path.read_text(encoding="utf-8"))
         workspace, use_uv = _python_root(path, root)
         relative = workspace.relative_to(root).as_posix()
@@ -261,7 +262,8 @@ def discover_project(
                     "python": python,
                 },
             )
-        dependencies = value.get("project", {}).get("dependencies", [])
+        project = _table(value.get("project", {}), "pyproject.toml project")
+        dependencies = _strings(project.get("dependencies", []), "project dependencies")
         if not any(str(item).lower().startswith("fastapi") for item in dependencies):
             continue
         key = identifier("python", path.parent)

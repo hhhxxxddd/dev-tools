@@ -129,7 +129,7 @@ def smoke():
         registered = []
         with patch.dict(os.environ, environment, clear=True):
             try:
-                for index, project in enumerate(names):
+                for project in names:
                     source = root / project
                     source.mkdir()
                     services = {}

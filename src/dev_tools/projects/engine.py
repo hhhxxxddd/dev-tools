@@ -21,7 +21,12 @@ from .registry import read_json, write_json
 
 def _probe(service, executor) -> str:
     if service.driver == "compose":
-        result = run_compose(executor, service, "ps", "--format", "json", capture=True, check=False)
+        try:
+            result = run_compose(
+                executor, service, "ps", "--format", "json", capture=True, check=False, timeout=5
+            )
+        except ProjectError, OSError:
+            return "unhealthy"
         try:
             value = json.loads(result.stdout)
             containers = value if isinstance(value, list) else [value]
@@ -70,14 +75,15 @@ class ProjectEngine:
 
     def plan(self, *, force=False) -> PreparationPlan:
         declared = load_project(self.binding.source, self.binding.environment)
+        state = self.state()
         spec, baseline = discovery_plan(
-            declared, self.binding.source, self.state(), self.binding.environment
+            declared, self.binding.source, state, self.binding.environment
         )
         return preparation_plan(
             spec,
             self.binding,
             self.backend,
-            state=self.state(),
+            state=state,
             discovery_baseline=baseline,
             configuration_update=spec.raw != declared.raw,
             force=force,
@@ -282,12 +288,12 @@ class ProjectEngine:
                 self.backend.start(name)
             # Initial snapshots on mounted filesystems can take tens of seconds.
             deadline = time.monotonic() + 120
-            while self.backend.phase(name).get("phase") != "running":
+            while True:
+                phase = self.backend.phase(name).get("phase")
+                if phase == "running":
+                    break
                 self._check_intent(intent_token)
-                if (
-                    self.backend.phase(name).get("phase") == "failed"
-                    or time.monotonic() >= deadline
-                ):
+                if phase == "failed" or time.monotonic() >= deadline:
                     raise ProjectError(
                         message(
                             "monitor {name} failed to start; inspect project logs",

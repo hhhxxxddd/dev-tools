@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.2](https://img.shields.io/badge/Version-0.5.2-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.3](https://img.shields.io/badge/Version-0.5.3-blue)](CHANGELOG.md)
 
 A nearly seamless development deployment experience for Windows and WSL: discover dependencies, prepare environments, start services, and follow code and dependency declarations.
 Add, remove, or upgrade dependencies and keep developing as project configuration synchronizes them automatically. A good fit for fast-moving Vibe Coding projects.
@@ -86,40 +86,24 @@ Omit `-e` for the current platform; add `-e win` / `-e wsl` to operate on either
 | `dev-tools config edit` | Edit local preferences |
 | `dev-tools ssh list` | List SSH hosts; show inspects sources, edit opens configuration, connect logs in |
 | `dev-tools hosts list` | Inspect Windows hosts, enabled states and conflicts |
+| `dev-tools ports list` | Inspect actual listening ports and processes; `show 3000` locates a conflict |
+| `dev-tools which python` | Inspect command candidates and link targets on the target PATH |
+| `dev-tools net info` | Inspect DNS, environment proxies and WSL networking; `check HOST:PORT` diagnoses a connection |
 | `dev-tools upgrade` | Update the tool itself |
 | `dev-tools -v` / `dev-tools help` | Show the version or help |
 
-Omit the project name in a directory that uniquely matches it; replace the sample project and service names.
-`list` defaults to the current environment; `-e win` / `-e wsl` selects a target, and `list --all` combines both. Columns are name, environment, ports, type and state.
-Terminal errors are red and notices yellow; running is green, recovery pending yellow and stopped gray. `start` shows stages and elapsed time, with updates every 5 seconds during long operations.
-`start --all` starts projects on the current or selected side, skipping projects with active workers.
-Updates prompt to stop affected running projects and restore them afterward. Enter `Y`, or use `--yes`; `dev-tools upgrade -e wsl` updates WSL.
-`config edit -e win` edits Windows preferences, `sysinfo -e wsl` queries WSL, and `self status -e win` inspects Windows deployment. Cross-platform commands read target-side configuration; installations and caches remain separate. `hosts` actions currently support Windows only.
-Chinese is the default; set `language = "en"` through `config` for English.
-Running `dev-tools ssh` or `dev-tools hosts` displays that group's help, just like adding `-h`.
-
-SSH uses existing configuration for inspection, source editing and native connections; no project registration is needed:
+Omit the project name in a directory that uniquely matches it. `list --all` combines both environments; `start --all` starts inactive projects in the selected environment.
+Running `ssh`, `hosts`, `ports`, `which` or `net` alone displays its help. Detailed commands are in [Operation](docs/usage.en.md).
 
 ```text
-dev-tools ssh list
-dev-tools ssh show my-server
-dev-tools ssh edit my-server
-dev-tools ssh connect my-server -e wsl
+dev-tools ports show 3000 -e win
+dev-tools which python -e wsl
+dev-tools net check http://localhost:3000/health -e wsl
 ```
 
-`list` supports keyword filtering; `list/show` support `--json`. Complex conditions are marked “Needs evaluation.” `edit` opens the declaration file, or the user config when no alias is given. Connections use the target's native SSH. Queries remain read-only; keys and configuration stay separate on each side. See [SSH usage](docs/usage.en.md#ssh).
-
-Edit Windows hosts directly, or save and switch development profiles:
-
-```text
-dev-tools hosts edit             # Edit current hosts
-dev-tools hosts edit dev         # Create or edit the dev profile
-dev-tools hosts use dev          # Activate; replace only the managed block
-dev-tools hosts off              # Disable; keep manual entries
-dev-tools hosts restore          # Restore the latest matching backup
-```
-
-Save and close the editor, then press Enter in the terminal. Viewing and profile editing need no elevation; system writes request Windows administrator permission when needed and create backups. `hosts profiles` lists profiles; `hosts backups` lists backups. From WSL, explicitly add `-e win`. See [operation](docs/usage.en.md#windows-hosts).
+Port and PATH queries are read-only. Network diagnostics use direct connections and check DNS, TCP, TLS and HTTP separately. `hosts` manages Windows only; system writes request elevation when needed and create backups.
+Enter `Y`, or add `--yes`, to stop affected projects and restore them after an update; `dev-tools upgrade -e wsl` upgrades WSL.
+Chinese is the default. Set `language = "en"` through `dev-tools config edit` for English. Configuration and caches remain native to each environment.
 
 ## Documentation
 

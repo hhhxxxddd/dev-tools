@@ -219,3 +219,46 @@ worker 和任务启动前，已有日志达到 10 MiB 时轮转，最多保留 `
 WSL prepare 可补齐 Git、rsync、运行用户工具及请求的 Docker/Compose；Windows 使用已配置且可达的原生 Docker 引擎。
 Redis/MySQL 等业务服务由项目自己声明，不自动推断或安装。本仓库独立运行，不读取或迁移 wsl-devctl 的注册信息。
 重命名保留缓存、状态、Maven/Compose 存储身份；配置损坏时仍可依据有效快照停止或取消注册。
+
+## 工具箱诊断
+
+以下命令均可在 Windows 和 WSL 原生运行，也可通过 `-e win|wsl` 双向调用。默认查询当前平台，使用目标端配置与原生数据，不要求注册项目，不安装依赖或申请提权。工具箱命令 `ssh`、`hosts`、`ports`、`which`、`net` 单独执行均显示帮助，等同于加 `-h`；具体操作的必需参数仍会校验。
+
+### 端口占用
+
+```text
+dev-tools ports list
+dev-tools ports list --protocol tcp -e wsl
+dev-tools ports show 3000 -e win --json
+```
+
+查询实际 TCP 监听端口与已绑定的 UDP 端口，包含 IPv4/IPv6、地址、端口、PID、进程名称、可读取的可执行文件路径与项目归属。Windows 使用原生 API，WSL 读取 `/proc`，按端口与协议过滤后采集关联进程；不依据项目声明猜测实际监听情况。
+
+项目归属在 Windows 通过活动 worker 的 PID、启动时间及当前进程树交叉匹配，在 WSL 使用当前 systemd 服务的 cgroup 身份，避免系统时间调整影响匹配；不凭端口或进程名猜测。Compose 转发及无法确认的进程保持空归属。权限不足或快照期间进程退出可能使 PID 为空，此时保留端口、显示警告并返回 1。没有匹配端口返回空清单和 0。本命令不结束进程。
+
+### 命令路径
+
+```text
+dev-tools which python
+dev-tools which node -e wsl --json
+```
+
+按目标端当前进程的 PATH 顺序列出候选，Windows 同时遵循 PATHEXT 的扩展名顺序。第一项标记为命中；重复路径合并，链接展示可静态解析的落点。来源根据原生 mise、Scoop、虚拟环境目录标识，其他候选保留为 PATH 来源。Windows 应用执行别名不能静态解析落点时为 null。
+
+不执行命令、shim、shell profile 或项目代码，不求值 shell 别名、函数及动态 shim，也不将控制程序的 Python 绑定当作项目的运行时。此结果描述 PATH 候选，不保证与交互 shell 或项目 mise 执行环境完全一致。找到且完整返回 0，未找到或读取不完整返回 1。
+
+### 网络连接
+
+```text
+dev-tools net info -e win
+dev-tools net info -e wsl --json
+dev-tools net check localhost:3000 -e win
+dev-tools net check https://example.com/health -e wsl --timeout 5
+dev-tools net check [::1]:3000 --json
+```
+
+`info` 查看目标端 DNS 服务器与环境代理，隐藏代理凭据。Windows 额外展示 `.wslconfig` 中选定的网络声明；WSL 在原生 `wslinfo` 可用时报告实际网络模式。声明与实际模式分别呈现，无法探测时保留未知，不推断默认值。代理信息只来自环境变量，不代表所有应用或 Windows 系统代理的最终生效配置。
+
+`check` 使用直连：主机和端口测试 DNS/TCP，HTTP 地址继续发送 HEAD，HTTPS 地址先验证证书和 TLS。HTTP 400 及以上返回失败，不跟随重定向、不读取正文，不自动改用 GET；URL 查询参数发送到目标但不回显，地址中不允许携带用户凭据。显示的环境代理仅供排查，连接测试不使用它们。
+
+`--timeout` 为每个阶段的上限，范围 1～60 秒，默认 5 秒；总耗时可能为多个阶段之和。DNS 在隔离的标准库子进程中执行，HTTP 阶段也限制总时长，失败后不执行后续阶段。成功返回 0，任一阶段失败返回 1，参数错误返回 2。不会修改 DNS、代理、hosts、防火墙或 WSL 配置。

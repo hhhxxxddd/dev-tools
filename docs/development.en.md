@@ -10,6 +10,8 @@ src/dev_tools/
   settings.py, i18n.py, locales/           Controller preferences and translations
   scanner.py, metadata.py, versions.py     Static metadata and version discovery
   project_models.py, workflows.py          Scan models, initialization and mise isolation
+  ssh.py, ssh_config.py, hosts*.py          SSH and Windows hosts utilities
+  toolbox/                                Port, PATH and network diagnostics with native collectors
   projects/                               Declarations, plans, execution, drivers, lifecycle and workers
   runtimes/router.py                      Cross-environment command and path transport
   runtimes/platforms/                     Native storage, users, sync, processes and systemd
@@ -51,7 +53,24 @@ Run `tests/integration/root_windows_transport.py` as WSL root. It isolates the c
 
 `tests/integration/ssh_smoke.py` uses isolated Win/WSL controllers, SSH configuration, editors and interactive clients to verify real bidirectional process chains, editing of Include source files, stdin and native session exit codes. It does not read real SSH configuration, use keys or connect to external servers.
 
+## Performance and boundaries
+
+Ruff also checks import ordering, common mistakes and modern Python syntax. Scanning and monitoring skip symlinks, Windows directory junctions and nonregular metadata files. Tests cover malformed declarations, isolated registration failures, unborn Git repositories, detached HEAD, packed refs and worktrees.
+
+Windows port collection calls IP Helper and Toolhelp APIs without third-party dependencies, filtering ports and protocols before reading owners and ancestors. WSL reads process details only for matching sockets, skipping PID and registration scans when no ports match. Discovery walks metadata once. Git monitoring uses one invocation per poll while retaining content fingerprints and in-progress operation checks.
+
+Measured locally on 2026-10-16 with Windows and Python 3.14.8: three runs per command through the same PowerShell entrypoint, reporting median end-to-end time including startup:
+
+| Query | Before | After |
+| --- | --- | --- |
+| No matching port | 8.58 s | 0.63 s |
+| All listening and bound ports | 8.16 s | 1.82 s |
+
+Process counts, caches and system load affect these results; they are not fixed latency guarantees. Native tests verify IPv4/IPv6, TCP/UDP and process identities. Ownership checks are retained and snapshots are not persistently cached.
+
 ## CI and releases
+
+`tests/integration/toolbox_smoke.py` uses isolated Windows/WSL controllers and temporary HTTP servers to verify native and bidirectional ports/which/net queries, actual socket PIDs, HEAD responses and query redaction. Business registrations and system network configuration are not modified.
 
 Pushes and Pull Requests run Python 3.14.8 unit/contract tests, Ruff, PowerShell parsing, Bash/ShellCheck, documentation/TOML checks and extracted-package entrypoint checks on Windows and Ubuntu. Run `python -m dev_tools.validation` to check versions, local links, bilingual section structure and TOML. Verification tools are pinned in `requirements-dev.txt`; GitHub Actions use reviewed commit SHAs.
 
@@ -59,4 +78,4 @@ A `vX.Y.Z` tag reuses these checks and builds official assets from a clean match
 
 Ubuntu adapter tests do not establish real WSL coverage. Before releasing, run the existing isolated WSL lifecycle/dependency/toolchain scripts and Windows-to-WSL controller/transport scripts, with systemd and installed native runtimes. The controller package check installs twice into temporary native directories and verifies retained bindings, registrations and state. Never use active registrations or middleware data as test fixtures.
 
-The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.2.zip`. Candidates may describe dirty sources; `--tag v0.5.2 --official` requires committed, clean, correctly tagged sources.
+The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.3.zip`. Candidates may describe dirty sources; `--tag v0.5.3 --official` requires committed, clean, correctly tagged sources.

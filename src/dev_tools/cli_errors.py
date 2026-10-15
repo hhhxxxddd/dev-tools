@@ -38,6 +38,9 @@ JSON_COMMANDS = frozenset(
         "self",
         "ssh",
         "hosts",
+        "ports",
+        "which",
+        "net",
     }
 )
 ERROR_MESSAGES = {

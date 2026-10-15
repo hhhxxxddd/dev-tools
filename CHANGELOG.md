@@ -2,17 +2,18 @@
 
 ## 未发布
 
-- 审查修复 hosts 备份元数据覆盖备份编号的问题；SSH 静态解析对齐 OpenSSH 的 Match ALL、ProxyCommand NONE 及禁用跳板后的代理优先级。
+## 0.5.3 - 2026-10-16
 
-- 直接运行 `dev-tools ssh` 或 `dev-tools hosts` 默认显示对应帮助，等同于 `-h`；支持指定目标环境，缺少实际操作参数时仍明确报错。
-
-- SSH 新增 show/edit/connect：只读详情与来源定位、原文件编辑和跳行、目标侧原生交互连接；支持双向操作，保留会话退出码，WSL sudo 使用原用户身份与已有 agent。修复 Windows 到 WSL 转发 -- 与特殊字符时被 PowerShell 误解析；只读探测不再消耗后续交互输入。
-
-- 统一默认当前环境与 -e win/wsl 双向操作；config/sysinfo/report 支持跨端，补齐 WSL 到 Windows 的更新和恢复，self update 可重新部署 Windows。list 改为默认当前侧，仅 --all 汇总两端；self status 改为按目标返回独立 schema_version=1 的部署状态。
-- 修复 Windows 启动读取语言时占用配置文件，导致编辑器无法保存；修复 WSL 转发带盘符的内联报告路径时被 PowerShell 拆分。
-- 修复 WSL root/sudo 清理 Windows PATH 后无法连接 Windows：按实际挂载发现 PowerShell 7，补充分项连接诊断及隔离注册、重命名、注销回归验证。
-- 新增只读 `ssh list [关键词]`，表格查看当前或指定 Windows/WSL 的已有 SSH 别名；支持 Include、默认值、条件配置提示和 JSON，不连接或执行 SSH 配置命令。
-- 新增 Windows `hosts list/edit/profiles/use/off/backups/restore`；托管区块切换、冲突提示、原生编辑器草稿、按需 UAC、权限保留与自动备份恢复，支持 WSL 显式 `-e win`。
+- 新增双环境工具箱 `ports list/show`、`which`、`net info/check`：实际端口与进程归属、静态 PATH 溯源、分阶段直连诊断；支持 JSON、有界超时和双向调用。
+- Windows 端口查询改用原生 IP Helper / Toolhelp API，按端口、协议及关联进程采集；WSL 无匹配端口时跳过进程扫描，仅读取匹配进程详情。
+- Git 监控每轮查询由 3 个进程合并为 1 个，兼容未提交仓库、分离 HEAD、packed refs 和 worktree；自动发现合并目录遍历，减少重复状态读取和快照排序。
+- 扫描与监控跳过目录联接、符号链接和非普通元数据文件；无效元数据返回校验错误，单个损坏注册不再阻断其他项目展示或端口归属。
+- 修复 `report --no-refresh` 仍查询额外 npm 包更新；限制 SSH Include 通配符展开，Compose 健康查询设置 5 秒超时。
+- 工具箱裸命令统一显示帮助；SSH 增加 show/edit/connect，定位原声明、编辑和原生交互连接，保留会话退出码；静态解析对齐 OpenSSH 代理优先级。
+- Windows hosts 支持托管方案、冲突提示、编辑草稿、按需 UAC、权限保留、自动备份与恢复；修复备份元数据覆盖编号。
+- 统一默认当前环境与 `-e win|wsl` 双向操作；`list --all` 汇总两端，config/sysinfo/report 和工具自身维护支持跨端；self status 返回目标部署状态（独立 schema_version=1）。
+- 修复 Windows 语言配置文件占用、含盘符的内联报告路径和特殊字符传输；WSL root/sudo 按实际挂载发现 Windows PowerShell，补齐更新恢复与隔离验证。
+- 加强导入排序、易错模式与 Python 现代语法检查，精简双语 README，更新接口约定、验证说明和发行说明。
 
 ## 0.5.2 - 2026-10-14
 
@@ -50,75 +51,3 @@
 - list 增加 --all，统一汇总 Windows 和配置的 WSL 发行版；同名项目按环境保留，一侧不可用时保留另一侧结果并报告失败。
 - 跨环境 list 通过 JSON 查询并由调用端统一渲染，避免两侧部署版本不同造成展示格式不一致。
 - Windows 部署 WSL 时记录 Windows 源码入口；原生 WSL 查询 Windows 时使用本机入口，避免执行 UNC 路径下的脚本。
-
-## 0.4.1 - 2026-10-09
-
-- report 增加 Windows/WSL mise 当前声明允许的更新查询，保留版本固定和发布冷却策略。
-- 增加 Microsoft Store、WSL Snap、Windows/WSL Rustup 采集器，记录结构化当前与目标版本；Store 未提供目标版本时保留未知。
-- 正确识别 Rustup 更新退出码 100、Snap revision 更新、工具缺失及解析失败；Store 非交互确认错误保留有效结果并标记 partial。
-- 更新默认采集器、本机配置模板和中英文文档；已有显式 collectors 列表保留原值，新项需手动启用。
-
-## 0.4.0 - 2026-10-09
-
-- 精简 CLI：移除 sync 和公开 build --kind；部署统一为 self update，prepare/build 移至进阶命令。
-- 按模块跟踪依赖解析与安装，服务参数变化不再重装依赖；构建拒绝错误确认未安装的运行时。
-- 修复首次启动失败后的监控恢复、WSL 回写权限和 JSON 混入第三方日志。
-- Windows 状态批量查询进程身份；README 以 Scoop 安装和自动依赖维护为主线。
-
-### 发行与改进
-
-- start 自动准备项目，运行期间跟进声明、锁文件、根级运行时和工作流变化；后台更新失败保留监控并自动恢复，stop 取消继续运行的意图。
-- 默认自动解析已知标准包管理器锁文件，WSL 只回写通过并发检查的锁文件；支持 dependency_mode=locked。init 生成 discovery=auto，持续增删模块并保留手改字段。
-
-- 精简中英文 README，突出依赖发现、热部署和完整命令示例；配置、运行和开发细节移到 docs。
-- 修复两平台打包排序与换行差异，WSL 部署包含 README 引用的更新记录；支持准备草稿后发布并更新 Scoop bucket。
-
-- 增加 self update/status：从 Windows 同版本部署 WSL；原生 WSL 可校验最新 Release 后更新；总览帮助提示缺失部署。
-- 增加可重复构建的版本包、SHA256、Scoop 清单和发行工作流；Scoop shim 替代旧 profile 标记块，更新/卸载检查活动 Windows worker。
-- WSL 更新拒绝覆盖活动 worker 使用的程序；安装和更新保留本机注册、偏好、状态、缓存与项目运行时。
-- list 默认以名称、环境、状态三列表格显示项目，按本机语言配置翻译并对齐中英文列；JSON 输出保持原结构。
-- 修复局部构建误更新准备指纹的问题：source/resource/structural 和指定服务的默认构建保留原状态，依赖变化后仍需完整准备，由 start 或后台自动补齐；完整 branch 构建继续执行准备任务并更新指纹。
-- 增加 sync_include，在保留原生依赖和输出的同时允许同步同名源码目录，例如 frontend/build。
-- 修复 POSIX Maven 将仓库参数中的引号当成路径内容的问题。
-- 修复未指定服务的 source/resource/structural 构建误用准备任务和结构构建任务；Compose 镜像只在 branch/structural 构建中重建。
-- prepare 恢复活动服务时补齐当前声明中的传递依赖，依赖启动失败仍保留恢复记录。
-- 合并两份根级 mise 配置的工具清单，继续拒绝同优先级版本冲突。
-- register --force 支持为同一源码和运行用户添加独立别名，保留冲突绑定；WSL 按解析后的运行用户检查重复注册。
-- 统一指纹、文件监控和 Maven Wrapper 解析中的路径形式，修复 Windows 长短路径造成的测试与集成结果差异。
-- 显式 pip 工作流不再被残留 uv.lock 的 uv 版本诊断阻断，实际使用的工具仍需根级声明。
-- WSL 入口在 systemd 未设置 HOME 时从账户信息定位本机配置。
-- Windows 后台 worker 沿用控制进程解析后的注册和状态目录，避免 MSIX 宿主与原生后台进程的目录差异导致启动失败。
-- WSL 真实生命周期测试使用独立的临时服务名，避免与已安装的 systemd 服务模板冲突。
-
-### 统一项目核心
-
-- Windows/WSL 共用项目声明、发现、准备计划、任务执行、服务生命周期和监控 worker；平台适配器只负责原生存储、用户、同步、进程与 systemd。
-- 用项目根 dev-tools.toml 描述任意命名的任务、服务、依赖图和构建策略；JSON schema 升为 3，项目 TOML schema 为 1。
-- 独立准备混合项目的 Node、Maven/Spring 和 Python 工作流，使用平台原生依赖、虚拟环境与缓存。
-- 静态 scan/init 保留现有声明；start、prepare 和后台维护通过统一准备流程安装根级 mise 运行时、平台依赖和框架产物。
-- 两侧共用健康检查、准备指纹、操作锁、失败恢复、分支监控和热构建；重命名保留原生存储身份。
-- WSL 使用独立部署、私有 Python 宿主和通用 systemd 模板；不依赖另一个仓库，不读取或迁移旧 wsl-devctl 注册。
-
-### CLI 与本机配置
-
-- 项目命令提升到顶层，环境参数使用 -e win/wsl，省略时选择当前平台；跨环境调用转换路径并保留当前目录。
-- 支持在唯一匹配的项目目录及子目录中省略名称；提供 list、show、rename、unregister，构建入口统一为 build。
-- PowerShell/Bash 共用命令定义和完整帮助；status 专用于项目状态，机器信息使用 sysinfo。
-- 移除旧机器级 doctor/status 包装；self 和安装器只部署控制程序宿主与入口，不管理用户全局 mise 默认配置。
-- 增加用户本机 TOML 配置和 config/edit/check；sysinfo、report、WSL 发行版与编辑器统一从配置解析。
-- 默认中文，语言仅通过配置切换 zh/en；默认编辑器为 Windows 记事本和 WSL vi。
-- 中英帮助与诊断集中管理；跨环境传递显示语言，保留第三方输出、JSON 字段和状态标识。
-- sysinfo 的有序清单控制说明与只读探测；report 支持根目录、采集器、深度、超时和刷新设置，原 sysinfo/report JSON 配置不再读取。
-
-### 文档与验证
-
-- 重写中英文 README，统一安装、工作流、命令、本机配置、平台边界和开发验证说明。
-- 增加中英文项目配置参考与示例索引，整理 TOML 模板；WSL 部署包含所引用的文档和示例。
-- 验证两平台相同的真实服务、热构建、资源重启、准备失败恢复和重命名场景，并增加双向调用与配置/语言传输验证。
-- 修正 bootstrap 的机器诊断提示，使用 sysinfo 和 mise doctor。
-
-## 0.2.0 - 2026-09-03
-
-- Windows 和 WSL 增加 dev-tools --version。
-- WSL bootstrap 以 root 执行特权安装，使安装无需交互式 sudo。
-- PowerShell 传入 WSL 的内嵌 Bash 脚本统一为 LF 换行。
