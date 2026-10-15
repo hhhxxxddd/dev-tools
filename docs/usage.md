@@ -2,6 +2,25 @@
 
 [English](usage.en.md) · [返回 README](../README.md)
 
+## 环境选择
+
+所有命令省略 `-e` 时操作当前平台；`-e win` / `-e wsl` 显式选择目标，两端写法一致。`-e` 可以放在命令前后，`--` 后的内容仍作为普通参数。
+
+```text
+dev-tools list
+dev-tools list --all
+dev-tools list -e win
+dev-tools config edit -e wsl
+dev-tools sysinfo -e win --json
+dev-tools report -e wsl --no-refresh --output report.json
+dev-tools self status -e win --json
+dev-tools upgrade -e win
+```
+
+配置、系统信息、报告和工具维护也支持双向操作。目标侧读取自己的配置与编辑器，调用端的 `--config` 不传给另一侧。跨端路径参数（项目目录、`--source`、报告 `--output`）按调用端解析并转换；已经是目标平台的绝对路径直接使用，报告文件可以尚不存在。Windows 到 WSL 的首次部署仍用 `self update -e wsl`。
+
+原生 WSL 的注册、启停、部署和恢复需要 `sudo`；Windows 发起 WSL 控制时自动选择 root。WSL 发起 Windows 操作沿用 Windows 用户权限，Linux root 不等于 Windows 管理员。`hosts` 目前仅支持 Windows：从 WSL 使用 `hosts … -e win`，选择 WSL 会明确提示不支持，不会改变操作目标。没有目标端部署时，普通命令报告连接或部署错误，查询不会自动安装。
+
 ## 三类配置与本机绑定
 
 | 文件 | 职责 | 保存位置 |
@@ -84,9 +103,84 @@ report 默认刷新，可能联网或更新本机索引；不会安装或升级�
 mise、Store、Snap、Rustup 更新查询输出结构化 updates；Rustup 的更新退出码 100 不作为失败，部分有效结果会保留。未知响应格式标记 parse-error，不据此报告全部最新。
 Store 的 `discovery` 保留批量原始输出和候选，`checks` 保留逐项状态、原始输出及 `update_available` 判定（true/false/null）。批量确认输入失败、候选数量不完整或逐项失败/超时时标记 partial；未确认项不列入 updates，也不视为最新。文本报告只展示确认结果，避免重复显示批量误报。
 
+## SSH
+
+直接输入 `dev-tools ssh` 显示帮助，等同于 `dev-tools ssh -h`；指定 `-e win|wsl` 时显示目标端帮助。
+
+```text
+dev-tools ssh list
+dev-tools ssh list my-server
+dev-tools ssh list -e win
+dev-tools ssh list -e wsl --json
+dev-tools ssh show my-server --json
+dev-tools ssh edit
+dev-tools ssh edit my-server -e win
+dev-tools ssh connect my-server -e wsl
+```
+
+省略 `-e` 操作当前平台。Windows 读取当前用户的 `~/.ssh/config` 和 `%PROGRAMDATA%/ssh/ssh_config`；WSL 读取调用用户的 `~/.ssh/config` 和 `/etc/ssh/ssh_config`，sudo 调用仍使用原用户的清单。查询不需要注册项目或管理员权限。
+
+表格包含别名、地址、用户、端口、跳板机和配置读取状态。关键词按别名、地址或用户进行不区分大小写的子串过滤。只列出具体的 `Host` 别名，通配符规则用于补齐默认值，不从 `known_hosts` 推测服务器清单。
+
+按用户配置、系统配置的顺序读取，首个生效值优先；支持全局和 Host 下的 `Include`、按文件名排序的通配文件、引号路径，以及 `~/`、`${HOME}`、已有环境变量、`%d` 和 `%u` 静态路径。相对 Include 以用户 `.ssh` 或系统 SSH 配置目录为基准。循环引用、超过 16 层嵌套、128 个文件、单文件超过 1 MiB、非 UTF-8 或无效配置保留可读取部分并返回 1。
+
+清单是静态配置视图；复杂 `Match` 条件、依赖主机的 Include 路径无法静态求值时明确提示，受影响字段为“待确认”，不执行 `ssh -G`、`Match exec` 或代理命令，也不读取私钥、连接服务器或写文件。未显式声明时地址使用别名、用户使用当前调用用户、端口使用 22。`ProxyCommand` 只显示标记，不显示命令内容。JSON 提供来源文件和行号；无法读取完整配置时 `complete=false`。
+
+`show <别名>` 精确匹配别名（不区分大小写），展示静态地址、用户、端口、代理标记及声明文件和行号；同名大小写冲突明确报错。它与 list 一样只读，不执行原生 SSH 或条件命令。
+
+`edit [别名]` 使用目标侧配置的现有编辑器。省略别名时打开该用户的 `~/.ssh/config`，首次编辑才创建文件；WSL 新文件为 0600、新建目录为 0700，保留已有权限。指定别名时打开其实际声明文件，包括 Include 文件，保留原有注释、换行和规则，不进行整份配置重写。VS Code、Cursor、Vim、Nano 等支持跳行的编辑器会定位声明行，其他编辑器显示文件和行号供查找。别名不存在时先用不带别名的 edit 添加。
+
+交互编辑后保存并关闭编辑器，回终端按 Enter 重新读取静态配置；识别到的问题以警告展示，返回 1 并保留编辑结果。这不是 OpenSSH 的完整语法或条件求值校验。用户配置通常无需提权；系统配置和只读 Include 文件仍需要现有写权限，命令不会自动提权。
+
+`connect <别名或目标>` 直接调用目标侧的 `ssh.exe` / `ssh`，也可连接未出现在静态清单中的目标。终端输入输出、主机指纹确认、密码、密钥与 agent 均由原生客户端处理，按其原生配置求值 Match、代理和连接行为。WSL sudo 调用以原用户身份连接，保留当前可用的 SSH_AUTH_SOCK；不跨端复制密钥或 agent。缺少原生客户端时提示在目标环境安装，不自动安装。
+
+`edit/connect` 不支持 `--json`。connect 保留原生客户端或会话退出码，包括连接失败的 255，Ctrl+C 为 130；其他命令继续使用统一 CLI 退出码。
+
+跨端 list/show 结果由调用端渲染；edit/connect 在目标侧执行，连接前只读检查目标命令是否存在。目标端尚未加入相应 SSH 操作时提示更新该端，不自动部署或升级。
+
+## Windows hosts
+
+直接输入 `dev-tools hosts` 显示帮助，等同于 `dev-tools hosts -h`，在 WSL 中也可查看。
+
+```text
+dev-tools hosts list
+dev-tools hosts list app.test --json
+dev-tools hosts edit
+dev-tools hosts edit dev
+dev-tools hosts profiles
+dev-tools hosts use dev
+dev-tools hosts off
+dev-tools hosts backups
+dev-tools hosts restore
+```
+
+此模块仅管理 Windows 系统 hosts，通过系统 API 定位文件；不修改 WSL 的 `/etc/hosts`。在 WSL 使用上述命令时显式加 `-e win`，所有方案、备份、编辑器和权限仍在 Windows 端处理，调用端配置文件不跨端传递。目标端需要包含 hosts 命令。
+
+`list [关键词]` 按 IP、域名或备注过滤，表格展示地址、域名、备注、所属方案与状态；注释中的合法映射标为已禁用，现有的同域名、同 IP 协议族地址冲突标黄。原有无效行保留并报告行号，读取不完整时退出 1；配置冲突本身不代表清单读取失败。查看、列方案和列备份不会创建文件、提权或刷新 DNS。
+
+`edit` 编辑当前 hosts，`edit dev` 编辑名为 dev 的方案，不立即启用。使用配置中的编辑器，其次 VISUAL、EDITOR，最后记事本；先编辑 UTF-8 草稿，保存并关闭编辑器后在终端按 Enter 提交，Ctrl+C 取消。不使用公开的 `--json` 编辑模式；需要脚本化写入时使用已保存方案的 `use --json`。校验失败、编辑器失败或文件在编辑期间被改动时保留草稿，拒绝覆盖。
+
+方案使用普通 hosts 文本，例如：
+
+```text
+# 本地开发
+127.0.0.1 app.test api.test
+::1 app.test
+```
+
+方案名为 1～64 个字母、数字、下划线或连字符，不能是 Windows 保留设备名。方案文件存放在 Windows 用户原生配置目录下的 `dev-tools/hosts/profiles/<名称>.hosts`（通常在 `%LOCALAPPDATA%`），不跟随 `--config` 改变位置，也不写入项目配置。方案必须使用有效 IP 和具体域名，可含注释和多个别名，不支持通配域名。IPv4、IPv6 可分别映射同一域名；同协议族的不同 IP 映射拒绝应用。
+
+`use dev` 校验方案和它与手工条目的冲突，再替换 `# BEGIN dev-tools hosts: dev` 至 `# END dev-tools hosts` 托管区块，其余条目与注释保留。已有的无关冲突或无效行不会阻止切换；直接编辑允许保留旧问题，禁止引入新的无效行或冲突。`off` 只移除该区块。`profiles` 标明已启用、未启用、无效或启用后有改动；修改方案文件后需再次 `use` 生效。区块标记损坏或重复时拒绝切换，可用 `edit` 修复。
+
+系统写入前展示差异并在 `dev-tools/hosts/backups` 保存原始字节及事务校验记录，无实际差异时不写文件、不备份、不提权。仅写入时按需弹出 UAC；原文件的编码、BOM、区块外换行和 Windows 权限得到保留，写入使用文件替换并刷新 DNS 缓存。单文件限制 10 MiB。安全软件拒绝时不修改安全设置；取消 UAC 或发生并发改动时拒绝写入。
+
+`restore [备份编号]` 默认选择与当前文件校验值匹配的最近备份，恢复前再次备份。若该备份之后还有其他改动，拒绝整文件覆盖，请根据 `backups` 中的记录手动合并。备份不自动删除。除交互 `edit` 外均支持 `--json`，它只改变输出格式；`use/off/restore --json` 仍执行真实修改。
+
 ## 生命周期与平台边界
 
-`dev-tools list` 默认只读汇总 Windows 和配置的 WSL 发行版，与 `list --all` 相同；`list -e win` / `list -e wsl` 查询单侧，同名注册按环境保留两行。输出由调用端按本机语言统一渲染，包含配置声明的端口与运行时类型；查询不会更新部署或改变项目运行状态。
+WSL 的 root 或 sudo 环境也可使用 `-e win` 查询、注册和控制 Windows 项目。即使 Linux PATH 不含 Windows 目录，也会根据实际磁盘挂载定位 PowerShell 7；必要时通过 Windows 自带 PowerShell 只读查询 Windows PATH 和安装记录，不读取用户 profile 或改动系统配置。WSL root 不会自动获得 Windows 管理员权限，Windows hosts 写入仍按需请求 UAC。命令为 `dev-tools hosts list -e win`（`hosts` 为复数）。
+
+`dev-tools list` 默认只读查询当前环境；`list -e win` / `list -e wsl` 查询指定侧。只有 `list --all` 汇总 Windows 和配置的 WSL 发行版，同名注册按环境保留两行。输出由调用端按本机语言统一渲染，包含配置声明的端口与运行时类型；查询不会更新部署或改变项目运行状态。
 表格列顺序为名称、环境、端口、类型、状态。交互终端中，运行中/正常为绿色，待恢复/启动中/部分运行为黄色，失败/异常为红色，已停止/未知为灰色；工具自身的错误为红色、操作提示为黄色。重定向输出或设置 `NO_COLOR` 时不添加颜色，JSON 保留原始状态标识和结构。
 汇总列表中，某一端不可用时以黄色提示，保留另一端的结果；JSON 仍返回 `complete=false`、`errors` 和退出码 1。`list -e wsl` / `list -e win` 只查指定端。两端安装副本分别更新，查询不会安装或更新另一端；版本相同也可用 `self update -e wsl` 重新部署当前 Windows 源码。
 `start`（含 `--all`）和 `restart` 在终端显示依赖分析、环境准备、同步、依赖/构建任务、服务启动、健康检查及监控启动的阶段与耗时；长步骤每 5 秒显示一次等待提示。进度写到 stderr，`--json` 使用原有 JSON 结果，后台维护不输出终端进度。任务原始输出仍可通过 `dev-tools logs my-app install --task` 查看，将 `install` 替换为实际任务名。

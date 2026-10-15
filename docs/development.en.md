@@ -45,6 +45,12 @@ Real verification scripts use temporary registrations, state and caches: `tests/
 
 [MIT License](../LICENSE)
 
+Run `tests/integration/root_windows_transport.py` as WSL root. It isolates the controller and Windows registrations, state and caches, verifying version/SSH/hosts queries plus registration, rename and unregister after sudo clears Windows PATH. The checkout must be on a mounted Windows drive. It reuses installed native Python and does not change system hosts or business registrations.
+
+`tests/integration/environment_smoke.py` runs on Windows and checks native defaults, explicit --all, bidirectional config/sysinfo/report/ssh/self, target-side editors and configuration isolation, Unicode output paths and isolated recovery records. It uses temporary preferences, registrations and state, without updating business projects or writing system hosts. `controller_update_smoke.py` verifies N leaves workers unchanged and Y redeploys and restores the original running subset on each platform; Windows uses an isolated Scoop directory to avoid editing the real profile.
+
+`tests/integration/ssh_smoke.py` uses isolated Win/WSL controllers, SSH configuration, editors and interactive clients to verify real bidirectional process chains, editing of Include source files, stdin and native session exit codes. It does not read real SSH configuration, use keys or connect to external servers.
+
 ## CI and releases
 
 Pushes and Pull Requests run Python 3.14.8 unit/contract tests, Ruff, PowerShell parsing, Bash/ShellCheck, documentation/TOML checks and extracted-package entrypoint checks on Windows and Ubuntu. Run `python -m dev_tools.validation` to check versions, local links, bilingual section structure and TOML. Verification tools are pinned in `requirements-dev.txt`; GitHub Actions use reviewed commit SHAs.

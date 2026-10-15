@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -44,9 +45,9 @@ class ProjectBulkTests(unittest.TestCase):
         self.assertEqual(engines[0].backend.events, [])
         self.assertIn("web", engines[2].backend.running)
 
-    def test_list_defaults_to_all_and_explicit_environment_limits_query(self):
+    def test_list_defaults_to_native_and_all_is_explicit(self):
         for arguments, expected in (
-            (["list", "--json"], ["windows", "wsl"]),
+            (["list", "--json"], ["windows" if os.name == "nt" else "wsl"]),
             (["list", "--all", "--json"], ["windows", "wsl"]),
             (["list", "-e", "wsl", "--json"], ["wsl"]),
             (["list", "-e", "win", "--json"], ["windows"]),

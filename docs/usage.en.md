@@ -2,6 +2,25 @@
 
 [中文](usage.md) · [Back to README](../README.en.md)
 
+## Environment selection
+
+Every command defaults to the current platform. Select `-e win` / `-e wsl` explicitly; both sides use the same syntax. Place `-e` before or after the command; content after `--` remains ordinary command data.
+
+```text
+dev-tools list
+dev-tools list --all
+dev-tools list -e win
+dev-tools config edit -e wsl
+dev-tools sysinfo -e win --json
+dev-tools report -e wsl --no-refresh --output report.json
+dev-tools self status -e win --json
+dev-tools upgrade -e win
+```
+
+Configuration, system information, reports and controller maintenance also work in both directions. Targets use their own configuration and editor; the caller's `--config` never crosses the boundary. Cross-platform path arguments (project directories, `--source` and report `--output`) resolve on the caller and are translated; already-native target absolute paths are retained, and report files need not exist yet. Initial Windows-to-WSL deployment still uses `self update -e wsl`.
+
+Native WSL registration, lifecycle, deployment and recovery require `sudo`; Windows selects root automatically for WSL control. Windows operations launched from WSL retain Windows user privileges: Linux root is not a Windows administrator. `hosts` currently supports Windows only: use `hosts … -e win` from WSL. Selecting WSL fails explicitly without switching targets. Ordinary commands report missing or unreachable target deployments; queries never install them automatically.
+
 ## Three configurations and native bindings
 
 | File | Responsibility | Location |
@@ -84,9 +103,84 @@ Explicit collection failures, timeouts, partial results, parse errors or reposit
 mise, Store, Snap and Rustup update queries provide structured updates. Rustup's update exit code 100 is not a failure, and partial valid results are retained. Unknown response formats are marked parse-error rather than reported as fully up to date.
 Store's `discovery` retains the raw bulk output and candidates; `checks` retains each query's status, raw output and `update_available` verdict (true/false/null). Rejected bulk confirmation input, incomplete candidate counts, or failed/timed-out verification mark the collector partial; unverified apps are neither included in updates nor reported as current. Text reports show confirmation results rather than repeating bulk false positives.
 
+## SSH
+
+Running `dev-tools ssh` displays help, equivalent to `dev-tools ssh -h`; `-e win|wsl` selects the target's help.
+
+```text
+dev-tools ssh list
+dev-tools ssh list my-server
+dev-tools ssh list -e win
+dev-tools ssh list -e wsl --json
+dev-tools ssh show my-server --json
+dev-tools ssh edit
+dev-tools ssh edit my-server -e win
+dev-tools ssh connect my-server -e wsl
+```
+
+Omit `-e` to operate on the current platform. Windows reads the current user's `~/.ssh/config` and `%PROGRAMDATA%/ssh/ssh_config`; WSL reads the invoking user's `~/.ssh/config` and `/etc/ssh/ssh_config`, retaining the original user under sudo. Queries need no project registration or administrator rights.
+
+The table shows alias, address, user, port, jump host and configuration status. The optional keyword is a case-insensitive substring filter on alias, address or user. Only concrete `Host` aliases are listed; wildcard rules supply defaults, and `known_hosts` is not used to infer servers.
+
+User configuration precedes system configuration, with the first applicable value winning. Supports global and Host-scoped `Include`, lexically sorted glob matches, quoted paths, `~/`, `${HOME}`, existing environment variables, and static `%d` and `%u` paths. Relative Includes use the user's `.ssh` or system SSH configuration directory. Cycles, nesting beyond 16 levels, more than 128 files, files exceeding 1 MiB, non-UTF-8 files or invalid syntax retain readable results and exit 1.
+
+This is a static configuration view. Complex `Match` conditions and host-dependent Include paths are explicitly identified; affected fields show “Needs evaluation.” Listing never runs `ssh -G`, `Match exec` or proxy commands, reads private keys, connects or writes files. Undeclared address, user and port default to the alias, invoking user and 22. `ProxyCommand` shows a marker without its command text. JSON includes source files and line numbers; incomplete reads set `complete=false`.
+
+`show <ALIAS>` matches an exact alias case-insensitively and displays static address, user, port, proxy markers, declaration file and line. Conflicting case variants fail explicitly. Like list, it remains read-only and never runs native SSH or conditional commands.
+
+`edit [ALIAS]` uses the target's configured existing editor. Without an alias it opens that user's `~/.ssh/config`, creating it only on the first edit. New WSL files use 0600 and new directories 0700; existing permissions are preserved. An alias selects its actual declaration file, including Include files, retaining comments, line endings and rules without rewriting the configuration. Editors supporting line navigation, such as VS Code, Cursor, Vim and Nano, open the declaration line; other editors receive the file with its location printed for reference. For a missing alias, use edit without an alias first.
+
+Save and close an interactive editor, then press Enter in the terminal to reread static configuration. Recognized issues produce warnings and exit 1 while retaining edits. This does not perform complete OpenSSH syntax validation or condition evaluation. User configuration normally needs no elevation; system and read-only Include files require existing write permission, without automatic elevation.
+
+`connect <ALIAS_OR_DESTINATION>` invokes the target's native `ssh.exe` / `ssh`, including destinations absent from the static inventory. The native client handles terminal input/output, host-key confirmation, passwords, keys and agents, evaluating Match, proxies and connection behavior according to its configuration. Under WSL sudo, connections run as the invoking user and retain an available SSH_AUTH_SOCK. Keys and agents are not copied across platforms. A missing client prompts installation on the target; nothing is installed automatically.
+
+`edit/connect` reject `--json`. Connect preserves native client/session exit codes, including 255 for connection failure and 130 for Ctrl+C; other commands retain the common CLI exit contract.
+
+Cross-platform list/show results are rendered by the caller. Edit/connect execute on the target, with a read-only command-support check before connecting. Targets without the requested SSH operation receive an explicit update diagnostic, without automatic deployment or upgrades.
+
+## Windows hosts
+
+Running `dev-tools hosts` displays help, equivalent to `dev-tools hosts -h`, including on WSL.
+
+```text
+dev-tools hosts list
+dev-tools hosts list app.test --json
+dev-tools hosts edit
+dev-tools hosts edit dev
+dev-tools hosts profiles
+dev-tools hosts use dev
+dev-tools hosts off
+dev-tools hosts backups
+dev-tools hosts restore
+```
+
+This module manages only Windows system hosts, locating it through the system API; it does not change WSL `/etc/hosts`. From WSL, explicitly add `-e win`. Profiles, backups, editors and permissions stay on Windows, without forwarding the caller's configuration file. The target must contain the hosts command.
+
+`list [KEYWORD]` filters by IP, domain or comment. Columns are address, domains, comment, profile and state. Valid commented mappings are disabled; existing conflicting addresses for the same domain and IP family appear yellow. Existing invalid lines are retained and reported, with exit 1 for incomplete parsing. Configuration conflicts alone do not fail inventory reads. Listing entries, profiles or backups never creates files, elevates or flushes DNS.
+
+`edit` edits current hosts; `edit dev` edits the dev profile without activating it. Uses the configured editor, then VISUAL, EDITOR and finally Notepad. Edit a UTF-8 draft, save and close the editor, then press Enter in the terminal; Ctrl+C cancels. Interactive editing has no public `--json` mode; scripts can apply saved profiles with `use --json`. Validation failures, editor failures or concurrent changes preserve the draft and refuse overwrite.
+
+Profiles use ordinary hosts syntax, for example:
+
+```text
+# Local development
+127.0.0.1 app.test api.test
+::1 app.test
+```
+
+Names contain 1–64 letters, digits, underscores or hyphens and exclude Windows device names. Profiles live under the Windows native user configuration directory in `dev-tools/hosts/profiles/<name>.hosts`, normally under `%LOCALAPPDATA%`; `--config` does not relocate them, and they do not belong to project configuration. Profiles require valid IPs and concrete domains; comments and multiple aliases are supported, wildcard domains are not. A domain may have separate IPv4 and IPv6 mappings; conflicting IPs within one family are rejected.
+
+`use dev` validates the profile and conflicts with manual entries, then replaces the block between `# BEGIN dev-tools hosts: dev` and `# END dev-tools hosts`. Other entries and comments remain. Unrelated existing conflicts or invalid lines do not block switching; direct editing may preserve existing issues but cannot introduce invalid lines or conflicts. `off` removes only that block. `profiles` reports active, inactive, invalid or modified after activation; edits to a profile require another `use`. Damaged or duplicate managed markers block switching and can be repaired through `edit`.
+
+System writes show a diff and save original bytes plus transaction checksums under `dev-tools/hosts/backups`. No differences means no write, backup or elevation. Only actual writes request UAC when needed. Original encoding, BOM, newlines outside the block and Windows security are retained; writes use file replacement and refresh the DNS cache. Files are limited to 10 MiB. Security software settings are never changed; cancelling UAC or detecting concurrent edits aborts the write.
+
+`restore [BACKUP_ID]` selects the latest backup matching the current file's checksum by default, and creates another backup before restoration. Subsequent unrelated changes block full-file overwrite; inspect `backups` and merge manually. Backups are not deleted automatically. All operations except interactive `edit` support `--json`, affecting only output; `use/off/restore --json` still modify hosts.
+
 ## Lifecycle and platform boundaries
 
-`dev-tools list` defaults to a read-only Windows and WSL summary, the same as `list --all`. Use `list -e win` / `list -e wsl` for one environment. Identical registration names remain separate rows by environment. The caller renders both using its language settings, including declared ports and runtime types; queries do not update deployments or change running projects.
+WSL root and sudo environments can also use `-e win` to query, register and control Windows projects. When Linux PATH excludes Windows directories, PowerShell 7 is located from actual drive mounts; if needed, inbox Windows PowerShell reads Windows PATH and installation records without loading user profiles or changing system configuration. WSL root does not automatically obtain Windows administrator rights; hosts writes still request UAC when needed. Use `dev-tools hosts list -e win` (`hosts` is plural).
+
+`dev-tools list` defaults to a read-only query of the current environment. Use `list -e win` / `list -e wsl` to select a target. Only `list --all` combines Windows and the configured WSL distribution. Identical registration names remain separate rows by environment. The caller renders both using its language settings, including declared ports and runtime types; queries do not update deployments or change running projects.
 Columns are name, environment, ports, type and state. In interactive terminals, running/healthy is green, recovery pending/starting/partially running yellow, failed/unhealthy red, and stopped/unknown gray. Controller errors are red and notices yellow. Redirected output and `NO_COLOR` disable colors; JSON retains its original status identifiers and structure.
 A summary list shows an unavailable environment in yellow and retains the other environment's results; JSON still returns `complete=false`, `errors` and exit code 1. `list -e wsl` / `list -e win` queries only the selected side. Each installation is updated separately; queries never install or update the other side. `self update -e wsl` can redeploy the current Windows source even when versions match.
 `start` (including `--all`) and `restart` show stages and elapsed time for dependency analysis, preparation, synchronization, dependency/build tasks, service startup, health checks and monitor startup. Long steps show a waiting notice every 5 seconds. Progress goes to stderr; `--json` retains its JSON result and background maintenance emits no terminal progress. View original task output with `dev-tools logs my-app install --task`, replacing `install` with the actual task name.

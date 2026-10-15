@@ -1,5 +1,19 @@
 # 变更记录
 
+## 未发布
+
+- 审查修复 hosts 备份元数据覆盖备份编号的问题；SSH 静态解析对齐 OpenSSH 的 Match ALL、ProxyCommand NONE 及禁用跳板后的代理优先级。
+
+- 直接运行 `dev-tools ssh` 或 `dev-tools hosts` 默认显示对应帮助，等同于 `-h`；支持指定目标环境，缺少实际操作参数时仍明确报错。
+
+- SSH 新增 show/edit/connect：只读详情与来源定位、原文件编辑和跳行、目标侧原生交互连接；支持双向操作，保留会话退出码，WSL sudo 使用原用户身份与已有 agent。修复 Windows 到 WSL 转发 -- 与特殊字符时被 PowerShell 误解析；只读探测不再消耗后续交互输入。
+
+- 统一默认当前环境与 -e win/wsl 双向操作；config/sysinfo/report 支持跨端，补齐 WSL 到 Windows 的更新和恢复，self update 可重新部署 Windows。list 改为默认当前侧，仅 --all 汇总两端；self status 改为按目标返回独立 schema_version=1 的部署状态。
+- 修复 Windows 启动读取语言时占用配置文件，导致编辑器无法保存；修复 WSL 转发带盘符的内联报告路径时被 PowerShell 拆分。
+- 修复 WSL root/sudo 清理 Windows PATH 后无法连接 Windows：按实际挂载发现 PowerShell 7，补充分项连接诊断及隔离注册、重命名、注销回归验证。
+- 新增只读 `ssh list [关键词]`，表格查看当前或指定 Windows/WSL 的已有 SSH 别名；支持 Include、默认值、条件配置提示和 JSON，不连接或执行 SSH 配置命令。
+- 新增 Windows `hosts list/edit/profiles/use/off/backups/restore`；托管区块切换、冲突提示、原生编辑器草稿、按需 UAC、权限保留与自动备份恢复，支持 WSL 显式 `-e win`。
+
 ## 0.5.2 - 2026-10-14
 
 - 帮助提示部署与版本差异，指定环境的版本和帮助来自实际目标；跨端错误提供稳定诊断代码。

@@ -14,6 +14,51 @@ from dev_tools import __version__
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "Windows PowerShell required")
 class WindowsEntrypointTests(unittest.TestCase):
+    def test_startup_language_read_releases_config_before_an_editor_opens_it(self):
+        messages = Path(__file__).resolve().parents[1] / "scripts/dev-tools-messages.ps1"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.toml"
+            check = root / "check.ps1"
+            check.write_text(
+                """param($Messages, $Config)
+$ErrorActionPreference='Stop'
+. $Messages
+$env:DEV_TOOLS_CONFIG=$Config
+Remove-Item Env:DEV_TOOLS_TRANSPORT_LANGUAGE -ErrorAction SilentlyContinue
+$language = Get-DevToolsStartupLanguage @()
+$stream = [IO.File]::Open($Config, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+$stream.Dispose()
+$language
+""",
+                encoding="utf-8",
+            )
+            for content, expected in (
+                ('language="en"\n', "en"),
+                ("[report]\ncollectors=[]\n", "zh"),
+                ("# no language\n", "zh"),
+            ):
+                with self.subTest(content=content):
+                    config.write_text(content, encoding="utf-8")
+                    result = subprocess.run(
+                        [
+                            "pwsh",
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-File",
+                            str(check),
+                            str(messages),
+                            str(config),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        check=False,
+                        timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), expected)
+
     def test_chinese_list_survives_cp936_capture_and_nested_scoop_shim(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

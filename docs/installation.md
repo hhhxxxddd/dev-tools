@@ -24,7 +24,7 @@ Scoop 安装后，从 Windows 部署一次，后续显式更新：
 
 ```powershell
 dev-tools self update -e wsl
-dev-tools self status --json
+dev-tools self status -e wsl --json
 ```
 
 `self update` 同时用于首次部署和更新，可重复执行；将本机包的同版本部署到配置的 `[wsl].distro`，无需进入 Linux 克隆仓库。发现活动项目时提示确认，输入 `Y` 后记录并停止服务与监控，部署完成后通过新入口恢复原先运行的部分；原本停止的项目保持停止。`--yes` 可用于脚本。安装器仍拒绝覆盖活动 worker，保留注册、偏好、状态、缓存和项目运行时。首次部署不注册或启动项目。
@@ -32,7 +32,7 @@ dev-tools self status --json
 发行版须已安装并启用 systemd。缺少 rsync，或首次部署未绑定外部 Python 且缺少 mise 时，Debian/Ubuntu 通过 extrepo/APT 安装；其他发行版须先自行安装工具。Linux 程序位于 `/opt/dev-tools`，入口为 `/usr/local/bin/dev-tools`。未指定外部解释器的首次安装会在 `/opt/dev-tools/host-mise` 准备 Python 宿主；后续部署沿用 `.host-python` 绑定。不共享 Windows 可执行目录和缓存。
 
 `dev-tools`、`help` 和命令帮助显示部署缺失或两端版本差异提示。显式 `-e wsl` / `-e win` 的帮助和 `-v` 查询实际目标端；不安装、升级或启动项目。跨端不支持的命令或执行约定会在执行前阻止，停止与更新通道保留。
-两端分别维护安装副本：Windows 更新后，从 Windows 执行一次 `dev-tools self update -e wsl` 即可将当前代码部署到 WSL，版本相同也可重新部署。`list` 默认查询两端；某端连接失败只以黄色提示保留另一端结果，不代表需要升级。`dev-tools list -e wsl` 只查 WSL。
+两端分别维护安装副本：Windows 更新后，从 Windows 执行一次 `dev-tools self update -e wsl` 即可将当前代码部署到 WSL，版本相同也可重新部署。`list` 默认只查当前环境；`list --all` 才查询两端，某端连接失败只以黄色提示保留另一端结果，不代表需要升级。`dev-tools list -e wsl` 只查 WSL。
 
 原生 WSL 可获取新版，或重新部署安装时记录的源码：
 
@@ -41,13 +41,15 @@ sudo dev-tools upgrade -e wsl
 sudo dev-tools self update -e wsl --source /path/to/dev-tools
 ```
 
-`self update` 不获取新版；原生 WSL 没有记录的源码目录时，须通过 `--source` 指定当前检出目录或发行包。也可从 Windows 已安装的包部署。来源须是 origin 为官方仓库的检出目录，或发行流程生成的包。Windows 的 `self update -e win` 提示使用 Scoop。`self status --json` 输出稳定字段，不自动同步版本。
+`self update` 不获取新版；原生 WSL 没有记录的源码目录时，须通过 `--source` 指定当前检出目录或发行包。也可从 Windows 已安装的包部署。来源须是 origin 为官方仓库的检出目录，或发行流程生成的包。`self update -e win` 重新运行已验证来源的 Windows 安装流程，不获取新版；Scoop 安装仅重新部署当前包，不修改 profile 或接收其他 `--source`；Scoop 的 upgrade 不接受 --source，以免 shim 留在旧代码上。`self status --json` 只显示当前目标，使用 `-e win/wsl` 查看另一端，不自动同步版本。
 
 ### 直接升级工具
 
-`dev-tools -v` / `--version` 只输出工具版本。`dev-tools upgrade` 获取新版并部署当前平台，`-e wsl` 选择 WSL；`dev-tools self upgrade` 是同一操作的另一入口，接受相同的 `-e` 和 `--source` 参数。Windows 的 Scoop 安装使用 Scoop；源码安装使用已验证的 Git origin，拒绝本地修改、脱离分支、未跟踪 origin 或分叉的历史，只允许快进合并。活动项目经 `Y` 或 `--yes` 确认后停止并恢复；更新共享 Windows 控制程序源码时也处理使用该源码的 Windows 项目。WSL 部署失败时恢复控制器备份；恢复失败保留本机记录，使用 `dev-tools self recover -e wsl` 重试，原生 WSL 需 `sudo`。Windows 使用 `dev-tools self recover -e win`。更新期间用户主动停止的项目跳过恢复。
+`dev-tools -v` / `--version` 只输出工具版本。`dev-tools upgrade` 获取新版并部署当前平台，`-e win` / `-e wsl` 选择目标，两端均可发起；`dev-tools self upgrade` 是同一操作的另一入口，接受相同的 `-e` 和 `--source` 参数。Windows 的 Scoop 安装使用 Scoop；源码安装使用已验证的 Git origin，拒绝本地修改、脱离分支、未跟踪 origin 或分叉的历史，只允许快进合并。活动项目经 `Y` 或 `--yes` 确认后停止并恢复；更新共享 Windows 控制程序源码时也处理使用该源码的 Windows 项目。WSL 部署失败时恢复控制器备份；恢复失败保留本机记录，使用 `dev-tools self recover -e wsl` 重试，原生 WSL 需 `sudo`。Windows 使用 `dev-tools self recover -e win`。更新期间用户主动停止的项目跳过恢复。
 
 原生 WSL 的 `upgrade` 优先使用安装器记录的 `.source` 仓库；没有可用 Git 仓库时下载最新稳定 Release，验证 SHA256SUMS 和包内逐文件校验清单后部署。升级时显式 `--source` 要求可信 Git 仓库。源码安装可执行 `dev-tools upgrade -e win`，无需先手动拉取；也可用 `dev-tools upgrade --source <仓库目录>` 指定来源。`self update` 重新部署当前代码，不拉取源码或下载 Release；记录的源码不可用时显式提供 `--source`。
+
+从 WSL 更新 Windows 同样使用 `dev-tools upgrade -e win`，重新部署与恢复使用 `dev-tools self update -e win` / `dev-tools self recover -e win`，不需要 Linux sudo；Windows 管理员权限仍按目标操作决定。`self update` 在两端均表示重新部署当前代码，`upgrade` 才获取新版。
 
 ## 源码安装
 

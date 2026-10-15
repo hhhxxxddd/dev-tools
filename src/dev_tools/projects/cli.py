@@ -482,13 +482,12 @@ def add_commands(commands) -> None:
     register.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
     register.set_defaults(func=run)
     listing = commands.add_parser(
-        "list", help=t("列出全部环境的项目、状态、端口和类型；-e 查询单端")
+        "list", help=t("列出当前环境的项目、状态、端口和类型；--all 查询两端")
     )
     listing.add_argument(
         "--all",
         dest="all_environments",
         action="store_true",
-        default=None,
         help=t("汇总 Windows 和 WSL 的全部注册项目"),
     )
     listing.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))

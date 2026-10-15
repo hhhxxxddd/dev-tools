@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import os
 import shutil
 import subprocess
@@ -106,7 +108,14 @@ class RouterTests(unittest.TestCase):
         self.assertTrue(execute.call_args.kwargs["capture_output"])
         self.assertEqual(execute.call_args.kwargs["encoding"], "utf-8")
         self.assertEqual(execute.call_args.kwargs["timeout"], 30)
-        self.assertIn("--json", execute.call_args.args[0])
+        command = execute.call_args.args[0]
+        if target == "wsl":
+            self.assertEqual(
+                json.loads(base64.b64decode(command[command.index("-ArgumentsPayload") + 1])),
+                ["list", "--json"],
+            )
+        else:
+            self.assertIn("--json", command)
 
     def test_environment_syntax_is_consistent_before_or_after_command(self):
         for environment in ("win", "wsl"):

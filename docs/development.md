@@ -45,6 +45,12 @@ uvx ruff format --check src tests
 
 [MIT License](../LICENSE)
 
+`tests/integration/root_windows_transport.py` 在 WSL root 下运行，使用隔离控制器与 Windows 注册、状态、缓存，验证 sudo 清理 Windows PATH 后的版本、SSH、hosts 查询及注册、重命名、注销。源码需位于挂载的 Windows 磁盘；使用已安装的原生 Python，不修改系统 hosts 或业务注册。
+
+`tests/integration/environment_smoke.py` 从 Windows 验证两端默认环境、显式 --all、config/sysinfo/report/ssh/self 的双向操作、目标侧编辑器和配置隔离、中文输出路径及隔离恢复记录；仅使用临时偏好、注册和状态，不更新业务项目或写系统 hosts。`controller_update_smoke.py` 在两端分别验证输入 N 不变、输入 Y 重新部署后恢复原运行子集；Windows 使用隔离 Scoop 目录避免修改真实 profile。
+
+`tests/integration/ssh_smoke.py` 使用隔离的 Win/WSL 控制器、SSH 配置、编辑器和交互客户端，验证真实双向进程链、Include 原文件编辑、标准输入和原生会话退出码；不读取真实 SSH 配置、不使用密钥或连接外部服务器。
+
 ## CI 与发行
 
 普通 push/PR 在 Windows 和 Ubuntu 上运行 Python 3.14.8 单元/契约测试、Ruff、PowerShell 解析、Bash/ShellCheck、文档与 TOML 校验和解压包入口验证。运行 `python -m dev_tools.validation` 检查版本、本地链接、双语章节结构与 TOML。验证工具固定在 `requirements-dev.txt`，GitHub Actions 固定经核对的提交 SHA。

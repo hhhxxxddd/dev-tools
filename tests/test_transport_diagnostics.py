@@ -12,7 +12,8 @@ from unittest.mock import patch
 from dev_tools import __version__
 from dev_tools.cli import main
 from dev_tools.cli_errors import TargetError, error_payload
-from dev_tools.runtimes.diagnostics import preflight, response_payload
+from dev_tools.i18n import message
+from dev_tools.runtimes.diagnostics import preflight, response_payload, target_status
 
 
 class TransportDiagnosticsTests(unittest.TestCase):
@@ -52,6 +53,39 @@ class TransportDiagnosticsTests(unittest.TestCase):
         self.assertEqual(failed.exception.details["environment"], self.target)
         self.assertNotIn("upgrade -e", str(failed.exception))
         self.assertNotIn("self update", str(failed.exception))
+
+    def test_windows_discovery_failure_is_preserved_through_preflight_and_help(self):
+        failure = TargetError(
+            "target_unavailable",
+            message("Windows PowerShell discovery failed in root shell"),
+            environment="win",
+            reason="powershell_missing",
+        )
+        with patch("dev_tools.runtimes.router.forward_remote", side_effect=failure):
+            status = target_status("win", self.settings)
+        self.assertEqual(status["reason"], "powershell_missing")
+        with (
+            patch("dev_tools.runtimes.diagnostics.target_status", return_value=status),
+            patch("dev_tools.runtimes.diagnostics.os.name", "posix"),
+            self.assertRaises(TargetError) as failed,
+        ):
+            preflight("win", ["list"], self.settings)
+        self.assertIn("discovery", str(failed.exception))
+        self.assertEqual(failed.exception.details["reason"], "powershell_missing")
+
+    def test_windows_probe_distinguishes_timeout_and_bad_entrypoint(self):
+        for result, reason in (
+            (subprocess.TimeoutExpired([], 5), "probe_timeout"),
+            (subprocess.CompletedProcess([], 1, "", "SECRET"), "entrypoint_failed"),
+        ):
+            with patch(
+                "dev_tools.runtimes.router.forward_remote",
+                side_effect=result if isinstance(result, BaseException) else None,
+                return_value=result,
+            ):
+                status = target_status("win", self.settings)
+            self.assertEqual(status["reason"], reason)
+            self.assertNotIn("SECRET", str(status))
 
     def test_explicit_version_and_help_are_queried_from_target_readonly(self):
         for arguments in (["-v"], ["--version"], ["help"], ["help", "check"], ["check", "--help"]):

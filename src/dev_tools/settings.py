@@ -349,13 +349,36 @@ def edit_settings(settings: Settings) -> int:
                 own_user_file(path, created)
         except FileExistsError:
             pass
+    command = editor_command(settings, path)
+    result = subprocess.run(command, check=False)
+    if result.returncode:
+        raise SettingsError(
+            message("editor exited with code {code}", code=result.returncode),
+            language=settings.language,
+        )
+    updated = load_settings(path)
+    with language_scope(updated.language):
+        print(t("配置已校验：{path}", path=path))
+    return 0
+
+
+def editor_command(settings: Settings, path: Path, *, line: int | None = None) -> list[str]:
     argv, _ = resolve_editor(settings)
     executable = shutil.which(argv[0])
     if executable is None:
         raise SettingsError(
             message("editor not found: {editor}", editor=argv[0]), language=settings.language
         )
-    command = [executable, *argv[1:], str(path)]
+    name = Path(executable).stem.lower()
+    options = list(argv[1:])
+    destination = str(path)
+    if line is not None and name in {"code", "code-insiders", "codium", "cursor"}:
+        if "--goto" not in options and "-g" not in options:
+            options.append("--goto")
+        destination += f":{line}:1"
+    elif line is not None and name in {"vi", "vim", "nvim", "nano", "emacs", "emacsclient"}:
+        options.append(f"+{line}")
+    command = [executable, *options, destination]
     if os.name != "nt":
         from .runtimes.platforms.preferences import editor_identity
 
@@ -369,16 +392,7 @@ def edit_settings(settings: Settings) -> int:
             "-Command",
             f"& {quoted}; exit $LASTEXITCODE",
         ]
-    result = subprocess.run(command, check=False)
-    if result.returncode:
-        raise SettingsError(
-            message("editor exited with code {code}", code=result.returncode),
-            language=settings.language,
-        )
-    updated = load_settings(path)
-    with language_scope(updated.language):
-        print(t("配置已校验：{path}", path=path))
-    return 0
+    return command
 
 
 def config_command(args) -> int:

@@ -26,10 +26,22 @@ def own_user_file(path: Path, created_directories: list[Path]) -> None:
             os.chown(directory, user.pw_uid, user.pw_gid)
 
 
-def editor_identity(command: list[str]) -> list[str]:
+def user_command(command: list[str], *, preserve: tuple[str, ...] = ()) -> list[str]:
     user = invoking_user()
+    variables = [name for name in preserve if os.environ.get(name)]
     return (
-        ["sudo", "-u", user.pw_name, "--", *command]
+        [
+            "sudo",
+            "-u",
+            user.pw_name,
+            *(["--preserve-env=" + ",".join(variables)] if variables else []),
+            "--",
+            *command,
+        ]
         if os.geteuid() == 0 and user.pw_uid
         else command
     )
+
+
+def editor_identity(command: list[str]) -> list[str]:
+    return user_command(command)

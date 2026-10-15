@@ -22,13 +22,66 @@ def target_status(environment, settings):
     from .router import forward_remote
 
     try:
-        result = forward_remote("win", ["--version"], settings=settings, capture=True, timeout=5)
+        result = forward_remote(
+            "win",
+            ["--version"],
+            settings=settings,
+            capture=True,
+            timeout=5,
+            stdin=subprocess.DEVNULL,
+        )
+    except TargetError as exc:
+        return {
+            "state": "unavailable",
+            "version": None,
+            "diagnostic": exc.args[0],
+            "reason": exc.details.get("reason"),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "state": "unavailable",
+            "version": None,
+            "diagnostic": message(
+                "Windows controller version probe timed out; check the Windows entrypoint and retry"
+            ),
+            "reason": "probe_timeout",
+        }
     except OSError, ValueError, subprocess.SubprocessError:
-        return {"state": "unavailable", "version": None}
+        return {
+            "state": "unavailable",
+            "version": None,
+            "diagnostic": message(
+                "Windows controller entrypoint could not be resolved; check its recorded source and Windows installation"
+            ),
+            "reason": "entrypoint_invalid",
+        }
     version = re.fullmatch(r"dev-tools ([0-9]+\.[0-9]+\.[0-9]+)\s*", result.stdout)
     if result.returncode == 0 and version:
         return {"state": "installed", "version": version.group(1)}
-    return {"state": "unavailable", "version": None}
+    return {
+        "state": "unavailable",
+        "version": None,
+        "diagnostic": message(
+            "Windows controller version probe failed (exit {code}); run dev-tools --version on Windows to check its entrypoint",
+            code=result.returncode,
+        ),
+        "reason": "entrypoint_failed",
+        "returncode": result.returncode,
+    }
+
+
+def unavailable_target(environment, status):
+    return TargetError(
+        "target_unavailable",
+        status.get("diagnostic")
+        or message(
+            "Could not reach {environment}. Check its dev-tools entrypoint, Windows/WSL interop and PATH; this does not imply that an update is required.",
+            environment=environment,
+        ),
+        environment=environment,
+        reason=status.get("reason"),
+        returncode=status.get("returncode"),
+    )
 
 
 def update_instruction(environment):
@@ -53,14 +106,7 @@ def preflight(environment, arguments, settings):
     status = target_status(environment, settings)
     version = status.get("version")
     if status["state"] != "installed":
-        raise TargetError(
-            "target_unavailable",
-            message(
-                "Could not reach {environment}. Check its dev-tools entrypoint, Windows/WSL interop and PATH; this does not imply that an update is required.",
-                environment=environment,
-            ),
-            environment=environment,
-        )
+        raise unavailable_target(environment, status)
     if version and version != __version__:
         from ..presentation import warning
 
@@ -140,3 +186,62 @@ def response_payload(result, environment, action):
             environment=environment,
             returncode=result.returncode,
         ) from None
+
+
+def forward_command(environment, arguments, settings, *, as_json=False):
+    """Forward auxiliary commands without imposing project JSON on their native output."""
+    if environment == ("win" if os.name == "nt" else "wsl"):
+        return None
+    from ..cli_errors import exit_code
+    from .router import forward_remote
+
+    preflight(environment, arguments, settings)
+    result = forward_remote(
+        environment, arguments, settings=settings, capture=as_json, timeout=None
+    )
+    if not as_json:
+        return exit_code(result)
+    try:
+        value = json.loads(result.stdout)
+        if not isinstance(value, dict) or result.returncode not in {0, 1, 2, 130}:
+            raise ValueError
+    except TypeError, ValueError:
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        raise TargetError(
+            "target_response_invalid",
+            message(
+                "Target {environment} returned an invalid CLI response (exit {returncode}); check both controller versions and target diagnostics",
+                environment=environment,
+                returncode=result.returncode,
+            ),
+            environment=environment,
+            returncode=result.returncode,
+        ) from None
+    if "error" in value:
+        value = response_payload(result, environment, arguments[0])
+    elif result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    if (
+        "error" not in value
+        and arguments[:2] == ["self", "status"]
+        and (
+            type(value.get("schema_version")) is not int
+            or value["schema_version"] != 1
+            or value.get("environment") != ("windows" if environment == "win" else "wsl")
+            or not isinstance(value.get("deployment"), dict)
+            or value["deployment"].get("state") != "installed"
+            or not isinstance(value.get("controller_version"), str)
+        )
+    ):
+        raise TargetError(
+            "target_command_unsupported",
+            message(
+                "Target {environment} does not support target-specific self status; update with: {command}",
+                environment=environment,
+                command=update_instruction(environment),
+            ),
+            environment=environment,
+        )
+    print(json.dumps(value, ensure_ascii=False, indent=2))
+    return exit_code(result.returncode)

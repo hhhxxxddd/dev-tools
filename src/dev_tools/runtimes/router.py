@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import shutil
@@ -27,10 +29,15 @@ def _run_transport(command, environment, **options):
         raise TargetError(
             "target_unavailable",
             message(
+                "WSL could not launch Windows PowerShell; check Windows interop and open a new WSL session"
+            )
+            if environment == "win"
+            else message(
                 "Target {environment} could not be reached; check deployment, connection and target diagnostics",
                 environment=environment,
             ),
             environment=environment,
+            reason="interop_unavailable" if environment == "win" else None,
         ) from None
 
 
@@ -83,6 +90,7 @@ def _windows_path(value: str | Path) -> str:
         text=True,
         encoding="utf-8",
         check=False,
+        stdin=subprocess.DEVNULL,
     )
     if result.returncode or not result.stdout.strip():
         raise ValueError(result.stderr.strip() or f"cannot translate Windows path: {value}")
@@ -130,6 +138,7 @@ def forward_remote(
     settings: Settings | None = None,
     capture: bool = False,
     timeout: float | None = 30,
+    stdin=None,
 ) -> int | subprocess.CompletedProcess[str] | None:
     native = "win" if os.name == "nt" else "wsl"
     if environment == native:
@@ -146,6 +155,8 @@ def forward_remote(
         if capture
         else {}
     )
+    if stdin is not None:
+        options["stdin"] = stdin
     if environment == "wsl":
         if shutil.which("wsl.exe") is None:
             from ..cli_errors import TargetError
@@ -168,21 +179,19 @@ def forward_remote(
                 settings.distro,
                 "-Language",
                 language(),
-                *arguments,
+                "-ArgumentsPayload",
+                base64.b64encode(json.dumps(arguments, ensure_ascii=False).encode("utf-8")).decode(
+                    "ascii"
+                ),
             ],
             environment,
             env=transport_environment,
             **options,
         )
         return result if capture else result.returncode
-    if shutil.which("pwsh.exe") is None:
-        from ..cli_errors import TargetError
+    from .platforms.windows_interop import powershell_entry
 
-        raise TargetError(
-            "target_unavailable",
-            message("Windows control requires PowerShell 7 and WSL interop"),
-            environment="win",
-        )
+    powershell = powershell_entry()
     forwarded = list(arguments)
     if (
         forwarded
@@ -194,6 +203,25 @@ def forward_remote(
             forwarded[index] = _windows_path(forwarded[index])
         else:
             forwarded.insert(1, _windows_path(Path.cwd()))
+    # Source directories are caller paths; output files may not exist yet. Keep
+    # already-native Windows paths intact and respect the downstream -- boundary.
+    if forwarded and forwarded[0] in {"self", "upgrade", "report"}:
+        path_options = {"--output"} if forwarded[0] == "report" else {"--source"}
+        index = 0
+        while index < len(forwarded):
+            token = forwarded[index]
+            if token == "--":
+                break
+            if token in path_options and index + 1 < len(forwarded):
+                forwarded[index + 1] = _windows_path(forwarded[index + 1])
+                index += 1
+            elif any(token.startswith(option + "=") for option in path_options):
+                option, value = token.split("=", 1)
+                # PowerShell -File splits --option=C:\path at the colon. Use
+                # separate argv tokens so both public spellings stay equivalent.
+                forwarded[index : index + 1] = [option, _windows_path(value)]
+                index += 1
+            index += 1
     environment_variables = os.environ.copy()
     environment_variables["DEV_TOOLS_CONFIG"] = ""
     environment_variables["DEV_TOOLS_TRANSPORT_LANGUAGE"] = language()
@@ -210,7 +238,7 @@ def forward_remote(
     )
     result = _run_transport(
         [
-            "pwsh.exe",
+            powershell,
             "-NoProfile",
             "-NonInteractive",
             "-WorkingDirectory",

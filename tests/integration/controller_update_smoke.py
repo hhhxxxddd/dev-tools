@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -32,7 +33,7 @@ def smoke():
     with tempfile.TemporaryDirectory(prefix="dev-tools-update-smoke-") as temporary:
         root = Path(temporary).resolve()
         package = root / "package"
-        deployed = root / "controller"
+        deployed = root / "apps/dev-tools/current" if native == "win" else root / "controller"
         output = build(REPOSITORY, root / "dist")
         with zipfile.ZipFile(output["archive"]) as archive:
             archive.extractall(package)
@@ -42,6 +43,19 @@ def smoke():
         version_file.write_text(version_file.read_text().replace('"0.5.2"', '"0.5.1"'))
         original_stat = (package / "src/dev_tools/__init__.py").stat()
         os.utime(version_file, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+        if native == "win":
+            # A fully verified, isolated Scoop-shaped installation prevents
+            # redeployment from touching the real user's PowerShell profile.
+            metadata = deployed / "pyproject.toml"
+            metadata.write_text(metadata.read_text().replace('"0.5.2"', '"0.5.1"'))
+            receipt = json.loads((deployed / ".release.json").read_text())
+            receipt["version"] = "0.5.1"
+            for filename in ("src/dev_tools/__init__.py", "pyproject.toml"):
+                receipt["files"][filename] = hashlib.sha256(
+                    (deployed / filename).read_bytes()
+                ).hexdigest()
+            (deployed / ".release.json").write_text(json.dumps(receipt), encoding="utf-8")
+            (deployed / "install.json").write_text("{}", encoding="utf-8")
         (deployed / (".host-python.win" if native == "win" else ".host-python")).write_text(
             str(Path(sys.executable).resolve()) + "\n"
         )
@@ -169,6 +183,14 @@ def smoke():
                     result = invoke("self", "update", "--source", str(package), answer="Y\n")
                     assert "Restored" in result.stdout
                 else:
+                    invoke("self", "update", answer="N\n", expected=1)
+                    assert (
+                        status(name)["services"]["api"]["pid"] == previous["services"]["api"]["pid"]
+                    )
+                    redeployed = invoke("self", "update", answer="Y\n")
+                    assert "Restored" in redeployed.stdout
+                    assert status(name)["services"]["extra"]["phase"] == "stopped"
+
                     # Windows uses the same transaction around Scoop/Git deployment.
                     # Existing installer tests exercise profile/Scoop hooks separately.
                     def install():
@@ -177,6 +199,8 @@ def smoke():
                         )
                         for folder in ("src", "scripts", "config", "docs", "examples", "systemd"):
                             shutil.copytree(package / folder, deployed / folder, dirs_exist_ok=True)
+                        for filename in (".release.json", "pyproject.toml"):
+                            shutil.copyfile(package / filename, deployed / filename)
                         clear_controller_bytecode(deployed)
                         return 0
 

@@ -12,12 +12,15 @@ function Get-DevToolsStartupLanguage([string[]] $Tokens) {
             $configFile = $Tokens[$index].Substring(9)
         }
     }
+    $reader = $null
     try {
-        foreach ($line in [IO.File]::ReadLines($configFile)) {
+        $reader = [IO.File]::OpenText($configFile)
+        while ($null -ne ($line = $reader.ReadLine())) {
             if ($line -match '^\s*\[') { break }
             if ($line -match '^\s*language\s*=\s*["''](zh|en)["'']\s*(#.*)?$') { return $Matches[1] }
         }
     } catch { }
+    finally { if ($reader) { $reader.Dispose() } }
     return 'zh'
 }
 

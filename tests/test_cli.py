@@ -403,14 +403,11 @@ class CliTests(unittest.TestCase):
         self.assertIn("--purge", output.getvalue())
         self.assertIn("[项目名]", output.getvalue())
 
-    def test_machine_commands_reject_project_environment_instead_of_ignoring_it(self):
-        for command in ("sysinfo", "report"):
-            with (
-                contextlib.redirect_stderr(io.StringIO()),
-                self.assertRaises(SystemExit) as stopped,
-            ):
-                main(["-e", "wsl", command])
-            self.assertEqual(stopped.exception.code, 2)
+    def test_machine_commands_accept_environment_in_the_shared_parser(self):
+        for command in ("config", "sysinfo", "report"):
+            for environment in ("win", "wsl"):
+                for arguments in (["-e", environment, command], [command, "-e", environment]):
+                    self.assertEqual(parser().parse_args(arguments).env, environment)
 
 
 if __name__ == "__main__":

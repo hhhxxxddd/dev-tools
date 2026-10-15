@@ -12,6 +12,7 @@ from .cli_errors import emit_error, exit_code, request_scope, set_request
 from .command_help import CommandCatalog, LocalizedArgumentParser, add_config, add_environment
 from .controller import add_commands as add_controller_commands
 from .controller import deployment_notice
+from .hosts import add_commands as add_hosts_commands
 from .i18n import language_scope, message, render, t
 from .presentation import error, label, warning
 from .project_models import ScanResult
@@ -21,6 +22,7 @@ from .projects.models import ProjectError, validate_name
 from .report import collect_report, render_report
 from .scanner import scan_project
 from .settings import SettingsError, config_command, load_settings, split_config
+from .ssh import add_commands as add_ssh_commands
 from .sysinfo import collect_sysinfo, print_sysinfo
 
 
@@ -121,8 +123,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_sysinfo(args: argparse.Namespace) -> int:
     settings = getattr(args, "settings", None) or load_settings(args.config)
-    with language_scope(settings.language):
-        print_sysinfo(collect_sysinfo(settings=settings), as_json=args.json)
+    print_sysinfo(collect_sysinfo(settings=settings), as_json=args.json)
     return 0
 
 
@@ -169,6 +170,7 @@ def parser() -> argparse.ArgumentParser:
     config = commands.add_parser(
         "config", help=t("查看、编辑或校验 dev-tools 本机配置"), group=t("辅助命令"), project=False
     )
+    add_environment(config)
     config.add_argument(
         "config_action",
         nargs="?",
@@ -184,6 +186,7 @@ def parser() -> argparse.ArgumentParser:
         group=t("辅助命令"),
         project=False,
     )
+    add_environment(report)
     report.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
     report.add_argument(
         "--refresh",
@@ -204,6 +207,7 @@ def parser() -> argparse.ArgumentParser:
     sysinfo = commands.add_parser(
         "sysinfo", help=t("只读查看当前机器与本机开发入口"), group=t("辅助命令"), project=False
     )
+    add_environment(sysinfo)
     sysinfo.add_argument("--json", action="store_true", help=t("以 JSON 输出结果"))
     sysinfo.set_defaults(func=cmd_sysinfo)
     scan = commands.add_parser("scan", help=t("只扫描项目版本声明"), group=t("进阶命令"))
@@ -237,15 +241,21 @@ def parser() -> argparse.ArgumentParser:
     )
     add_commands(commands)
     add_controller_commands(commands)
+    add_ssh_commands(commands)
+    add_hosts_commands(commands)
     commands.finish()
     return result
 
 
 def _dispatch(arguments: list[str], forwarded: list[str], environment: str, settings) -> None:
     from .cli_errors import TargetError
-    from .runtimes.diagnostics import preflight, response_payload, target_status
+    from .runtimes.diagnostics import preflight, response_payload, target_status, unavailable_target
     from .runtimes.router import forward_remote
 
+    # Opening a toolbox group requests its help, including on the other platform.
+    if forwarded in (["ssh"], ["hosts"]):
+        arguments = [*arguments, "--help"]
+        forwarded = [*forwarded, "--help"]
     scope = forwarded[: forwarded.index("--")] if "--" in forwarded else forwarded
     if environment != ("win" if os.name == "nt" else "wsl") and (
         any(flag in scope for flag in ("-h", "--help", "-v", "--version"))
@@ -254,14 +264,7 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
     ):
         status = target_status(environment, settings)
         if status["state"] != "installed":
-            raise TargetError(
-                "target_unavailable",
-                message(
-                    "Could not reach {environment}. Check its dev-tools entrypoint, Windows/WSL interop and PATH; this does not imply that an update is required.",
-                    environment=environment,
-                ),
-                environment=environment,
-            )
+            raise unavailable_target(environment, status)
         if any(flag in scope for flag in ("-v", "--version")):
             print(f"dev-tools {status['version']} ({environment})")
             raise SystemExit(0)
@@ -294,6 +297,12 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
     args = command_parser.parse_args(arguments or ["help"])
     set_request(args)
     args.settings = settings
+    if args.command == "hosts" and args.hosts_action == "edit" and args.json:
+        command_parser.error(t("hosts edit does not support --json"))
+    if args.command == "ssh" and args.ssh_action in {"edit", "connect"} and args.json:
+        command_parser.error(
+            t("ssh {operation} does not support --json", operation=args.ssh_action)
+        )
     if args.command == "config" and args.config_action == "edit" and args.json:
         command_parser.error(t("config edit does not support --json"))
     if args.command == "self":
@@ -308,15 +317,18 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
                 validate_name(value)
             except ProjectError:
                 command_parser.error(t("Invalid project, task or service name"))
-    if args.command in {"config", "sysinfo", "report"} and arguments != forwarded:
-        command_parser.error(t("-e/--env 只用于项目命令；辅助命令使用当前平台"))
+    if args.command in {"config", "sysinfo", "report"}:
+        from .runtimes.diagnostics import forward_command
+
+        code = forward_command(environment, forwarded, settings, as_json=args.json)
+        if code is not None:
+            raise SystemExit(code)
     if settings.errors and args.command not in {"config", "help"}:
         raise SettingsError(settings.errors[0], language=settings.language)
     if hasattr(args, "project_command"):
         if args.project_command == "list":
-            if "--all" in forwarded and arguments != forwarded:
+            if args.all_environments and arguments != forwarded:
                 command_parser.error(t("list --all 不能与 -e/--env 同时使用"))
-            args.all_environments = arguments == forwarded
         else:
             if (
                 args.project_command == "start"
@@ -339,7 +351,11 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
                 code = forward_remote(environment, forwarded, settings=settings)
                 if code is not None:
                     raise SystemExit(exit_code(code))
-    raise SystemExit(exit_code(args.func(args)))
+    code = args.func(args)
+    # Interactive SSH sessions retain the native client's/session's exit status.
+    raise SystemExit(
+        code if args.command == "ssh" and args.ssh_action == "connect" else exit_code(code)
+    )
 
 
 def main(arguments: list[str] | None = None) -> None:

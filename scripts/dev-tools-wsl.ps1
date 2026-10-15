@@ -1,6 +1,8 @@
+[CmdletBinding(PositionalBinding=$false)]
 param(
     [string] $Distro = 'Ubuntu',
     [ValidateSet('zh', 'en')][string] $Language = 'zh',
+    [string] $ArgumentsPayload,
     [Parameter(ValueFromRemainingArguments)][string[]] $Arguments
 )
 $ErrorActionPreference = 'Stop'
@@ -19,6 +21,14 @@ try {
         $terminalStyle.OutputRendering = 'Ansi'
     }
     . (Join-Path $PSScriptRoot 'dev-tools-messages.ps1')
+    if ($ArgumentsPayload) {
+        if ($Arguments.Count) { throw (Get-DevToolsMessage 'Invalid WSL argument payload' $Language) }
+        try {
+            $decoded = ConvertFrom-Json -InputObject ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ArgumentsPayload))) -NoEnumerate
+            if ($decoded -isnot [Array] -or @($decoded | Where-Object { $_ -isnot [string] }).Count) { throw 'invalid_arguments' }
+            $Arguments = [string[]]$decoded
+        } catch { throw (Get-DevToolsMessage 'Invalid WSL argument payload' $Language) }
+    }
     $distro = $Distro
     function Start-WslKeepAlive {
         $script = Join-Path $PSScriptRoot 'dev-tools-keepalive.sh'
@@ -75,17 +85,37 @@ try {
             $Arguments[$pathIndex] = ([string]$mapped).Trim()
         }
     }
-    $control = $Arguments.Count -gt 0 -and $Arguments[0] -in @('register', 'prepare', 'start', 'stop', 'restart', 'build', 'rename', 'unregister') -and
+    if ($Arguments.Count -gt 0 -and $Arguments[0] -eq 'report') {
+        for ($index = 1; $index -lt $Arguments.Count; $index++) {
+            if ($Arguments[$index] -eq '--') { break }
+            $inline = $Arguments[$index].StartsWith('--output=')
+            if ($Arguments[$index] -ne '--output' -and -not $inline) { continue }
+            if ($inline) { $value = $Arguments[$index].Substring(9) }
+            else { $index++; $value = $Arguments[$index] }
+            if (-not $value.StartsWith('/')) {
+                $nativePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($value)
+                $mapped = & wsl.exe -d $Distro --exec wslpath -u $nativePath.Replace('\', '/')
+                if ($LASTEXITCODE -ne 0) { throw (Get-DevToolsMessage 'Could not translate report output path into WSL' $Language) }
+                $value = ([string]$mapped).Trim()
+            }
+            $Arguments[$index] = if ($inline) { '--output=' + $value } else { $value }
+        }
+    }
+    $controllerControl = $Arguments.Count -gt 0 -and ($Arguments[0] -eq 'upgrade' -or
+        ($Arguments[0] -eq 'self' -and $Arguments.Count -gt 1 -and $Arguments[1] -in @('update', 'upgrade', 'recover')))
+    $control = $Arguments.Count -gt 0 -and ($controllerControl -or $Arguments[0] -in @('register', 'prepare', 'start', 'stop', 'restart', 'build', 'rename', 'unregister')) -and
         $Arguments -notcontains '--help' -and $Arguments -notcontains '-h'
-    if ($control -and $Arguments[0] -eq 'register' -and -not ($Arguments | Where-Object { $_ -eq '--user' -or $_.StartsWith('--user=') })) {
+    $identity = @()
+    if ($control -and ($controllerControl -or ($Arguments[0] -eq 'register' -and -not ($Arguments | Where-Object { $_ -eq '--user' -or $_.StartsWith('--user=') })))) {
         $nativeUser = & wsl.exe -d $Distro --exec id -un
         if ($LASTEXITCODE -ne 0) { throw (Get-DevToolsMessage 'Could not resolve the WSL runtime user' $Language) }
-        $Arguments += @('--user', ([string]$nativeUser).Trim())
+        if ($controllerControl) { $identity = @('SUDO_USER=' + ([string]$nativeUser).Trim()) }
+        else { $Arguments += @('--user', ([string]$nativeUser).Trim()) }
     }
     $nativeCwd = (Get-Location).ProviderPath
     # --cd accepts absolute Windows paths and translates them in the target distro.
     if ($control) {
-        & wsl.exe -d $Distro -u root --cd $nativeCwd --exec env -u DEV_TOOLS_CONFIG "DEV_TOOLS_TRANSPORT_LANGUAGE=$Language" "DEV_TOOLS_TERMINAL=$env:DEV_TOOLS_TERMINAL" dev-tools -e wsl @Arguments
+        & wsl.exe -d $Distro -u root --cd $nativeCwd --exec env -u DEV_TOOLS_CONFIG "DEV_TOOLS_TRANSPORT_LANGUAGE=$Language" "DEV_TOOLS_TERMINAL=$env:DEV_TOOLS_TERMINAL" @identity dev-tools -e wsl @Arguments
     } else {
         & wsl.exe -d $Distro --cd $nativeCwd --exec env -u DEV_TOOLS_CONFIG "DEV_TOOLS_TRANSPORT_LANGUAGE=$Language" "DEV_TOOLS_TERMINAL=$env:DEV_TOOLS_TERMINAL" dev-tools -e wsl @Arguments
     }

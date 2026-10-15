@@ -137,7 +137,7 @@ class CommandCatalog:
         )
         helper.set_defaults(func=self.show_help)
         lines = []
-        for group in (t("常用命令"), t("进阶命令"), t("辅助命令")):
+        for group in (t("常用命令"), t("进阶命令"), t("工具箱"), t("辅助命令")):
             lines.append(t("{group}：", group=group))
             lines.extend(f"  {name:<12} {help}" for name, help in self.groups.get(group, []))
             lines.append("")

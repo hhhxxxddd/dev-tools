@@ -20,7 +20,8 @@ from urllib.error import HTTPError
 
 from . import __version__
 from .command_help import add_environment
-from .i18n import language, message, t
+from .i18n import language, message, render, t
+from .presentation import warning
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 UPSTREAM = "hhhxxxddd/dev-tools"
@@ -53,7 +54,9 @@ def deployment_status(distro: str) -> dict:
             f"printf %s {payload} | base64 -d | bash",
         ]
     try:
-        result = subprocess.run(command, capture_output=True, timeout=5, check=False)
+        result = subprocess.run(
+            command, capture_output=True, timeout=5, check=False, stdin=subprocess.DEVNULL
+        )
     except OSError, subprocess.TimeoutExpired:
         return {"state": "unavailable", "version": None, "distro": distro}
     version = result.stdout.decode("utf-8", errors="replace").strip()
@@ -347,15 +350,92 @@ def _require_stopped_windows() -> None:
             )
 
 
+def _run_windows_installer(source: Path) -> int:
+    environment = os.environ.copy()
+    environment["DEV_TOOLS_TRANSPORT_LANGUAGE"] = language()
+    binding = REPOSITORY / ".host-python.win"
+    if binding.is_file():
+        environment["DEV_TOOLS_PYTHON"] = binding.read_text(encoding="utf-8").strip()
+    command = [
+        "pwsh",
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        str(source / "scripts/install.ps1"),
+    ]
+    if _scoop_installation():
+        command.append("-NoProfile")
+    return subprocess.run(command, check=False, env=environment).returncode
+
+
+def _update_windows(args) -> int:
+    from .controller_update import UpdateSession, update_with_recovery
+
+    source = Path(args.source).expanduser().resolve() if args.source else REPOSITORY
+    verify_source(source)
+    if _scoop_installation() and source.resolve() != REPOSITORY.resolve():
+        raise ValueError(
+            message(
+                "Scoop installations redeploy their installed package; use upgrade to change versions"
+            )
+        )
+    session = UpdateSession(
+        yes=getattr(args, "yes", False), entry=REPOSITORY / "scripts/dev-tools.ps1"
+    )
+
+    def deploy():
+        clear_controller_bytecode(source)
+        code = _run_windows_installer(source)
+        if code == 0:
+            session.entry = source / "scripts/dev-tools.ps1"
+        return code
+
+    return update_with_recovery(session, deploy)
+
+
+def _show_status(args, deployment=None) -> int:
+    # This command has its own versioned shape; controller_version is always the
+    # selected controller, not the forwarding caller's version.
+    deployment = deployment or {
+        "state": "installed",
+        "version": __version__,
+        "path": str(REPOSITORY),
+    }
+    if args.env == "wsl":
+        deployment = {**deployment, "distro": args.settings.distro}
+    value = {
+        "schema_version": 1,
+        "environment": "windows" if args.env == "win" else "wsl",
+        "controller_version": deployment.get("version"),
+        "deployment": deployment,
+    }
+    if args.json:
+        print(json.dumps(value, ensure_ascii=False, indent=2))
+    else:
+        print(t("Controller target: {environment}", environment=args.env))
+        print(t("Controller version: {version}", version=value["controller_version"] or "-"))
+        state = t("Controller deployment: {state}", state=t(deployment["state"]))
+        print(warning(state) if deployment["state"] != "installed" else state)
+        if deployment.get("diagnostic"):
+            print(warning(render(deployment["diagnostic"])))
+        if deployment.get("path"):
+            print(t("Controller directory: {path}", path=deployment["path"]))
+    return 0
+
+
 def _upgrade(args: argparse.Namespace) -> int:
     from .controller_update import UpdateSession, update_with_recovery
 
-    if args.env == "win" and not WINDOWS:
-        raise ValueError(message("Windows controller upgrades must run on Windows"))
     if args.env == "wsl" and not WINDOWS and os.geteuid() != 0:
         raise ValueError(message("controller deployment requires root; rerun with sudo"))
     yes = getattr(args, "yes", False)
-    if args.env == "win" and not args.source and _scoop_installation():
+    if args.env == "win" and _scoop_installation():
+        if args.source:
+            raise ValueError(
+                message(
+                    "Scoop upgrades do not accept --source; run dev-tools upgrade without --source"
+                )
+            )
         session = UpdateSession(yes=yes, scoop=True)
         return update_with_recovery(
             session,
@@ -411,15 +491,7 @@ def _upgrade(args: argparse.Namespace) -> int:
         _refresh_checkout(source, before_merge=session.stop if session is not None else None)
         if args.env == "wsl":
             return _install_wsl(source, args.settings.distro, yes=yes)
-        environment = os.environ.copy()
-        binding = REPOSITORY / ".host-python.win"
-        if binding.is_file():
-            environment["DEV_TOOLS_PYTHON"] = binding.read_text(encoding="utf-8").strip()
-        code = subprocess.run(
-            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(source / "scripts/install.ps1")],
-            check=False,
-            env=environment,
-        ).returncode
+        code = _run_windows_installer(source)
         if code == 0 and session is not None:
             session.entry = source / "scripts/dev-tools.ps1"
         return code
@@ -434,6 +506,27 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError(message("self --json requires status"))
     if args.source and args.self_action in {"status", "recover"}:
         raise ValueError(message("self --source requires update or upgrade"))
+    native = "win" if WINDOWS else "wsl"
+    if args.env != native and (
+        args.self_action == "status"
+        or args.env == "win"
+        or args.source
+        and args.source.startswith("/")
+    ):
+        from .runtimes.diagnostics import forward_command, target_status
+
+        if args.self_action == "status":
+            status = target_status(args.env, args.settings)
+            if status["state"] != "installed":
+                return _show_status(args, status)
+        arguments = ["upgrade"] if args.command == "upgrade" else ["self", args.self_action]
+        if args.source:
+            arguments.extend(["--source", args.source])
+        if getattr(args, "yes", False):
+            arguments.append("--yes")
+        if args.json:
+            arguments.append("--json")
+        return forward_command(args.env, arguments, args.settings, as_json=args.json)
     if args.self_action == "recover":
         from .controller_update import recover_controller, recovery_path
         from .runtimes.platforms.locking import operation_lock
@@ -454,32 +547,16 @@ def run(args: argparse.Namespace) -> int:
                 ],
                 check=False,
             ).returncode
-        if args.env == "win" and not WINDOWS:
-            raise ValueError(message("Windows controller upgrades must run on Windows"))
         if not WINDOWS and os.geteuid() != 0:
             raise ValueError(message("controller deployment requires root; rerun with sudo"))
         with operation_lock(recovery_path().parent, timeout=15):
             return recover_controller()
     if args.self_action == "status":
-        value = {"controller_version": __version__, "wsl": deployment_status(args.settings.distro)}
-        if args.json:
-            print(json.dumps(value, ensure_ascii=False, indent=2))
-        else:
-            print(t("Controller version: {version}", version=__version__))
-            print(
-                t(
-                    "WSL deployment: {state}; version: {version}",
-                    state=t(value["wsl"]["state"]),
-                    version=value["wsl"]["version"] or "-",
-                )
-            )
-        return 0
+        return _show_status(args)
     if args.self_action == "upgrade":
         return _upgrade(args)
     if args.env == "win":
-        raise ValueError(
-            message("Use Scoop for Windows: scoop install dev-tools / scoop update dev-tools")
-        )
+        return _update_windows(args)
     if not WINDOWS and os.geteuid() != 0:
         raise ValueError(message("controller deployment requires root; rerun with sudo"))
     if args.source:
@@ -517,7 +594,7 @@ def add_commands(catalog) -> None:
     upgrade.set_defaults(func=run, self_action="upgrade", json=False)
     command = catalog.add_parser(
         "self",
-        help=t("查看工具部署；self update 部署当前代码到 WSL"),
+        help=t("查看、重新部署、升级或恢复目标环境的工具"),
         group=t("辅助命令"),
         project=False,
     )
@@ -527,7 +604,7 @@ def add_commands(catalog) -> None:
         choices=("update", "upgrade", "status", "recover"),
         metavar=t("操作"),
         help=t(
-            "upgrade 获取新版并部署；update 部署当前代码到 WSL；status 查看部署状态；recover 重试恢复运行"
+            "upgrade 获取新版并部署；update 重新部署当前代码；status 查看目标部署；recover 重试恢复运行"
         ),
     )
     command.add_argument(

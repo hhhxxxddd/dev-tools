@@ -36,6 +36,8 @@ JSON_COMMANDS = frozenset(
         "sysinfo",
         "report",
         "self",
+        "ssh",
+        "hosts",
     }
 )
 ERROR_MESSAGES = {
@@ -56,7 +58,9 @@ ERROR_MESSAGES = {
 class TargetError(ProjectError):
     """A transport failure with explicitly selected public facts, never raw output."""
 
-    def __init__(self, code, explanation, *, environment, target_version=None, returncode=None):
+    def __init__(
+        self, code, explanation, *, environment, target_version=None, returncode=None, reason=None
+    ):
         from . import __version__
 
         super().__init__(explanation)
@@ -66,6 +70,8 @@ class TargetError(ProjectError):
             self.details["target_version"] = target_version
         if type(returncode) is int:
             self.details["returncode"] = returncode
+        if reason is not None:
+            self.details["reason"] = reason
 
 
 class RemoteError(ProjectError):

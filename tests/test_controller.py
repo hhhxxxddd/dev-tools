@@ -98,12 +98,10 @@ class ControllerTests(unittest.TestCase):
             parsed = parser().parse_args(args)
             self.assertEqual(parsed.env, "wsl")
             self.assertFalse(hasattr(parsed, "project_command"))
-        with patch(
-            "dev_tools.controller.deployment_status",
-            return_value={"state": "missing", "version": None, "distro": "Ubuntu"},
-        ):
-            payload = json.loads(self.invoke(["self", "status", "--json"]))
-            self.assertEqual(payload["wsl"]["state"], "missing")
+        payload = json.loads(self.invoke(["self", "status", "--json"]))
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["environment"], "windows" if os.name == "nt" else "wsl")
+        self.assertEqual(payload["deployment"]["state"], "installed")
 
     def test_checkout_origin_and_package_checksums_are_verified(self):
         with tempfile.TemporaryDirectory() as temporary:
