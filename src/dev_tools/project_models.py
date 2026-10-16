@@ -60,6 +60,7 @@ class ScanResult:
     unresolved: list[UnresolvedRequirement]
     diagnostics: list[Diagnostic] = field(default_factory=list)
     root_tools: tuple[str, ...] = ()
+    scope: dict[str, Any] = field(default_factory=dict)
 
     @property
     def blocked(self) -> bool:
@@ -85,4 +86,5 @@ class ScanResult:
             "requirements": self.requirements,
             "unresolved": [asdict(item) for item in self.unresolved],
             "diagnostics": [asdict(item) for item in self.diagnostics],
+            "scope": self.scope,
         }

@@ -201,17 +201,25 @@ def windows_access(projects: list[dict]) -> list[dict]:
             for target in targets or []
         ]
         services = project.get("services")
+        required_checks = [
+            check
+            for check in checks
+            if isinstance(services, dict)
+            and services.get(check["service"], {}).get("required", True)
+        ]
         running = isinstance(services, dict) and any(
-            isinstance(service, dict) and service.get("phase") == "running"
+            isinstance(service, dict)
+            and service.get("phase") == "running"
+            and service.get("required", True)
             for service in services.values()
         )
         state = (
             "unknown"
             if targets is None and running
             else "unreachable"
-            if any(not check["reachable"] for check in checks)
+            if any(not check["reachable"] for check in required_checks)
             else "reachable"
-            if checks
+            if required_checks
             else "not-applicable"
         )
         value = {

@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..i18n import message
+from ..inspection import Inspection, current_inspection, read_bytes
 from ..scanner import scan_project
 from ..schemas import CLI_SCHEMA_VERSION
 from .config import CONFIG_NAME, load_project
@@ -16,11 +17,18 @@ from .maintenance import LOCKFILES, clean_venv_task, resolution_task
 from .models import ProjectBinding, ProjectError, ProjectSpec, TaskSpec, within
 from .toolchain import root_runtime_versions
 
+LOCKFILE_NAMES = frozenset(
+    {"Cargo.lock", *[name for files in LOCKFILES.values() for name in files]}
+)
+
 
 def preparation_revisions(
     spec: ProjectSpec, binding: ProjectBinding, tasks: tuple[str, ...]
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Hash each native preparation scope, without unrelated service configuration."""
+    if current_inspection(binding.source) is None:
+        with Inspection(binding.source, project=spec.raw, platform=binding.environment).activate():
+            return preparation_revisions(spec, binding, tasks)
     declarations, installations = {}, {}
     source = binding.source.resolve()
     for name in tasks:
@@ -44,6 +52,9 @@ def preparation_revisions(
                 ".yarnrc.yml",
                 "pyproject.toml",
                 "requirements.txt",
+                "Cargo.toml",
+                "rust-toolchain",
+                "rust-toolchain.toml",
                 "uv.toml",
                 ".python-version",
             }
@@ -62,7 +73,7 @@ def preparation_revisions(
                 relative = path.relative_to(source).as_posix()
                 within(source, relative)
                 base.update(relative.encode())
-                base.update(path.read_bytes())
+                base.update(read_bytes(path))
         for dependency in task.depends_on:
             base.update(declarations[dependency].encode())
         declarations[name] = base.hexdigest()
@@ -78,13 +89,13 @@ def preparation_revisions(
             "mvn",
             "{maven}",
         }:
-            lockfiles = tuple(filename for files in LOCKFILES.values() for filename in files)
+            lockfiles = LOCKFILE_NAMES
         for path in sorted(_find(directory, set(lockfiles)) if lockfiles else []):
             if path.is_file():
                 relative = path.relative_to(source).as_posix()
                 within(source, relative)
                 installed.update(relative.encode())
-                installed.update(path.read_bytes())
+                installed.update(read_bytes(path))
         for dependency in task.depends_on:
             installed.update(installations[dependency].encode())
         installations[name] = installed.hexdigest()
@@ -99,6 +110,10 @@ def fingerprint(
     include_locks: bool = True,
 ) -> str:
     source = (root or binding.source).resolve()
+    if current_inspection(source) is None:
+        project = spec.raw if spec is not None else None
+        with Inspection(source, project=project, platform=binding.environment).activate():
+            return fingerprint(binding, spec=spec, root=root, include_locks=include_locks)
     digest = hashlib.sha256()
     names = {
         CONFIG_NAME,
@@ -124,10 +139,14 @@ def fingerprint(
         "compose.yml",
         "docker-compose.yaml",
         "docker-compose.yml",
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain",
+        "rust-toolchain.toml",
         *[name for files in LOCKFILES.values() for name in files],
     }
     if not include_locks:
-        names.difference_update(name for files in LOCKFILES.values() for name in files)
+        names.difference_update(LOCKFILE_NAMES)
     paths = set(_find(source, names))
     if (source / CONFIG_NAME).is_file():
         spec = spec or load_project(source, binding.environment)
@@ -138,7 +157,7 @@ def fingerprint(
         if path.is_file():
             within(source, path.relative_to(source).as_posix())
             digest.update(path.relative_to(source).as_posix().encode())
-            digest.update(path.read_bytes())
+            digest.update(read_bytes(path))
     return digest.hexdigest()
 
 
@@ -158,6 +177,8 @@ class PreparationPlan:
     configuration_update: bool = False
     pending_tasks: tuple[str, ...] = ()
     runtime_install: bool = False
+    scope: dict = field(default_factory=dict)
+    warnings: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -186,6 +207,8 @@ class PreparationPlan:
             "configuration_update": self.configuration_update,
             "unresolved": list(self.unresolved),
             "ready": not self.unresolved,
+            "scope": self.scope,
+            "warnings": list(self.warnings),
         }
 
 
@@ -199,13 +222,32 @@ def preparation_plan(
     configuration_update: bool = False,
     force: bool = False,
 ) -> PreparationPlan:
+    if current_inspection(binding.source) is None:
+        with Inspection(binding.source, project=spec.raw, platform=binding.environment).activate():
+            return preparation_plan(
+                spec,
+                binding,
+                backend,
+                state=state,
+                discovery_baseline=discovery_baseline,
+                configuration_update=configuration_update,
+                force=force,
+            )
     scan = scan_project(binding.source)
     unresolved = [
         message("{location}: {detail}", location=item.source, detail=item.message)
         for item in scan.diagnostics
     ]
     unresolved.extend(
-        message("conflicting {tool} versions", tool=item.tool) for item in scan.conflicts
+        message(
+            "conflicting {tool} versions: {declarations}",
+            tool=item.tool,
+            declarations="; ".join(
+                f"{version} ({', '.join(sources)})"
+                for version, sources in sorted(item.versions.items())
+            ),
+        )
+        for item in scan.conflicts
     )
     requirements = backend.requirements(spec)
     unresolved.extend(requirements.unresolved)
@@ -229,6 +271,8 @@ def preparation_plan(
             "{venv_python}": "python",
             "node": "node",
             "java": "java",
+            "cargo": "rust",
+            "rustc": "rust",
             "uv": "uv",
             "python": "python",
             "python3": "python",
@@ -340,6 +384,7 @@ def preparation_plan(
             "java": "java",
             "node": "node",
             "python": backend.python_command,
+            "rust": "cargo",
             "maven": "mvn",
         }
         for name in sorted(tools):
@@ -367,4 +412,6 @@ def preparation_plan(
         ),
         bool(runtime_versions)
         and (force or list(runtime_versions) != (state or {}).get("runtime_versions")),
+        scan.scope,
+        tuple(scan.warnings),
     )

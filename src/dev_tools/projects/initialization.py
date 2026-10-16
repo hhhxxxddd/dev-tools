@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..inspection import Inspection, current_inspection
 from ..schemas import CLI_SCHEMA_VERSION
 from ..workflows import InitializationPlan, initialization_plan, write_initialization
 from .config import CONFIG_NAME, load_project, render_toml
@@ -16,6 +17,12 @@ def initialize(
     runtime: str = "auto",
     toolchain: str = "mise",
 ) -> tuple[dict, bool]:
+    root = Path(path).expanduser().resolve(strict=True)
+    if current_inspection(root) is None:
+        with Inspection(root).activate():
+            return initialize(
+                root, dry_run=dry_run, name=name, runtime=runtime, toolchain=toolchain
+            )
     plan = initialization_plan(path)
     if plan.action == "no-tools" and toolchain == "mise":
         plan = InitializationPlan(plan.scan, "preview", "[tools]\n")

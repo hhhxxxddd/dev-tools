@@ -9,10 +9,13 @@ src/dev_tools/
   cli.py, command_help.py                  Command definitions and localized help
   settings.py, i18n.py, locales/           Controller preferences and translations
   scanner.py, metadata.py, versions.py     Static metadata and version discovery
+  inspection.py, constraints.py           Project scopes, per-operation metadata snapshots and conservative constraints
+  frameworks.py                           Static framework scope conventions
   project_models.py, workflows.py          Scan models, initialization and mise isolation
   ssh.py, ssh_config.py, hosts*.py          SSH and Windows hosts utilities
   toolbox/                                Port, PATH and network diagnostics with native collectors
   projects/                               Declarations, plans, execution, drivers, lifecycle and workers
+    lifecycle.py                          Service selection, startup outcomes, rollback scope and recovery policy
   runtimes/router.py                      Cross-environment command and path transport
   runtimes/platforms/                     Native storage, users, sync, processes and systemd
 scripts/                                  Installation, entrypoints and process adapters
@@ -20,6 +23,10 @@ systemd/                                  Generic worker template
 ```
 
 Python has no third-party runtime dependencies and supports `>=3.14.8,<3.15`. Use native Python and add src to PYTHONPATH for development checks.
+
+The framework module suggests related directories and marker files from metadata names without reading files or executing project code. Inspection applies path safety, exclusions, scope expansion and snapshot caching. Keep new framework conventions in frameworks.py; the common inventory contains no framework directory names.
+
+The project engine coordinates preparation, synchronization, monitors and state persistence. lifecycle.py owns dependency selection, startup outcomes and recovery policy, using platform adapters for process operations. Dependencies of required services must also become ready. Optional failures are recorded separately: explicit startup reports failure, while background recovery preserves shared services. Fatal failures roll back only workers newly started by the current attempt and retain both the original error and any cleanup error. Maintenance restores services from active workers and startup intent; explicit stop cancels recovery. Application data, tokens, sessions and sidecar ownership stay outside these modules.
 
 The controller can bind external Python through a native binding (`.host-python.win` on Windows, `.host-python` in WSL). Updates preserve that binding without managing the interpreter's upgrades or removal. Controllers and projects may share a read-only base Python installation while project version declarations, virtual environments and dependency installations remain independent. Isolated installation tests cover explicit paths, repeated installations, startup without mise, platform binding isolation and invalid bindings.
 
@@ -90,4 +97,4 @@ A `vX.Y.Z` tag reuses these checks and builds official assets from a clean match
 
 Ubuntu adapter tests do not establish real WSL coverage. Before releasing, run the existing isolated WSL lifecycle/dependency/toolchain scripts and Windows-to-WSL controller/transport scripts, with systemd and installed native runtimes. The controller package check installs twice into temporary native directories and verifies retained bindings, registrations and state. Never use active registrations or middleware data as test fixtures.
 
-The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.4.zip`. Candidates may describe dirty sources; `--tag v0.5.4 --official` requires committed, clean, correctly tagged sources.
+The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.5.zip`. Candidates may describe dirty sources; `--tag v0.5.5 --official` requires committed, clean, correctly tagged sources.

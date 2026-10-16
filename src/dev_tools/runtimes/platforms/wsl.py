@@ -9,10 +9,10 @@ import sys
 from pathlib import Path
 
 from ...i18n import message
+from ...inspection import IGNORED_DIRECTORIES
 from ...projects.models import ProjectError, ProjectSpec
 from ...projects.process_errors import process_error, run_process
 from ...projects.registry import write_json
-from ...scanner import IGNORED_DIRECTORIES
 from .base import Backend, PlatformRequirements
 
 EXCLUDES = (*[name + "/" for name in sorted(IGNORED_DIRECTORIES)], ".cache*/", ".turbo/")

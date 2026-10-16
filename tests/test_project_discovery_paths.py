@@ -9,14 +9,66 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from dev_tools.projects.config import parse_project
 from dev_tools.projects.detection import _find
 from dev_tools.projects.discovery import discover_project
-from dev_tools.projects.models import BuildSpec
+from dev_tools.projects.models import BuildSpec, ProjectBinding
 from dev_tools.projects.monitoring import file_snapshot
+from dev_tools.projects.planning import fingerprint, preparation_plan
+from dev_tools.runtimes.platforms.base import Backend
 from dev_tools.scanner import scan_project
 
 
 class ProjectDiscoveryPathsTests(unittest.TestCase):
+    def test_local_review_copies_do_not_affect_project_preparation_or_monitoring(self):
+        for platform in ("windows", "wsl"):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                original = '[tools]\nnode = "24.22.0"\n'
+                (root / "mise.toml").write_text(original)
+                (root / "frontend").mkdir()
+                (root / "frontend/package.json").write_text(
+                    '{"engines":{"node":"24.x"},"scripts":{"dev":"vite"}}'
+                )
+                (root / "A.java").write_text("source")
+                binding = ProjectBinding("demo", platform, root, root, root / "state")
+                before = fingerprint(binding)
+                review = root / ".local/qa/review"
+                review.mkdir(parents=True)
+                (review / "mise.toml").write_text('[tools]\nnode = "24"\n')
+                (review / "package.json").write_text('{"scripts":{"dev":"vite"}}')
+                (review / "B.java").write_text("review copy")
+                cache = root / ".local/cache"
+                cache.mkdir()
+                (cache / "pyproject.toml").write_text("[broken")
+
+                scan = scan_project(root)
+                self.assertFalse(scan.blocked)
+                self.assertEqual(scan.tools["node"].version, "24.22.0")
+                self.assertEqual(scan.tools["node"].source, "mise.toml")
+                self.assertEqual(fingerprint(binding), before)
+                services = discover_project(root)["services"]
+                self.assertEqual(
+                    [service["workdir"] for service in services.values()], ["frontend"]
+                )
+                self.assertEqual(
+                    set(file_snapshot(root, BuildSpec("web", (".",), "", "", ""))), {"A.java"}
+                )
+                spec = parse_project(
+                    {
+                        "schema": 1,
+                        "name": "demo",
+                        "services": {"web": {"command": ["node", "app.js"]}},
+                    },
+                    platform,
+                )
+                with patch("dev_tools.projects.planning.shutil.which", return_value="mise"):
+                    plan = preparation_plan(spec, binding, Backend(binding))
+                self.assertEqual(plan.unresolved, ())
+                self.assertEqual(plan.runtime_versions, ("node@24.22.0",))
+                self.assertEqual((root / "mise.toml").read_text(), original)
+                self.assertFalse(binding.state.exists())
+
     def test_one_damaged_project_does_not_abort_the_native_list(self):
         from dev_tools.projects.cli import list_projects
 
@@ -98,6 +150,10 @@ class ProjectDiscoveryPathsTests(unittest.TestCase):
             self.assertEqual(
                 set(file_snapshot(source, BuildSpec("web", (".",), "", "", ""))), {"A.java"}
             )
+            (source / "dev-tools.toml").write_text(
+                'schema=1\nname="demo"\n[scan]\nroots=["linked"]\n'
+            )
+            self.assertTrue(scan_project(source).diagnostics)
 
     @unittest.skipIf(os.name == "nt", "POSIX symlink permissions")
     def test_metadata_file_links_are_not_scanned(self):

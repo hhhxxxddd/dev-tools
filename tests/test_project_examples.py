@@ -12,7 +12,7 @@ class ExampleTests(unittest.TestCase):
 
         examples = Path(__file__).resolve().parents[1] / "examples"
         paths = list(examples.glob("*.toml"))
-        self.assertEqual(len(paths), 5)
+        self.assertEqual(len(paths), 6)
         for path in paths:
             raw = tomllib.loads(path.read_text(encoding="utf-8"))
             for platform in ("windows", "wsl"):

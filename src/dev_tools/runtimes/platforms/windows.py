@@ -18,6 +18,22 @@ REPOSITORY = Path(__file__).resolve().parents[4]
 
 
 class WindowsBackend(Backend):
+    def child_options(self) -> dict:
+        # A hidden controller must not pass its show state to a GUI client.
+        # CREATE_NO_WINDOW independently keeps console applications hidden.
+        startup = subprocess.STARTUPINFO()
+        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup.wShowWindow = 1  # SW_SHOWNORMAL; GUI applications remain visible.
+        return {"creationflags": subprocess.CREATE_NO_WINDOW, "startupinfo": startup}
+
+    def task_options(self) -> dict:
+        return self.child_options()
+
+    def guard_worker(self) -> None:
+        from .windows_job import guard_worker
+
+        guard_worker()
+
     def _native(self, action: str, path: Path) -> dict:
         result = run_process(
             [

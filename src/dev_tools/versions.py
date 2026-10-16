@@ -88,6 +88,9 @@ def _normalize_numeric(tool: str, value: str) -> str | None:
 
 
 def normalize_version(tool: str, raw: str) -> str | None:
+    raw = raw.strip().strip("\"'")
+    if tool == "rust" and re.fullmatch(r"(?:stable|beta|nightly)(?:-\d{4}-\d{2}-\d{2})?", raw):
+        return raw
     if tool == "java":
         return _normalize_java(raw)
-    return _normalize_numeric(tool, raw.strip().strip("\"'"))
+    return _normalize_numeric(tool, raw)

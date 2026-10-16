@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import json
 import re
-import tomllib
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 from .i18n import message
+from .inspection import read_json, read_text, read_toml, read_xml
 from .project_models import Evidence, Wrapper
 from .versions import normalize_version
 
-TOOL_ORDER = ("java", "maven", "node", "npm", "pnpm", "yarn", "bun", "python", "uv")
+TOOL_ORDER = ("java", "maven", "node", "npm", "pnpm", "yarn", "bun", "rust", "python", "uv")
 
 
 class MetadataError(ValueError):
@@ -27,15 +25,14 @@ def _local_name(tag: str) -> str:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8-sig"))
+    value = read_json(path)
     if not isinstance(value, dict):
         raise MetadataError(message("expected a JSON object"))
     return value
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
-    with path.open("rb") as stream:
-        return tomllib.load(stream)
+    return read_toml(path)
 
 
 def _tool_value(value: Any) -> str | None:
@@ -80,7 +77,7 @@ def _scan_mise(path: Path, root: Path, evidence: list[Evidence]) -> tuple[str, .
 
 
 def _scan_tool_versions(path: Path, root: Path, evidence: list[Evidence]) -> None:
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = read_text(path).splitlines()
     for line in lines:
         value = line.split("#", 1)[0].strip()
         if not value:
@@ -96,9 +93,10 @@ def _scan_version_file(path: Path, root: Path, evidence: list[Evidence]) -> None
         ".node-version": "node",
         ".nvmrc": "node",
         ".python-version": "python",
+        "rust-toolchain": "rust",
     }
     tool = mapping[path.name]
-    fields = path.read_text(encoding="utf-8").split()
+    fields = read_text(path).split()
     if not fields:
         raise MetadataError(message("empty version declaration"))
     raw = fields[0]
@@ -106,7 +104,7 @@ def _scan_version_file(path: Path, root: Path, evidence: list[Evidence]) -> None
 
 
 def _scan_sdkman(path: Path, root: Path, evidence: list[Evidence]) -> None:
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = read_text(path).splitlines()
     for line in lines:
         value = line.strip()
         if not value or value.startswith("#") or "=" not in value:
@@ -156,7 +154,7 @@ def _resolve_property(raw: str, properties: dict[str, str]) -> str:
 
 
 def _scan_pom(path: Path, root: Path, evidence: list[Evidence]) -> None:
-    tree = ET.parse(path)
+    tree = read_xml(path)
     properties: dict[str, str] = {}
     for element in tree.iter():
         if _local_name(element.tag) != "properties":
@@ -184,7 +182,7 @@ def _scan_pom(path: Path, root: Path, evidence: list[Evidence]) -> None:
 
 
 def _scan_gradle(path: Path, root: Path, evidence: list[Evidence]) -> None:
-    content = path.read_text(encoding="utf-8")
+    content = read_text(path)
     patterns = (
         r"JavaLanguageVersion\.of\(\s*(\d+)\s*\)",
         r"jvmToolchain\(\s*(\d+)\s*\)",
@@ -256,7 +254,40 @@ def _scan_uv_lock(path: Path, root: Path, evidence: list[Evidence]) -> None:
     )
 
 
+def _scan_cargo(path: Path, root: Path, evidence: list[Evidence]) -> None:
+    value = _read_toml(path)
+    package = value.get("package", {})
+    workspace = value.get("workspace", {})
+    shared = workspace.get("package", {}) if isinstance(workspace, dict) else {}
+    for key, item in (("package", package), ("workspace.package", shared)):
+        if not isinstance(item, dict):
+            raise MetadataError(message("Cargo {key} must be a table", key=key))
+        requirement = item.get("rust-version")
+        if requirement is not None and requirement != {"workspace": True}:
+            if not isinstance(requirement, str) or not requirement.strip():
+                raise MetadataError(message("Cargo rust-version must be a nonempty string"))
+            _add(
+                evidence,
+                "rust",
+                requirement,
+                f"{_relative(path, root)}:{key}.rust-version",
+                70,
+                "compatible",
+            )
+
+
+def _scan_rust_toolchain(path: Path, root: Path, evidence: list[Evidence]) -> None:
+    value = _read_toml(path).get("toolchain", {})
+    if not isinstance(value, dict):
+        raise MetadataError(message("rust toolchain must be a table"))
+    if "channel" in value and (
+        not isinstance(value["channel"], str) or not value["channel"].strip()
+    ):
+        raise MetadataError(message("Rust toolchain channel must be a nonempty string"))
+    _add(evidence, "rust", value.get("channel"), _relative(path, root), 90, "exact")
+
+
 def _scan_maven_wrapper(path: Path, root: Path, wrappers: dict[str, Wrapper]) -> None:
-    content = path.read_text(encoding="utf-8")
+    content = read_text(path)
     match = re.search(r"apache-maven-([0-9][0-9.]+)-bin\.(?:zip|tar\.gz)", content)
     wrappers["maven"] = Wrapper(match.group(1) if match else "managed", _relative(path, root))

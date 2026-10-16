@@ -1,0 +1,53 @@
+# 桌面开发模板：应用入口负责共享会话、目录和开发/发布模式。
+# 根级 mise 文件需声明 python、uv、node、rust；前端项目需安装 Tauri CLI 依赖。
+schema = 1
+name = "desktop-app"
+discovery = "manual"
+rebuild_on_branch = false
+
+[tasks.backend-prepare]
+command = ["uv", "sync", "--locked"]
+manager = "uv"
+tools = ["python", "uv"]
+
+[tasks.frontend-prepare]
+command = ["npm", "ci"]
+manager = "npm"
+workdir = "frontend"
+tools = ["node"]
+
+[services.backend]
+command = ["{venv_python}", "tools/dev/run_backend.py"]
+prepare = ["backend-prepare"]
+tools = ["python"]
+
+[services.backend.health]
+tcp = 7877
+http = "http://127.0.0.1:7877/health"
+timeout = 180
+json = { application = "desktop-app", ready = true }
+
+[services.frontend]
+command = ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "3002", "--strictPort"]
+workdir = "frontend"
+prepare = ["frontend-prepare"]
+depends_on = ["backend"]
+tools = ["node"]
+
+[services.frontend.health]
+tcp = 3002
+http = "http://127.0.0.1:3002/health"
+timeout = 60
+json = { application = "desktop-app", ready = true }
+
+[services.desktop]
+command = ["npm", "run", "tauri:dev"]
+workdir = "frontend"
+depends_on = ["frontend"]
+tools = ["node", "rust"]
+required = false
+restart = "never"
+
+[services.desktop.env]
+APP_BACKEND_MODE = "shared"
+APP_BACKEND_URL = "http://127.0.0.1:7877"

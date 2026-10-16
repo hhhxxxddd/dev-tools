@@ -44,6 +44,7 @@ timeout = 30
 | toolchain | mise | mise 使用根级显式版本；system 使用已有系统工具 |
 | dependency_mode | auto | 自动同步已知包管理器锁文件；locked 禁止自动改锁文件 |
 | discovery | manual；init 生成 auto | 持续发现模块并保留手改配置，或只使用手写声明 |
+| scan | 空表 | 项目元数据发现范围；见下文 |
 | rebuild_on_branch | true | 分支或 HEAD 变化稳定后触发准备任务和结构构建 |
 | sync_exclude | [] | WSL 同步排除模式，用于保留自定义原生输出 |
 | sync_include | [] | 优先于排除规则的 WSL 同步包含模式，只用于需要同步的源码 |
@@ -60,6 +61,31 @@ WSL 默认排除 build、dist、target 和依赖目录。如果项目将 build �
 
 工作目录、Compose 文件、Python 根目录和 classpath 模块都使用项目内相对路径，不接受绝对路径或 ..。
 执行时还会检查解析后的路径是否越出项目。
+
+## 扫描范围与版本校验
+
+Windows、WSL 使用同一套静态扫描规则，不读取 `.gitignore`，不执行项目脚本、Wrapper 或下载内容。被 Git 忽略的本地源码仍可参与运行。
+
+根配置始终纳入；手写工作流扫描任务和服务的 workdir、Python 根目录及到项目根之间的必要元数据。声明的 Node workspaces、pnpm packages、uv workspace members 和 Maven modules 直接展开，不受兜底深度限制。未声明的旁支目录不影响手写工作流。没有项目声明或 discovery=auto 时才进行兜底递归；嵌套 Git 仓库和拥有 dev-tools.toml 的独立项目默认作为边界，显式声明的目录可以纳入。
+
+```toml
+[scan]
+roots = ["frontend", "backend", "tools/local-api"]
+exclude = ["**/fixtures/**", "tools/review-copies/**"]
+max_depth = 4
+```
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| roots | 自动推导 | 指定兜底发现起点；配置后替代默认搜索起点。显式 [] 关闭兜底发现，不排除已声明的任务或工作区 |
+| exclude | [] | 补充元数据扫描排除规则；与已声明目录、必要元数据或工作区成员冲突时报告错误 |
+| max_depth | 4 | 每个兜底起点算第 0 层；可设为 0～32，触顶时给出警告及被截断的目录 |
+
+路径相对项目根，统一使用 /，也接受并规范化 Windows 反斜杠。roots 为具体目录；exclude 使用区分大小写的路径 glob，支持 *、?、**，末尾 / 表示目录。不支持绝对路径、..、否定规则或读取 .gitignore。默认跳过依赖、构建、缓存和 .local 等目录；显式 workdir、workspace 成员或 roots 可以纳入这些目录，但始终拒绝符号链接、Windows 目录联接和越界路径。scan 不改变 builds.watch 或 sync_include/sync_exclude；需要同步的默认排除目录仍须单独设置 sync_include。pnpm packages 支持静态块列表或带引号的内联列表，不求值 YAML 标签、锚点或动态表达式。
+
+根级 mise 是安装和执行版本的依据。两份根级 mise 对同一工具声明不一致仍阻塞准备。参与范围内的包版本要求、Java 编译目标和子目录 mise 声明用于兼容性校验：根 Node 24.22.0 满足 24.x，低于要求或无法可靠验证的约束会明确阻塞；Java 编译目标按最低 JDK 要求检查。.nvmrc、.tool-versions、Volta、devEngines 等开发版本偏好不覆盖根声明，差异给出警告。没有根声明时可从已知范围推导能证明兼容的选择器，同优先级显式版本冲突仍需人工解决；实际准备前仍须有根级声明。
+
+scan/init/check 的 JSON 含 scope：scopes 记录目录及 root/workflow/workspace/discovery/scan.roots 纳入原因，files 为本次元数据清单，truncated 为兜底发现跳过的目录。check 另有 warnings，不表示已安装或启动。每次计划内复用目录清单和元数据解析结果；下一次检查重新观察新增、删除和修改，不使用持久扫描缓存。
 
 ## 自动依赖维护
 
@@ -126,6 +152,7 @@ role=build 任务被服务 prepare 或任务依赖明确引用时，也会进入
 
 manager 为 npm/pnpm/yarn/bun/uv 时，准备计划要求 workdir 中存在相应锁文件。
 显式工作流的工具需求以 tasks/services 为准；目录中残留的 uv.lock 不会使 pip 工作流额外要求 uv。扫描仍报告元数据解析错误及版本冲突，实际使用的工具必须在根级 mise 中声明。
+自动扫描、发现和依赖指纹默认跳过 `.local/`，显式项目范围可以纳入本地源码；文件监控及默认 WSL 同步保留各自的排除规则。实际项目范围内的版本冲突会列出版本和来源文件。
 发现工作区时，在包工作区根安装，在具体应用目录运行；自定义声明需要明确设置 workdir。
 锁文件校验不会自动把任意 install 命令变为冻结安装，应在 command 中声明 npm ci、--frozen-lockfile、--immutable 或 uv sync --locked。
 
@@ -139,6 +166,7 @@ manager 为 npm/pnpm/yarn/bun/uv 时，准备计划要求 workdir 中存在相�
 | prepare | [] | 服务需要的准备任务 |
 | depends_on | [] | 先启动并等待就绪的服务 |
 | restart | on-failure | never、on-failure 或 always |
+| required | true | 是否参与项目就绪聚合；可选服务仍默认启动 |
 | health | 空表 | TCP/HTTP 健康检查 |
 | java / python / compose | 空表 | 原生驱动选项 |
 
@@ -148,10 +176,54 @@ manager 为 npm/pnpm/yarn/bun/uv 时，准备计划要求 workdir 中存在相�
 health 支持：
 
 - tcp：1～65535 的端口，探测 127.0.0.1。
-- http：以 http:// 或 https:// 开头的 URL。
+- http：以 http:// 或 https:// 开头的 URL；要求 2xx，直连且不跟随重定向。
+- json：可选的非空 JSON 字段表，需同时配置 http；响应必须包含并匹配这些字段和类型，允许额外字段。最多读取 64 KiB，读取期间检查总时限，避免持续发送少量数据拖住查询；不将响应保存到状态或日志。
 - timeout：等待就绪的秒数，默认 15，必须大于 0 且不超过 300。
 
 同时声明 TCP 和 HTTP 时，两者都需要成功。原生进程没有探针时 health 为 unknown；进程就绪与已确认健康分别表达。Compose 还会根据容器运行状态和容器报告的健康状态判定，单次容器状态查询最多等待 5 秒，失败或超时视为不健康。
+
+## 桌面客户端与共享服务
+
+桌面应用可参考 [dev-desktop.toml](../examples/dev-desktop.toml)。使用手写 discovery=manual 工作流，frontend.depends_on=["backend"]、desktop.depends_on=["frontend"]，逐个等待依赖就绪。服务同时声明 tcp 和 http/json：新服务启动前拒绝已占用的声明端口，不接管或终止占用者；HTTP JSON 校验应用身份和 readiness。应用自行校验本项目会话，dev-tools 不读取令牌或应用会话文件。
+
+```toml
+[services.backend.health]
+tcp = 7877
+http = "http://127.0.0.1:7877/health"
+timeout = 180
+json = { application = "desktop-app", ready = true }
+
+[services.desktop]
+command = ["npm", "run", "tauri:dev"]
+workdir = "frontend"
+depends_on = ["frontend"]
+tools = ["node", "rust"]
+required = false
+restart = "never"
+```
+
+required=false 不排除默认启动，但客户端关闭后不使共享服务失去就绪状态；客户端若被必需服务依赖，仍按必需依赖检查。restart=never 不在退出后自动重开。可选服务启动失败时，已启动的共享服务和监控继续运行，显式 start 返回 1；后台准备恢复失败的可选客户端只记录服务错误。维护不会重开已关闭的可选客户端。
+
+上述规则适用于任意服务名称与驱动。必需依赖即使配置 required=false，也必须保持运行并通过就绪检查，退出码 0 不能代替就绪。必需服务或监控启动失败时，仅回滚本次新启动的 worker，保留此前已运行的服务；恢复记录同时保留启动错误和清理错误，显式 stop 取消待恢复的服务。
+
+仅包含可选服务时，客户端关闭后，只要准备有效且维护监控仍在运行，项目仍显示为运行；stop 同时停止服务和维护。
+
+```text
+dev-tools start desktop-app
+dev-tools start desktop-app --service frontend
+dev-tools start desktop-app --service desktop
+dev-tools stop desktop-app
+```
+
+第二条只启动或保留共享服务，第三条重开客户端并确保其依赖运行；重复 start 保留活动服务，不重复创建实例。未配置 desktop.health 时，running 仅表示启动器仍存活；需要确认 CDP 可为 Windows 桌面服务配置 tcp=9222、http="http://127.0.0.1:9222/json/version"。显示、CDP 绑定和首次 Rust 编译由应用/Tauri 管理，WSL 原生桌面开发还需要可用的图形会话及应用要求的系统库。
+
+各服务已有 env 原样传递项目配置，不展开 shell 变量；应用入口自行解释共享后端模式、源码目录及 .local/data、.local/dev、.local/reports。开发客户端连接共享后端，发布版 sidecar 的所有权仍由应用决定。Tauri 自己监听 Rust 源码并重启客户端，无需 dev-tools 再执行相同构建。运行时版本与依赖声明变化仍按项目准备计划维护。
+任务与服务还会收到 DEV_TOOLS_SOURCE_ROOT（源码目录）和 DEV_TOOLS_PROJECT_ROOT（原生运行工作区）的绝对路径；两者由本机绑定生成，不受项目 env 覆盖。Windows 通常相同，WSL 可能不同。应用可以据此选择数据和会话位置，dev-tools 不据此创建业务目录或保存令牌。
+
+Windows 服务和准备子进程隐藏控制台，每个 worker 通过独立 Job Object 管理后代，窗口关闭或 stop 不会跨服务终止进程；WSL 使用原生进程组和 systemd 控制组。项目级 stop 停止本次受管的全部进程，释放其持有的系统文件锁，但不删除应用数据、锁文件或会话标记。
+隐藏 worker 与图形窗口分别处理：Windows 子进程显式使用 SW_SHOWNORMAL，避免继承启动器的隐藏状态，同时通过 CREATE_NO_WINDOW 隐藏控制台；不额外增加 desktop 专用窗口开关，也不改变已经运行的窗口。
+
+Rust 支持根级 mise 声明、rust-toolchain/rust-toolchain.toml 与 Cargo.toml 的 rust-version 最低要求，及 Cargo workspace 成员。已纳入的前端目录会识别 src-tauri/Cargo.toml，范围原因为 tauri；.local 中的旧副本仍默认排除。cargo/rustc 命令识别为 Rust 工具需求；通过 npm 启动 Tauri 时显式声明 tools=["node","rust"]，npm ci 安装项目内 Tauri CLI，dev-tools 不执行 npm 脚本推测工具，也不创建 Cargo 安装任务或自动升级编译器。
 
 ## 原生驱动选项
 

@@ -2,12 +2,23 @@
 
 **简体中文** · [English](README.en.md)
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.4](https://img.shields.io/badge/Version-0.5.4-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.5](https://img.shields.io/badge/Version-0.5.5-blue)](CHANGELOG.md)
 
 为 Windows 和 WSL 项目提供近乎无感的开发部署体验：自动发现依赖、准备环境、启动服务，持续跟进代码和依赖声明的变化。
 依赖新增、删除或升级后，按项目配置自动同步并继续开发，适合频繁调整项目的 Vibe Coding。
 空闲时自动降低扫描频率，发现变化后恢复快速同步；WSL 的依赖与编译留在 Linux 原生目录。
-支持 Node.js、Python / uv、Maven / Spring Boot 和已有 Docker Compose 项目。
+
+## 支持的项目
+
+| 项目类型 | 默认支持 |
+| --- | --- |
+| Node.js / 前端 | 从 package.json 生成依赖准备与 dev/start 服务；支持 npm、pnpm、Yarn、Bun，识别 Next.js、Vite、React |
+| Python | 从 pyproject.toml 生成 uv 或 pip 准备流程；FastAPI 项目可生成 Uvicorn 热重载服务 |
+| Java / Maven | 识别多模块、Maven Wrapper 与 Spring Boot，生成准备和热部署流程 |
+| Docker Compose | 使用已有 Compose 声明；自动发现时优先采用 Compose |
+| Rust / Tauri、Gradle、自定义进程 | 手写任务和启动命令；支持 Rust 工具链、Cargo 工作区与最低版本校验，Gradle 支持 JDK 元数据扫描 |
+
+可组合多语言项目；声明的工作区和模块会参与扫描。桌面客户端与共享服务见[桌面模板](examples/dev-desktop.toml)，其他配置见[项目示例](examples/README.md)。运行时版本仍以项目根级 mise 配置为准，无法确定的入口需手动配置。
 
 ## 环境要求
 
@@ -106,6 +117,8 @@ dev-tools net check http://localhost:3000/health -e wsl
 端口与 PATH 查询只读；网络诊断使用直连，分别检查 DNS、TCP、TLS、HTTP。`hosts` 仅管理 Windows，系统写入按需提权并自动备份。
 更新时输入 `Y`，或加 `--yes`，停止受影响项目并在更新后恢复；`dev-tools upgrade -e wsl` 升级 WSL。
 默认中文，通过 `dev-tools config edit` 设置 `language = "en"` 切换英文；配置与缓存各端独立。
+扫描不读取 `.gitignore`；按工作流和工作区确定范围，可在项目配置的 `[scan]` 中指定发现起点、排除路径和深度，详见[项目配置](docs/project-config.md#扫描范围与版本校验)。
+Python、Vite 与可关闭重开的桌面客户端可共用一个生命周期，见[桌面模板](examples/dev-desktop.toml)。
 
 ## 文档
 

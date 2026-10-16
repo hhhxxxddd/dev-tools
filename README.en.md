@@ -2,12 +2,23 @@
 
 [简体中文](README.md) · **English**
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.4](https://img.shields.io/badge/Version-0.5.4-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.5](https://img.shields.io/badge/Version-0.5.5-blue)](CHANGELOG.md)
 
 A nearly seamless development deployment experience for Windows and WSL: discover dependencies, prepare environments, start services, and follow code and dependency declarations.
 Add, remove, or upgrade dependencies and keep developing as project configuration synchronizes them automatically. A good fit for fast-moving Vibe Coding projects.
 Idle projects reduce polling automatically and return to fast synchronization after changes; WSL dependencies and builds stay in native Linux directories.
-Supports Node.js, Python / uv, Maven / Spring Boot, and existing Docker Compose projects.
+
+## Supported projects
+
+| Project type | Default support |
+| --- | --- |
+| Node.js / frontend | Generates dependency preparation and dev/start services from package.json; supports npm, pnpm, Yarn and Bun, with Next.js, Vite and React detection |
+| Python | Generates uv or pip preparation from pyproject.toml; FastAPI projects can receive a Uvicorn reload service |
+| Java / Maven | Detects multiple modules, Maven Wrapper and Spring Boot, generating preparation and hot deployment workflows |
+| Docker Compose | Uses existing Compose declarations; automatic discovery prefers Compose |
+| Rust / Tauri, Gradle, custom processes | Configure tasks and startup commands explicitly; Rust toolchains, Cargo workspaces and minimum versions are checked; Gradle supports JDK metadata scanning |
+
+Languages can be combined; declared workspaces and modules participate in scanning. See the [desktop template](examples/dev-desktop.toml) for clients sharing backend services, or other [project examples](examples/README.md). Runtime versions still follow root mise configuration; ambiguous entrypoints require explicit configuration.
 
 ## Requirements
 
@@ -106,6 +117,8 @@ dev-tools net check http://localhost:3000/health -e wsl
 Port and PATH queries are read-only. Network diagnostics use direct connections and check DNS, TCP, TLS and HTTP separately. `hosts` manages Windows only; system writes request elevation when needed and create backups.
 Enter `Y`, or add `--yes`, to stop affected projects and restore them after an update; `dev-tools upgrade -e wsl` upgrades WSL.
 Chinese is the default. Set `language = "en"` through `dev-tools config edit` for English. Configuration and caches remain native to each environment.
+Scanning does not read `.gitignore`. Workflows and workspaces determine scope; configure discovery roots, exclusions and depth under `[scan]` in the [project configuration](docs/project-config.en.md#scan-scope-and-version-validation).
+Python, Vite and a reopenable desktop client can share one development lifecycle; see the [desktop template](examples/dev-desktop.toml).
 
 ## Documentation
 

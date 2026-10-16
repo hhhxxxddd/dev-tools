@@ -207,7 +207,11 @@ def _list_state(project: dict) -> str:
         return "error"
     if project.get("recovery") or project.get("maintenance_error"):
         return "recovery-pending"
-    services = project.get("services", {}).values()
+    services = [
+        service for service in project.get("services", {}).values() if service.get("required", True)
+    ]
+    if not services and project.get("ready"):
+        return "running"
     phases = {service["phase"] for service in services}
     if not phases or phases == {"stopped"}:
         return "stopped"
@@ -328,7 +332,10 @@ def emit(payload: dict, as_json: bool) -> None:
             )
         )
         for name, value in payload["services"].items():
-            print(f"  {name}：{status_label(value['phase'])}（{status_label(value['health'])}）")
+            optional = f" [{t('optional')}]" if not value.get("required", True) else ""
+            print(
+                f"  {name}{optional}：{status_label(value['phase'])}（{status_label(value['health'])}）"
+            )
         emit_access(payload)
         if payload.get("health_scope") == "wsl-local":
             print(t("Health scope: WSL local only; Windows localhost forwarding is not checked"))
@@ -421,6 +428,8 @@ def emit(payload: dict, as_json: bool) -> None:
         )
         for message in payload["unresolved"]:
             print(t("  待解决：") + render(message))
+        for notice in payload.get("warnings", []):
+            print(warning(t("警告：{warning}", warning=render(notice))))
     if payload.get("completed"):
         print(t("  操作已完成。"))
 

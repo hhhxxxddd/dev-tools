@@ -1,22 +1,25 @@
 from __future__ import annotations
 
 import json
-import os
 import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from .constraints import compatible
 from .i18n import message, t
+from .inspection import Inspection, current_inspection, read_text
 from .metadata import (
     TOOL_ORDER,
     MetadataError,
     _relative,
+    _scan_cargo,
     _scan_gradle,
     _scan_maven_wrapper,
     _scan_mise,
     _scan_package,
     _scan_pom,
     _scan_python_project,
+    _scan_rust_toolchain,
     _scan_sdkman,
     _scan_tool_versions,
     _scan_uv_lock,
@@ -31,27 +34,6 @@ from .project_models import (
     Wrapper,
 )
 
-IGNORED_DIRECTORIES = {
-    ".codegraph",
-    ".dev-tools",
-    ".git",
-    ".gradle",
-    ".idea",
-    ".mvn-cache",
-    ".next",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tox",
-    ".venv",
-    "__pycache__",
-    "build",
-    "dist",
-    "host-mise",
-    "node_modules",
-    "out",
-    "target",
-    "venv",
-}
 KNOWN_FILES = {
     ".java-version",
     ".mise.toml",
@@ -71,30 +53,15 @@ KNOWN_FILES = {
     "pom.xml",
     "pyproject.toml",
     "uv.lock",
+    "Cargo.toml",
+    "rust-toolchain",
+    "rust-toolchain.toml",
 }
 
 
-def _project_files(root: Path, max_depth: int = 4) -> list[Path]:
-    result: list[Path] = []
-    for current, directories, files in os.walk(root):
-        base = Path(current)
-        depth = len(base.relative_to(root).parts)
-        directories[:] = [
-            name
-            for name in directories
-            if name not in IGNORED_DIRECTORIES
-            and not name.startswith(".cache")
-            and not (base / name).is_symlink()
-            and not (base / name).is_junction()
-        ]
-        if depth >= max_depth:
-            directories.clear()
-        for name in files:
-            if name in KNOWN_FILES or name == "maven-wrapper.properties":
-                path = base / name
-                if not path.is_symlink() and path.is_file():
-                    result.append(path)
-    return sorted(result)
+def _project_files(root: Path) -> list[Path]:
+    inspection = current_inspection(root) or Inspection(root)
+    return inspection.find(KNOWN_FILES | {"maven-wrapper.properties"})
 
 
 def _select(evidence: list[Evidence]) -> tuple[dict[str, Evidence], list[Conflict], list[str]]:
@@ -105,10 +72,24 @@ def _select(evidence: list[Evidence]) -> tuple[dict[str, Evidence], list[Conflic
         candidates = [item for item in evidence if item.tool == name]
         if not candidates:
             continue
+        roots = [item for item in candidates if item.source in {"mise.toml", ".mise.toml"}]
         top_priority = max(item.priority for item in candidates)
-        top = [item for item in candidates if item.priority == top_priority]
+        top = roots or [item for item in candidates if item.priority == top_priority]
         if any(not item.version for item in top):
             continue
+        if not roots and all(item.confidence == "range" for item in top):
+            agreed = next(
+                (
+                    item
+                    for item in sorted(
+                        top, key=lambda value: (-len(value.version.split(".")), value.source)
+                    )
+                    if all(compatible(name, item.version, other.raw) is True for other in top)
+                ),
+                None,
+            )
+            if agreed is not None:
+                top = [agreed]
         versions: dict[str, list[str]] = {}
         for item in top:
             versions.setdefault(item.version, []).append(item.source)
@@ -118,7 +99,21 @@ def _select(evidence: list[Evidence]) -> tuple[dict[str, Evidence], list[Conflic
         selected = min(top, key=lambda item: item.source)
         tools[name] = selected
         lower = sorted(
-            {item.version or item.raw for item in candidates if item.version != selected.version}
+            {
+                item.version or item.raw
+                for item in candidates
+                if item.version != selected.version
+                and not (
+                    roots
+                    and compatible(
+                        name,
+                        selected.raw,
+                        item.raw,
+                        minimum=name in {"java", "rust"} and item.confidence == "compatible",
+                    )
+                    is True
+                )
+            }
         )
         if lower:
             warnings.append(
@@ -137,8 +132,12 @@ def scan_project(path: str | Path) -> ScanResult:
     root = Path(path).expanduser().resolve(strict=True)
     if not root.is_dir():
         raise ValueError(message("project path is not a directory: {root}", root=root))
+    inspection = current_inspection(root)
+    if inspection is None:
+        with Inspection(root).activate():
+            return scan_project(root)
     files = _project_files(root)
-    diagnostics: list[Diagnostic] = []
+    diagnostics: list[Diagnostic] = list(inspection.diagnostics)
     root_tools: tuple[str, ...] = ()
     evidence: list[Evidence] = []
     wrappers: dict[str, Wrapper] = {}
@@ -151,7 +150,7 @@ def scan_project(path: str | Path) -> ScanResult:
         (
             candidate
             for candidate in (root / "mise.toml", root / ".mise.toml")
-            if candidate.is_file()
+            if inspection.safe(candidate) and candidate.is_file()
         ),
         None,
     )
@@ -163,8 +162,17 @@ def scan_project(path: str | Path) -> ScanResult:
                     root_tools = tuple(dict.fromkeys((*root_tools, *declared)))
             elif file.name == ".tool-versions":
                 _scan_tool_versions(file, root, evidence)
-            elif file.name in {".java-version", ".node-version", ".nvmrc", ".python-version"}:
-                _scan_version_file(file, root, evidence)
+            elif file.name in {
+                ".java-version",
+                ".node-version",
+                ".nvmrc",
+                ".python-version",
+                "rust-toolchain",
+            }:
+                if file.name == "rust-toolchain" and read_text(file).lstrip().startswith("["):
+                    _scan_rust_toolchain(file, root, evidence)
+                else:
+                    _scan_version_file(file, root, evidence)
             elif file.name == ".sdkmanrc":
                 _scan_sdkman(file, root, evidence)
             elif file.name == "package.json":
@@ -186,6 +194,11 @@ def scan_project(path: str | Path) -> ScanResult:
                 _scan_uv_lock(file, root, evidence)
                 require("python", file)
                 require("uv", file)
+            elif file.name == "Cargo.toml":
+                _scan_cargo(file, root, evidence)
+                require("rust", file)
+            elif file.name == "rust-toolchain.toml":
+                _scan_rust_toolchain(file, root, evidence)
             elif file.name in {"pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"}:
                 require(
                     {
@@ -205,6 +218,47 @@ def scan_project(path: str | Path) -> ScanResult:
         except MetadataError as exc:
             diagnostics.append(Diagnostic(_relative(file, root), "invalid-metadata", exc.args[0]))
     tools, conflicts, warnings = _select(evidence)
+    unverified: list[UnresolvedRequirement] = []
+    for name, selected in tools.items():
+        if selected.source not in {"mise.toml", ".mise.toml"}:
+            continue
+        for item in evidence:
+            if item.tool != name or item is selected or item.source in {"mise.toml", ".mise.toml"}:
+                continue
+            # Development version files are preferences; package requirements and
+            # nested mise declarations constrain the participating project scope.
+            if item.confidence not in {"range", "compatible"} and not item.source.endswith(
+                (
+                    "mise.toml",
+                    ":packageManager",
+                    ":tool.uv.required-version",
+                    "rust-toolchain",
+                    "rust-toolchain.toml",
+                )
+            ):
+                continue
+            result = compatible(
+                name,
+                selected.raw,
+                item.raw,
+                minimum=name in {"java", "rust"} and item.confidence == "compatible",
+            )
+            if result is False:
+                conflicts.append(
+                    Conflict(name, {selected.raw: [selected.source], item.raw: [item.source]})
+                )
+            elif result is None:
+                unverified.append(
+                    UnresolvedRequirement(
+                        name,
+                        item.source,
+                        item.raw,
+                        message(
+                            "cannot verify compatibility with root version {version}",
+                            version=selected.raw,
+                        ),
+                    )
+                )
     if "maven" in wrappers:
         conflicts = [conflict for conflict in conflicts if conflict.tool != "maven"]
         if "maven" in tools:
@@ -214,7 +268,7 @@ def scan_project(path: str | Path) -> ScanResult:
                 )
             )
         tools.pop("maven", None)
-    unresolved: list[UnresolvedRequirement] = []
+    unresolved: list[UnresolvedRequirement] = unverified
     for name in TOOL_ORDER:
         candidates = [item for item in evidence if item.tool == name]
         priority = max((item.priority for item in candidates), default=0)
@@ -239,6 +293,13 @@ def scan_project(path: str | Path) -> ScanResult:
                     message("required tool has no version declaration"),
                 )
             )
+    if inspection.truncated:
+        warnings.append(
+            message(
+                "discovery depth limit reached; skipped directories: {paths}",
+                paths=", ".join(sorted(inspection.truncated)),
+            )
+        )
     return ScanResult(
         root,
         existing,
@@ -249,8 +310,9 @@ def scan_project(path: str | Path) -> ScanResult:
         wrappers,
         requirements,
         unresolved,
-        diagnostics,
+        list(dict.fromkeys(diagnostics)),
         root_tools,
+        inspection.description(),
     )
 
 

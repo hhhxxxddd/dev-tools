@@ -44,6 +44,7 @@ Use sudo for native WSL mutations; previews do not require sudo.
 | toolchain | mise | mise uses explicit root versions; system uses existing system tools |
 | dependency_mode | auto | Synchronize known package-manager locks; locked prevents automatic lock changes |
 | discovery | manual; init generates auto | Keep discovering modules while preserving custom values, or use only manual declarations |
+| scan | Empty table | Project metadata discovery scope; see below |
 | rebuild_on_branch | true | Run preparation tasks and structural builds after branch/HEAD transitions settle |
 | sync_exclude | [] | WSL sync exclusion patterns that preserve custom native outputs |
 | sync_include | [] | WSL inclusion patterns evaluated before exclusions, for source files that must be synced |
@@ -60,6 +61,31 @@ set `sync_include = ["/frontend/build/***"]` explicitly. A leading / anchors the
 
 Workdirs, Compose files, Python roots and classpath modules must be project-relative. Absolute paths and .. are rejected.
 Execution also checks resolved paths for escapes from the project.
+
+## Scan scope and version validation
+
+Windows and WSL share static scanning rules. Scanning does not read `.gitignore` or execute project scripts, wrappers or downloaded content. Git-ignored local source can still participate in the project.
+
+Root configuration is always included. Manual workflows inspect task/service workdirs, Python roots and necessary metadata along their ancestors up to the project root. Declared Node workspaces, pnpm packages, uv workspace members and Maven modules expand directly without the fallback depth limit. Undeclared side directories do not affect manual workflows. Fallback traversal applies without a project declaration or with discovery=auto. Nested Git repositories and independent projects containing dev-tools.toml are boundaries unless explicitly included.
+
+```toml
+[scan]
+roots = ["frontend", "backend", "tools/local-api"]
+exclude = ["**/fixtures/**", "tools/review-copies/**"]
+max_depth = 4
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| roots | Inferred | Override fallback discovery starting directories. An explicit [] disables fallback discovery without excluding declared tasks or workspace members |
+| exclude | [] | Additional metadata exclusions; conflicts with declared directories, required metadata or workspace members are errors |
+| max_depth | 4 | Each fallback starting directory is depth 0; accepts 0–32 and reports warnings and truncated directories at the limit |
+
+Paths are relative to the project root, use / and also accept normalized Windows backslashes. roots contains literal directories. exclude uses case-sensitive path globs with *, ? and **; a trailing / denotes a directory. Absolute paths, .., negation and .gitignore loading are unsupported. Dependency, build, cache and .local directories are skipped by default. Explicit workdirs, workspace members or roots can include these directories; symlinks, Windows junctions and escaping paths are always rejected. scan does not change builds.watch or sync_include/sync_exclude. Use sync_include separately for source in default synchronization exclusions. pnpm packages supports static block lists or quoted inline lists without evaluating YAML tags, anchors or dynamic expressions.
+
+Root mise declarations authorize installation and execution. Conflicting declarations for one tool in both root mise files still block preparation. Package requirements, Java compilation targets and nested mise declarations within participating scopes are checked for compatibility: root Node 24.22.0 satisfies 24.x; incompatible or unverifiable constraints block explicitly. Java compilation targets are minimum JDK requirements. Development preferences such as .nvmrc, .tool-versions, Volta and devEngines do not override root declarations; differences produce warnings. Without root declarations, known ranges may infer a provably compatible selector. Equal-priority explicit version conflicts require a user decision; preparation still requires root declarations.
+
+scan/init/check JSON includes scope: scopes lists directories and root/workflow/workspace/discovery/scan.roots inclusion reasons, files lists inspected metadata and truncated lists directories omitted by the fallback limit. check also includes warnings and does not imply installation or startup. Each plan reuses its directory inventory and parsed metadata. Subsequent operations observe additions, removals and edits without a persistent scan cache.
 
 ## Automatic dependency maintenance
 
@@ -126,6 +152,7 @@ Tasks run in dependency order; output goes to logs/tasks/NAME.log under native s
 
 For npm/pnpm/yarn/bun/uv managers, the plan requires the corresponding lockfile in workdir.
 An explicit workflow takes its tool requirements from tasks/services; a leftover uv.lock does not require uv for a pip workflow. Metadata parse errors and version conflicts still block preparation, and tools actually used must be declared in the root mise file.
+Automatic scanning, discovery and dependency fingerprints skip `.local/` by default; explicit project scopes can include local source. File monitoring and default WSL synchronization retain their own exclusions. Version conflicts within participating project scopes report versions and source files.
 Workspace discovery installs at the package workspace root and runs each application in its own directory; set workdir explicitly in custom declarations.
 Lockfile validation does not rewrite arbitrary install commands into frozen installs. Declare npm ci, --frozen-lockfile, --immutable or uv sync --locked in command.
 
@@ -139,6 +166,7 @@ Lockfile validation does not rewrite arbitrary install commands into frozen inst
 | prepare | [] | Required preparation tasks |
 | depends_on | [] | Services to start and await first |
 | restart | on-failure | never, on-failure or always |
+| required | true | Whether readiness contributes to the project; optional services still start by default |
 | health | Empty table | TCP/HTTP health checks |
 | java / python / compose | Empty tables | Native driver options |
 
@@ -148,10 +176,54 @@ Monitor logs are available with `dev-tools logs __sync` or `dev-tools logs __wat
 Health supports:
 
 - tcp: a port from 1 to 65535, probed on 127.0.0.1.
-- http: a URL beginning with http:// or https://.
+- http: an HTTP(S) URL requiring 2xx, using a direct connection without redirects.
+- json: an optional nonempty expected-field table requiring http. Responses must contain matching fields and types; extra fields are allowed. Reads at most 64 KiB and checks an overall deadline between reads so trickling bodies cannot stall queries; responses are not saved to state or logs.
 - timeout: readiness wait in seconds, default 15, greater than 0 and at most 300.
 
 When both TCP and HTTP are declared, both must succeed. Native processes without a probe have health unknown; process readiness and confirmed health are reported separately. Compose also checks container state and container-reported health. Each container-state query is limited to 5 seconds; failure or timeout reports unhealthy.
+
+## Desktop clients and shared services
+
+See [dev-desktop.toml](../examples/dev-desktop.toml). Use a manual workflow with frontend.depends_on=["backend"] and desktop.depends_on=["frontend"], waiting for each dependency. Declare tcp together with http/json: startup rejects occupied declared ports without adopting or terminating their owners, and HTTP JSON validates application identity and readiness. The application validates its own project session; dev-tools does not read tokens or application session files.
+
+```toml
+[services.backend.health]
+tcp = 7877
+http = "http://127.0.0.1:7877/health"
+timeout = 180
+json = { application = "desktop-app", ready = true }
+
+[services.desktop]
+command = ["npm", "run", "tauri:dev"]
+workdir = "frontend"
+depends_on = ["frontend"]
+tools = ["node", "rust"]
+required = false
+restart = "never"
+```
+
+required=false keeps default startup enabled while allowing a closed client without making shared services unready. An optional service required by another required service is still checked as a required dependency. restart=never prevents automatic relaunch on exit. Optional startup failure preserves running shared services and monitors while explicit start returns 1. Background preparation restoration records optional client failures on that service. Maintenance does not reopen closed optional clients.
+
+These rules apply to any service name or driver. A required dependency must remain running and pass readiness checks even when it declares required=false; exit code 0 does not establish readiness. A required service or monitor startup failure rolls back only workers newly started by that attempt, preserving previously running services. Recovery records retain both startup and cleanup errors; explicit stop cancels pending restoration.
+
+For optional-only projects, closing the client still leaves the project listed as running while preparation remains valid and maintenance monitors are active. stop ends both services and maintenance.
+
+```text
+dev-tools start desktop-app
+dev-tools start desktop-app --service frontend
+dev-tools start desktop-app --service desktop
+dev-tools stop desktop-app
+```
+
+The second command starts or retains shared services; the third reopens the client and ensures its dependencies run. Repeated start preserves active services without duplicate instances. Without desktop.health, running only indicates a live launcher. To confirm CDP, configure tcp=9222 and http="http://127.0.0.1:9222/json/version" for the Windows desktop service. The application/Tauri owns display, CDP binding and initial Rust compilation. Native WSL desktop development also requires a graphical session and application system libraries.
+
+Existing per-service env passes project configuration literally without shell expansion. Application entrypoints interpret shared-backend mode, source directories and .local/data, .local/dev and .local/reports. Development clients connect to the shared backend; the application retains release-sidecar ownership. Tauri watches Rust source and restarts its client without duplicate dev-tools build tasks. Runtime and dependency declaration changes still use project preparation maintenance.
+Tasks and services also receive absolute DEV_TOOLS_SOURCE_ROOT (source checkout) and DEV_TOOLS_PROJECT_ROOT (native runtime workspace), derived from native bindings and protected against project env overrides. They usually match on Windows and may differ on WSL. Applications can use these identities to choose data/session locations; dev-tools does not create business directories or save tokens.
+
+Windows service and preparation children hide consoles. Each worker owns a separate Job Object, keeping client closure and stop isolated from other services; WSL uses native process groups and systemd control groups. Project stop terminates managed processes and releases their operating-system file locks without deleting application data, lock files or session markers.
+Hidden workers and GUI windows are handled separately: Windows children explicitly request SW_SHOWNORMAL to avoid inheriting the launcher's hidden state, while CREATE_NO_WINDOW hides consoles. No desktop-specific window switch is needed, and existing windows are unchanged.
+
+Rust supports root mise declarations, rust-toolchain/rust-toolchain.toml, Cargo.toml minimum rust-version requirements and Cargo workspace members. Participating frontend directories discover src-tauri/Cargo.toml with a tauri scope reason; old .local copies remain excluded by default. cargo/rustc commands require Rust. Declare tools=["node","rust"] when starting Tauri through npm; npm ci installs the project-local Tauri CLI. dev-tools does not execute npm scripts to infer tools, generate Cargo install tasks or automatically upgrade the compiler.
 
 ## Native driver options
 

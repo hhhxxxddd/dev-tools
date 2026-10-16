@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import tomllib
 from pathlib import Path
 from typing import Any
 
 from ..i18n import message
+from ..inspection import InspectionError, ScanPolicy, read_toml
 from ..schemas import PROJECT_CONFIG_SCHEMA_VERSION
 from .models import (
     BuildSpec,
@@ -132,12 +132,17 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
             "sync_include",
             "dependency_mode",
             "discovery",
+            "scan",
         },
         "project",
     )
     if type(raw.get("schema")) is not int or raw.get("schema") != PROJECT_CONFIG_SCHEMA_VERSION:
         raise ProjectError(message("dev-tools.toml requires schema = 1"))
     name = validate_name(str(raw.get("name", "")))
+    try:
+        ScanPolicy.parse(raw.get("scan", {}))
+    except InspectionError as exc:
+        raise ProjectError(*exc.args) from exc
     toolchain = raw.get("toolchain", "mise")
     if toolchain not in {"mise", "system"}:
         raise ProjectError(message("toolchain must be mise or system"))
@@ -195,6 +200,7 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
                 "env",
                 "health",
                 "restart",
+                "required",
                 "java",
                 "python",
                 "compose",
@@ -203,13 +209,16 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
         )
         driver = item.get("driver", "process")
         restart = item.get("restart", "on-failure")
+        required = item.get("required", True)
+        if type(required) is not bool:
+            raise ProjectError(message("service {key}: required must be boolean", key=key))
         if driver not in {"process", "compose"} or restart not in {"never", "on-failure", "always"}:
             raise ProjectError(message("service {key}: invalid driver or restart policy", key=key))
         command = command_spec(item, f"services.{key}")
         if driver == "process" and not command.argv and not command.script:
             raise ProjectError(message("service {key} needs a command", key=key))
         health = _table(item.get("health", {}), "health")
-        if set(health) - {"tcp", "http", "timeout"}:
+        if set(health) - {"tcp", "http", "timeout", "json"}:
             raise ProjectError(message("service {key}: unknown health check", key=key))
         port = health.get("tcp")
         if port is not None and (type(port) is not int or not 1 <= port <= 65535):
@@ -228,6 +237,20 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
             raise ProjectError(
                 message("service {key}: HTTP health check must be an HTTP(S) URL", key=key)
             )
+        if "json" in health:
+            expected = health["json"]
+            if not health.get("http") or not isinstance(expected, dict) or not expected:
+                raise ProjectError(
+                    message(
+                        "service {key}: health.json requires HTTP and a nonempty table", key=key
+                    )
+                )
+            try:
+                json.dumps(expected, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                raise ProjectError(
+                    message("service {key}: health.json must contain JSON values", key=key)
+                ) from exc
         services[key] = ServiceSpec(
             key,
             command,
@@ -240,6 +263,7 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
             health,
             restart,
             _options(item),
+            required,
         )
         for task in services[key].prepare:
             if task not in tasks:
@@ -344,8 +368,10 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
 
 
 def load_project(source: Path, platform: str) -> ProjectSpec:
-    with (source / CONFIG_NAME).open("rb") as stream:
-        return parse_project(tomllib.load(stream), platform)
+    path = source / CONFIG_NAME
+    if path.is_symlink() or path.is_junction():
+        raise ProjectError(message("unsafe metadata path: {path}", path=CONFIG_NAME))
+    return parse_project(read_toml(path), platform)
 
 
 def render_toml(raw: dict[str, Any]) -> str:

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import re
-import tomllib
 from pathlib import Path
 from typing import Any
 
 from ..i18n import message
+from ..inspection import Inspection, current_inspection, read_toml
 from ..metadata import _read_json
 from .config import _strings, _table, parse_project
 from .detection import (
@@ -43,6 +43,9 @@ def _identifier(prefix: str, path: Path, root: Path) -> str:
 def discover_project(
     root: Path, *, name: str | None = None, runtime: str = "auto", toolchain: str = "mise"
 ) -> dict[str, Any]:
+    if current_inspection(root) is None:
+        with Inspection(root).activate():
+            return discover_project(root, name=name, runtime=runtime, toolchain=toolchain)
     root = root.resolve(strict=True)
     raw: dict[str, Any] = {
         "schema": 1,
@@ -226,7 +229,7 @@ def discover_project(
             "structural_task": build_tasks[2],
         }
     for path in (path for path in metadata if path.name == "pyproject.toml"):
-        value = tomllib.loads(path.read_text(encoding="utf-8"))
+        value = read_toml(path)
         workspace, use_uv = _python_root(path, root)
         relative = workspace.relative_to(root).as_posix()
         python = {"root": relative}

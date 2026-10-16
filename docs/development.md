@@ -9,10 +9,13 @@ src/dev_tools/
   cli.py、command_help.py                 命令定义与本地化帮助
   settings.py、i18n.py、locales/           本机偏好与中英文输出
   scanner.py、metadata.py、versions.py     静态元数据与版本识别
+  inspection.py、constraints.py           项目范围、单次元数据快照与保守约束校验
+  frameworks.py                           静态框架关联目录规则
   project_models.py、workflows.py          扫描模型、初始化与 mise 隔离
   ssh.py、ssh_config.py、hosts*.py         SSH 与 Windows hosts 工具
   toolbox/                                端口、PATH、网络诊断与原生采集
   projects/                               声明、计划、执行、驱动、生命周期和 worker
+    lifecycle.py                          服务选择、启动结果、回滚范围与恢复策略
   runtimes/router.py                      跨环境命令与路径传输
   runtimes/platforms/                     原生存储、用户、同步、进程与 systemd
 scripts/                                  安装与平台入口、底层进程适配
@@ -20,6 +23,10 @@ systemd/                                  通用 worker 模板
 ```
 
 Python 无第三方运行依赖，支持 `>=3.14.8,<3.15`。开发验证使用本平台 Python，并将 src 加入 PYTHONPATH。
+
+框架模块只根据元数据名称提供关联目录和标记文件，不读取文件或执行项目代码；inspection 统一执行路径安全、排除规则、范围展开和快照缓存。新增框架约定集中在 frameworks.py，公共扫描层不包含框架目录名称。
+
+项目引擎编排准备、同步、监控与状态持久化；lifecycle.py 统一服务依赖选择、启动结果和恢复策略，经平台适配器执行进程操作。必需服务的依赖始终按必需服务等待就绪；可选服务失败单独记录，显式启动报告失败，后台恢复保留共享服务。致命失败只回滚本次新启动的 worker，并保留原始错误及清理错误；维护按活动服务和启动意图恢复，显式 stop 取消恢复。不在这些模块中加入应用数据、令牌、会话或 sidecar 管理。
 
 控制器可通过本机绑定（Windows `.host-python.win`、WSL `.host-python`）使用外部解释器，更新时沿用该绑定，不管理其升级或卸载。控制器和项目可以共享只读基础 Python，但项目版本声明、虚拟环境和依赖安装仍保持独立；隔离安装测试须覆盖显式路径、重复安装、无 mise 启动、跨平台绑定隔离和无效绑定失败。
 
@@ -90,4 +97,4 @@ Windows 端口采集直接调用 IP Helper 和 Toolhelp API，无第三方运行
 
 Ubuntu 适配器测试不能代替真实 WSL 验证。发布前运行已有隔离 WSL 生命周期、依赖、工具链脚本及 Windows→WSL 部署与传输脚本，要求 systemd 和已安装的原生运行时。控制器包检查在临时原生目录重复部署两次，确认解释器绑定、注册和状态保留。不要用活动注册或中间件数据充当测试数据。
 
-公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.4.zip`。候选可标记源码未提交；`--tag v0.5.4 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。
+公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.5.zip`。候选可标记源码未提交；`--tag v0.5.5 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。

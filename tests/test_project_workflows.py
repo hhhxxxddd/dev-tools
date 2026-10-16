@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import ANY, patch
 
 from dev_tools.cli import cmd_init, main
+from dev_tools.i18n import language_scope, render
 from dev_tools.projects.config import parse_project
 from dev_tools.projects.models import ProjectBinding
 from dev_tools.projects.planning import preparation_plan
@@ -22,6 +23,35 @@ from dev_tools.workflows import initialization_plan, write_initialization
 
 
 class ProjectWorkflowTests(unittest.TestCase):
+    def test_preparation_conflicts_include_versions_and_sources_in_both_languages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "mise.toml").write_text('[tools]\nnode="24.22.0"\n')
+            (root / "frontend").mkdir()
+            (root / "frontend/mise.toml").write_text('[tools]\nnode="22"\n')
+            spec = parse_project(
+                {
+                    "schema": 1,
+                    "name": "demo",
+                    "services": {"web": {"command": ["node", "app.js"], "workdir": "frontend"}},
+                },
+                "windows",
+            )
+            binding = ProjectBinding("demo", "windows", root, root, root / "state")
+            plan = preparation_plan(spec, binding, Backend(binding))
+            self.assertFalse(plan.as_dict()["ready"])
+            conflict = next(item for item in plan.unresolved if "conflicting node versions" in item)
+            for language, prefix in (
+                ("zh", "node 版本冲突："),
+                ("en", "conflicting node versions:"),
+            ):
+                with self.subTest(language=language), language_scope(language):
+                    detail = render(conflict)
+                    self.assertTrue(detail.startswith(prefix), detail)
+                    self.assertIn("22 (frontend/mise.toml)", detail)
+                    self.assertIn("24.22.0 (mise.toml)", detail)
+            self.assertFalse(binding.state.exists())
+
     def test_malformed_metadata_is_not_hidden_by_a_valid_version_file(self):
         for name, content, code in (
             ("package.json", "{broken", "parse-error"),

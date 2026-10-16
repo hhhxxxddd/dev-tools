@@ -10,7 +10,7 @@ from pathlib import Path
 from threading import Event
 
 from ..i18n import t
-from ..scanner import IGNORED_DIRECTORIES
+from ..inspection import IGNORED_DIRECTORIES
 from .config import load_project
 from .models import BuildSpec, ProjectError, within
 from .planning import fingerprint

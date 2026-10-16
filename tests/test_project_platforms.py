@@ -281,6 +281,8 @@ class WslAdapterTests(unittest.TestCase):
             (binding.source / "file.txt").write_text("first")
             (binding.source / "node_modules").mkdir()
             (binding.source / "node_modules/windows.exe").write_text("never copy")
+            (binding.source / ".local/qa").mkdir(parents=True)
+            (binding.source / ".local/qa/mise.toml").write_text('[tools]\nnode="22"\n')
             (binding.source / "frontend/build").mkdir(parents=True)
             (binding.source / "frontend/build/vite.ts").write_text("source configuration")
             (binding.source / "build").mkdir()
@@ -288,6 +290,7 @@ class WslAdapterTests(unittest.TestCase):
             self.assertTrue(backend.sync(spec))
             self.assertFalse(backend.sync(spec), "idle rsync must report no transfers")
             self.assertFalse((binding.workspace / "node_modules").exists())
+            self.assertFalse((binding.workspace / ".local").exists())
             self.assertFalse((binding.workspace / "build").exists())
             self.assertEqual(
                 (binding.workspace / "frontend/build/vite.ts").read_text(),

@@ -45,6 +45,12 @@ class Backend:
     def child_options(self) -> dict:
         return {}
 
+    def task_options(self) -> dict:
+        return {}
+
+    def guard_worker(self) -> None:
+        pass
+
     def terminate_child(self, child: subprocess.Popen) -> None:
         if child.poll() is None:
             child.terminate()

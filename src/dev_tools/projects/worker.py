@@ -27,6 +27,7 @@ def run_worker(engine, name: str) -> int:
         write_json(phase_path, {"phase": value, "updated_at": time.time(), **details})
 
     try:
+        engine.backend.guard_worker()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         rotate_log(log_path)
         log_stream = log_path.open("a", encoding="utf-8", buffering=1)

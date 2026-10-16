@@ -59,11 +59,17 @@
 | `status` | 布尔 `prepared/ready`；布尔或 null 的 `healthy`；对象 `services/workers`；诊断值或 null 的 `recovery/maintenance_error` |
 | `list` | 数组 `projects` 包括状态或单项目错误记录；`--all` 另有布尔 `complete` 和数组 `errors` |
 
-`status.ready` 包含准备指纹有效、服务就绪、监控运行和无待恢复操作等条件。`healthy=null` 表示至少一个服务健康状态未知；否则当前聚合值与项目就绪状态一致。单项探测应读取 `services.<name>.health`，值为 `healthy|unhealthy|unknown`。服务 `phase` 为 `starting|running|restarting|stopped|failed`；`pid/exit_code` 可以为 null。恢复与错误详情用于诊断，不应依赖其人类模板文本。
+`scan/init/check` 另含 `scope` 对象：`scopes` 为 `{path,reasons}` 数组，reason 使用 `root/workflow/workspace/discovery/scan.roots` 标识；`files` 为项目内元数据路径数组，`truncated` 为达到兜底深度限制而未进入的目录。路径相对源码根，分隔符为 `/`。`check.warnings` 是诊断文案数组，深度截断通过警告和 `scope.truncated` 表达，不单独令 ready=false。扫描规则不读取 `.gitignore`；各端使用同一规则并应用目标平台工作流覆盖。
+
+`status.ready` 包含准备指纹有效、服务就绪、监控运行和无待恢复操作等条件。`healthy=null` 表示至少一个必需服务健康状态未知；否则当前聚合值与项目就绪状态一致。单项探测应读取 `services.<name>.health`，值为 `healthy|unhealthy|unknown`。服务 `phase` 为 `starting|running|restarting|stopped|failed`；`pid/exit_code` 可以为 null。恢复与错误详情用于诊断，不应依赖其人类模板文本。
 
 WSL 状态新增 `health_scope=wsl-local` 和 `access_targets`。Windows 查询 WSL 的 list/status 时，`health_scope=windows-to-wsl`，访问失败或未检查也是未就绪条件；原始值保留为 `runtime_ready/runtime_healthy`。`windows_access.state` 为 `reachable|unreachable|unknown|not-applicable`，`checks` 含 service、target、reachable、可选 peer/http_status 或 stage/code，以及 IPv4/IPv6 的 attempts。旧端缺少有效访问信息时 unknown 对应 `ready=false, healthy=null`。服务级 phase/health 始终描述 WSL 运行状态，停止的服务不进行 Windows 访问探测。
 
 辅助命令主要字段：config 有 `path/state/settings/origins/errors`，state 为 `loaded|missing|invalid`；sysinfo 有 `system/config_state/sections/directories/tools/commands`；report 有 `collected_at/platform/repositories/discovery_issues/collectors`；self status 有 `schema_version=1/environment/controller_version/deployment`，environment 为 `windows|wsl`，deployment 有 `state/version`，已安装时包含目标原生 `path`，WSL 另有 `distro`。部署 state 为 `installed|missing|unavailable`，不可用或缺失时 controller_version 为 null；该状态查询仍返回 0。
+
+服务状态新增布尔 required，表示当前启动选择内必须就绪的服务及其依赖；缺少该字段时按 true 处理。可选客户端关闭不阻塞项目 ready/healthy，也不使 list 显示“部分运行”；status 保留其 stopped/failed 状态及“可选”标记。Windows-to-WSL 访问聚合只由必需服务的检查决定，可选服务的访问结果仍保留在 checks 中。显式 start 遇到可选服务启动失败返回 1，共享服务与监控继续运行，不创建项目级恢复阻塞。
+
+health.json 为 HTTP 响应字段子集，要求字段类型和值匹配，允许额外字段，最多读取 64 KiB；不跟随重定向或使用代理。scan/init/check 的 scope.reasons 另支持 tauri，表示已纳入前端的 src-tauri 元数据。
 
 ## 工具箱结果
 

@@ -3,16 +3,18 @@ from __future__ import annotations
 import json
 import socket
 import time
-import urllib.request
 import uuid
 
 from ..i18n import error_detail, join_messages, message, t
+from ..inspection import Inspection
 from ..runtimes.platforms.locking import operation_lock
 from ..schemas import CLI_SCHEMA_VERSION
 from .access import access_targets
 from .config import CONFIG_NAME, load_project, render_toml
 from .drivers import install_spring_artifact, run_compose, spring_classpath
 from .execution import Executor
+from .health import http_ready
+from .lifecycle import ServiceSelection, ServiceStartup, restoration_plan, start_selection
 from .logfiles import read_log
 from .maintenance import LOCKFILES, atomic_write, clean_venv_task, discovery_plan
 from .models import ProjectBinding, ProjectError, ProjectSpec, dependency_order, within
@@ -53,10 +55,8 @@ def _probe(service, executor) -> str:
         if checks.get("tcp"):
             with socket.create_connection(("127.0.0.1", checks["tcp"]), timeout=0.5):
                 pass
-        if checks.get("http"):
-            with urllib.request.urlopen(checks["http"], timeout=1) as response:
-                if not 200 <= response.status < 400:
-                    return "unhealthy"
+        if checks.get("http") and not http_ready(checks):
+            return "unhealthy"
         return "healthy"
     except OSError:
         return "unhealthy"
@@ -75,7 +75,11 @@ class ProjectEngine:
         write_json(self.state_path, {**self.state(), **updates})
 
     def plan(self, *, force=False) -> PreparationPlan:
-        declared = load_project(self.binding.source, self.binding.environment)
+        with Inspection(self.binding.source, platform=self.binding.environment).activate():
+            declared = load_project(self.binding.source, self.binding.environment)
+            return self._plan(declared, force=force)
+
+    def _plan(self, declared: ProjectSpec, *, force=False) -> PreparationPlan:
         state = self.state()
         spec, baseline = discovery_plan(
             declared, self.binding.source, state, self.binding.environment
@@ -131,6 +135,15 @@ class ProjectEngine:
             name: self.service_status(name, worker=phases[name])
             for name in self.spec.service_order()
         }
+        intent = self.intent()
+        required = ServiceSelection.resolve(
+            self.spec,
+            tuple(intent["selected"])
+            if intent.get("running") and intent.get("selected") is not None
+            else None,
+        ).required
+        for name, value in services.items():
+            value["required"] = name in required
         workers = {name: phases[name] for name in known if name.startswith("__")}
         state = self.state()
         recovery = state.get("recovery")
@@ -142,10 +155,10 @@ class ProjectEngine:
             bool(services)
             and prepared
             and not recovery
-            and all(value["ready"] for value in services.values())
+            and all(services[name]["ready"] for name in required)
             and all(workers.get(name, {}).get("phase") == "running" for name in expected)
         )
-        health = None if any(value["health"] == "unknown" for value in services.values()) else ready
+        health = None if any(services[name]["health"] == "unknown" for name in required) else ready
         return {
             "schema_version": CLI_SCHEMA_VERSION,
             "action": "status",
@@ -207,18 +220,21 @@ class ProjectEngine:
                 )
             )
 
-    def _wait(self, name: str, *, intent_token=None) -> None:
+    def _wait(self, name: str, *, intent_token=None, required: bool | None = None) -> None:
         from ..progress import stage
 
         with stage("Health check: {service}", service=name):
-            self._wait_ready(name, intent_token=intent_token)
+            self._wait_ready(name, intent_token=intent_token, required=required)
 
-    def _wait_ready(self, name: str, *, intent_token=None) -> None:
+    def _wait_ready(self, name: str, *, intent_token=None, required: bool | None = None) -> None:
+        required = self.spec.services[name].required if required is None else required
         deadline = time.monotonic() + float(self.spec.services[name].health.get("timeout", 15))
         while time.monotonic() < deadline:
             self._check_intent(intent_token)
             status = self.service_status(name)
             if status["ready"]:
+                return
+            if not required and status["phase"] == "stopped" and status.get("exit_code") == 0:
                 return
             if status["phase"] == "failed":
                 raise ProjectError(
@@ -238,52 +254,28 @@ class ProjectEngine:
         infrastructure: bool = False,
         intent_token=None,
         monitors: tuple[str, ...] | None = None,
+        report_optional_errors: bool = True,
     ) -> None:
         from ..progress import stage
 
-        names = dependency_order(
-            {name: service.depends_on for name, service in self.spec.services.items()}, names
+        startup = ServiceStartup(
+            self.spec,
+            self.backend,
+            ServiceSelection.resolve(self.spec, names),
+            wait=self._wait,
+            stop=self._stop,
+            check_intent=self._check_intent,
         )
-        started = []
         try:
-            for name in names:
-                self._check_intent(intent_token)
-                if not self.backend.active(name):
-                    service = self.spec.services[name]
-                    if service.driver == "process" and service.health.get("tcp"):
-                        with socket.socket() as probe:
-                            probe.settimeout(0.3)
-                            if probe.connect_ex(("127.0.0.1", service.health["tcp"])) == 0:
-                                raise ProjectError(
-                                    message(
-                                        "service {name}: TCP port {tcp} is already listening",
-                                        name=name,
-                                        tcp=service.health["tcp"],
-                                    )
-                                )
-                    started.append(name)
-                    with stage("Start service: {service}", service=name):
-                        self.backend.start(name)
-                self._wait(name, intent_token=intent_token)
+            result = startup.run(intent_token)
             if infrastructure:
                 with stage("Start file and dependency monitors"):
-                    self._start_monitors(started, intent_token, monitors)
+                    self._start_monitors(startup.started, intent_token, monitors)
         except (ProjectError, OSError, KeyboardInterrupt) as exc:
-            cleanup_error = ""
-            try:
-                self._stop(tuple(started))
-            except (ProjectError, OSError) as cleanup:
-                cleanup_error = str(cleanup)
-            self.save(
-                recovery={
-                    "operation": "start",
-                    "error": str(exc),
-                    "error_detail": error_detail(exc),
-                    "cleanup_error": cleanup_error,
-                    "restore_workers": list(names),
-                }
-            )
+            self.save(recovery=startup.rollback(exc))
             raise
+        if report_optional_errors:
+            result.raise_for_failures()
 
     def _start_monitors(self, started, intent_token, monitors):
         workers = []
@@ -478,21 +470,13 @@ class ProjectEngine:
                 maintenance_error=None,
             )
             if restore:
-                intent = self.intent()
-                if not intent or intent.get("running"):
-                    names = tuple(name for name in active if name in self.spec.services)
-                    if intent.get("running"):
-                        selected = intent.get("selected")
-                        names = (
-                            self.spec.service_order()
-                            if selected is None
-                            else tuple(name for name in selected if name in self.spec.services)
-                        )
+                restoration = restoration_plan(self.spec, self.intent(), active)
+                if restoration is not None:
                     self._start(
-                        names,
-                        infrastructure=bool(intent.get("running"))
-                        or any(name.startswith("__") for name in active),
-                        intent_token=intent.get("token"),
+                        restoration.names,
+                        infrastructure=restoration.infrastructure,
+                        intent_token=restoration.intent_token,
+                        report_optional_errors=False,
                     )
             self.save(recovery=None)
         except (ProjectError, OSError, KeyboardInterrupt) as exc:
@@ -560,6 +544,7 @@ class ProjectEngine:
         self.backend.require_control()
         with operation_lock(self.binding.state, timeout=15):
             previous = self.intent()
+            active = tuple(name for name in self._active() if name in self.spec.services)
             with stage("Analyze declarations and dependency changes"):
                 plan = self.plan()
                 self._validate_plan(plan)
@@ -585,9 +570,7 @@ class ProjectEngine:
             token = intent["token"]
             with stage("Prepare project environment"):
                 self._prepare_for_start(plan, token)
-            names = (
-                self.spec.service_order() if desired is None else dependency_order(graph, desired)
-            )
+            names = start_selection(self.spec, selected, active).names
             self._check_intent(token)
             with stage("Synchronize native workspace and service artifacts"):
                 self.backend.sync(self.spec)

@@ -22,6 +22,25 @@ from dev_tools.projects.cli import _list_state, emit, remote_wsl_status
 
 
 class ProjectAccessTests(unittest.TestCase):
+    def test_optional_client_access_does_not_block_shared_services(self):
+        project = self.project()
+        project["services"]["desktop"] = {
+            "phase": "running",
+            "health": "unhealthy",
+            "required": False,
+        }
+        project["access_targets"].append(
+            {"service": "desktop", "protocol": "tcp", "port": 9222, "path": "/"}
+        )
+        with patch(
+            "dev_tools.projects.access.probe",
+            side_effect=lambda target: {"reachable": target[1] != 9222, "target": str(target)},
+        ):
+            result = windows_access([project])[0]
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["windows_access"]["state"], "reachable")
+        self.assertFalse(result["windows_access"]["checks"][1]["reachable"])
+
     def project(self):
         return {
             "schema_version": 3,

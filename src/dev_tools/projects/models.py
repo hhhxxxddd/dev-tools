@@ -106,6 +106,7 @@ class ServiceSpec:
     health: dict[str, Any] = field(default_factory=dict)
     restart: str = "on-failure"
     options: dict[str, Any] = field(default_factory=dict)
+    required: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         result = dict(self.options)
@@ -119,6 +120,7 @@ class ServiceSpec:
             env=self.env,
             health=self.health,
             restart=self.restart,
+            required=self.required,
         )
         return result
 
@@ -160,6 +162,13 @@ class ProjectSpec:
 
     def service_order(self) -> tuple[str, ...]:
         return dependency_order({name: item.depends_on for name, item in self.services.items()})
+
+    def required_services(self, selected: tuple[str, ...] | None = None) -> tuple[str, ...]:
+        graph = {name: item.depends_on for name, item in self.services.items()}
+        names = dependency_order(graph, selected)
+        return dependency_order(
+            graph, tuple(name for name in names if self.services[name].required)
+        )
 
     def task_order(self, selected: tuple[str, ...] | None = None) -> tuple[str, ...]:
         return dependency_order(

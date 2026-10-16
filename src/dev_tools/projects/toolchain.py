@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 from ..i18n import message
+from ..inspection import read_toml
 from .models import ProjectError
 
 
@@ -12,10 +12,11 @@ def root_runtime_versions(root: Path) -> tuple[str, ...]:
     versions = {}
     for filename in ("mise.toml", ".mise.toml"):
         path = root / filename
+        if path.is_symlink() or path.is_junction():
+            raise ProjectError(message("unsafe metadata path: {path}", path=filename))
         if not path.is_file():
             continue
-        with path.open("rb") as stream:
-            tools = tomllib.load(stream).get("tools", {})
+        tools = read_toml(path).get("tools", {})
         if not isinstance(tools, dict):
             raise ProjectError(message("root mise tools must be a table"))
         for name, definition in tools.items():

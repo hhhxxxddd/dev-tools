@@ -168,10 +168,7 @@ class NativeMonitorTests(unittest.TestCase):
 
     def test_sync_publishes_dependency_changes_without_copying_an_unprepared_tree(self):
         engine = self.fixture()
-        (engine.binding.source / "new-module").mkdir()
-        (engine.binding.source / "new-module/package.json").write_text(
-            '{"dependencies":{"new":"2"}}'
-        )
+        (engine.binding.source / "package.json").write_text('{"dependencies":{"new":"2"}}')
         clock = self.clock_stop(1)
         with (
             patch("dev_tools.projects.monitoring.time.monotonic", side_effect=lambda: clock.now),

@@ -12,6 +12,7 @@ package managers, lockfiles, ports and framework versions, and declare runtime v
 | [dev-generic.toml](dev-generic.toml) | Python 虚拟环境与自定义 app 模块 / Python venv and a custom app module |
 | [dev-next.toml](dev-next.toml) | npm 锁文件与 Next.js dev 服务 / npm lockfile and a Next.js dev service |
 | [dev-python-web.toml](dev-python-web.toml) | uv 锁文件与 Uvicorn 服务 / uv lockfile and a Uvicorn service |
+| [dev-desktop.toml](dev-desktop.toml) | Python、Vite 与可关闭重开的 Tauri 客户端 / Python, Vite and a reopenable Tauri client |
 | [dev-java-web.toml](dev-java-web.toml) | Maven/Spring 多模块后端与 npm 前端 / Maven/Spring backend modules and an npm frontend |
 | [dev-docker-compose.toml](dev-docker-compose.toml) | 已有 Compose 声明 / Existing Compose declarations |
 

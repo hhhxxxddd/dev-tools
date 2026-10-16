@@ -22,6 +22,10 @@ class Executor:
         environment = self.backend.environment()
         if additions:
             environment.update(additions)
+        environment.update(
+            DEV_TOOLS_SOURCE_ROOT=str(self.binding.source),
+            DEV_TOOLS_PROJECT_ROOT=str(self.binding.workspace),
+        )
         if self.spec.toolchain == "mise":
             protected = mise_environment(self.binding.source, self.binding.workspace)
             for key in (
@@ -131,7 +135,13 @@ class Executor:
         rotate_log(log_path)
         with log_path.open("ab") as log:
             result = run_process(
-                argv, cwd=cwd, env=environment, stdout=log, stderr=subprocess.STDOUT, check=False
+                argv,
+                cwd=cwd,
+                env=environment,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=False,
+                **self.backend.task_options(),
             )
         if result.returncode:
             raise ProjectError(

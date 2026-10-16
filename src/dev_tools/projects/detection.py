@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import os
 import re
 import tomllib
 import xml.etree.ElementTree as ET
@@ -10,31 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from ..i18n import message
+from ..inspection import Inspection, _current, read_json, read_text, read_toml, read_xml
 from ..metadata import _read_json
-from ..scanner import IGNORED_DIRECTORIES
 from .models import ProjectError
 
 
-def _find(source: Path, names: set[str], max_depth: int = 4) -> list[Path]:
-    result: list[Path] = []
-    for current, directories, files in os.walk(source):
-        current_path = Path(current)
-        depth = len(current_path.relative_to(source).parts)
-        directories[:] = [
-            name
-            for name in directories
-            if name not in IGNORED_DIRECTORIES
-            and not name.startswith(".cache")
-            and depth < max_depth
-            and not (current_path / name).is_symlink()
-            and not (current_path / name).is_junction()
-        ]
-        for name in files:
-            if name in names:
-                path = current_path / name
-                if not path.is_symlink() and path.is_file():
-                    result.append(path)
-    return sorted(result, key=lambda path: (len(path.relative_to(source).parts), str(path)))
+def _find(source: Path, names: set[str]) -> list[Path]:
+    active = _current.get()
+    if active is not None and source.resolve().is_relative_to(active.root):
+        return active.find(names, source)
+    return Inspection(source).find(names)
 
 
 def _package_details(path: Path, boundary: Path) -> tuple[str | None, str]:
@@ -64,7 +48,7 @@ def _package_details(path: Path, boundary: Path) -> tuple[str | None, str]:
             package_value = value
         elif package_path.is_file():
             try:
-                package_value = json.loads(package_path.read_text(encoding="utf-8-sig"))
+                package_value = read_json(package_path)
             except OSError, json.JSONDecodeError:
                 package_value = {}
         else:
@@ -95,14 +79,14 @@ def _frontend_port(package_file: Path, framework: str | None) -> int | None:
             continue
         match = re.search(
             rf"(?m)^\s*{re.escape(variable)}\s*=\s*['\"]?(\d+)",
-            path.read_text(encoding="utf-8-sig", errors="ignore"),
+            read_text(path, encoding="utf-8-sig", errors="ignore"),
         )
         if match:
             return int(match.group(1))
     if framework != "vite":
         return None
     for path in sorted(root.glob("vite.config.*")):
-        content = path.read_text(encoding="utf-8-sig", errors="ignore")
+        content = read_text(path, encoding="utf-8-sig", errors="ignore")
         for pattern in (
             r"['\"]VITE_PORT['\"]\s*,\s*['\"](\d+)['\"]",
             r"\bport\s*:\s*(\d+)",
@@ -115,7 +99,7 @@ def _frontend_port(package_file: Path, framework: str | None) -> int | None:
 
 def _xml_root(path: Path) -> ET.Element | None:
     try:
-        return ET.parse(path).getroot()
+        return read_xml(path)
     except OSError, ET.ParseError:
         return None
 
@@ -145,7 +129,7 @@ def _spring_boot_module(poms: list[Path]) -> Path | None:
     candidates = []
     marker = "<artifactId>spring-boot-maven-plugin</artifactId>"
     for path in poms:
-        content = path.read_text(encoding="utf-8-sig", errors="ignore")
+        content = read_text(path, encoding="utf-8-sig", errors="ignore")
         if marker not in content:
             continue
         has_application = any((path.parent / "src/main/resources").glob("application*"))
@@ -169,7 +153,7 @@ def _spring_boot_properties(pom: Path) -> tuple[int, str | None]:
         path = resources / name
         if not path.is_file():
             continue
-        content = path.read_text(encoding="utf-8-sig", errors="ignore")
+        content = read_text(path, encoding="utf-8-sig", errors="ignore")
         if path.suffix == ".properties":
             match = re.search(r"(?m)^\s*server\.port\s*=\s*(\d+)", content)
         else:
@@ -228,9 +212,7 @@ def _package_root(package: Path, boundary: Path, manager: str) -> tuple[Path, bo
     while current == boundary or boundary in current.parents:
         manifest = current / "package.json"
         try:
-            value = (
-                json.loads(manifest.read_text(encoding="utf-8-sig")) if manifest.is_file() else {}
-            )
+            value = read_json(manifest) if manifest.is_file() else {}
         except (OSError, json.JSONDecodeError) as exc:
             raise ProjectError(
                 message("cannot inspect {path}: {exc}", path=manifest, exc=exc)
@@ -250,12 +232,10 @@ def _package_root(package: Path, boundary: Path, manager: str) -> tuple[Path, bo
     classic = False
     if manager == "yarn":
         lock = selected / "yarn.lock"
-        classic = lock.is_file() and "# yarn lockfile v1" in lock.read_text(encoding="utf-8-sig")
+        classic = lock.is_file() and "# yarn lockfile v1" in read_text(lock, encoding="utf-8-sig")
         manifest = selected / "package.json"
         if manifest.is_file():
-            version = str(
-                json.loads(manifest.read_text(encoding="utf-8-sig")).get("packageManager", "")
-            )
+            version = str(read_json(manifest).get("packageManager", ""))
             if version.startswith("yarn@"):
                 classic = version.split("@", 1)[1].split(".", 1)[0] == "1"
     return selected, classic
@@ -270,7 +250,7 @@ def _python_root(project: Path, boundary: Path) -> tuple[Path, bool]:
         if not manifest.is_file():
             continue
         try:
-            value = tomllib.loads(manifest.read_text(encoding="utf-8-sig"))
+            value = read_toml(manifest)
         except (OSError, tomllib.TOMLDecodeError) as exc:
             raise ProjectError(
                 message("cannot inspect {path}: {exc}", path=manifest, exc=exc)
