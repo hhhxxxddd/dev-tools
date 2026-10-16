@@ -8,6 +8,7 @@
 - Windows 查询 WSL 的 list/status 自动检查 localhost 访问，常见 Web 服务等待 HTTP 响应，识别 TCP 能连接但 HTTP 转发卡住；分别探测 IPv4/IPv6，保留 WSL 本机健康事实，并明确报告访问失败或旧端未检查。查询只读且不重启项目。
 - 原生文件变化触发构建前重新确认 Git 与依赖指纹，避免共享缓存掩盖刚开始的 checkout 或依赖编辑；远端 status 严格校验目标环境与退出码。
 - 访问检查仅限量读取普通 package.json 文件，跳过符号链接、FIFO 等特殊文件；保留普通用户查询 root 托管项目时的源码元数据回退。
+- 正式打包读取 tag 时沿用已验证源码的局部 Git 信任参数，修复 WSL root 使用其他用户持有的 checkout 时被误报 tag 不匹配；不修改全局 Git 配置。
 
 ## 0.5.3 - 2026-10-16
 

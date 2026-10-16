@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from dev_tools import __version__
 from dev_tools.controller import verify_source
@@ -43,7 +44,19 @@ class ReleaseContractsTests(unittest.TestCase):
             tag = "v" + __version__
             git("tag", tag)
             output = Path(temporary) / "output"
-            result = build(root, output, tag, official=True)
+            original_run = subprocess.run
+
+            def foreign_owned_checkout(argv, **kwargs):
+                if (
+                    argv[0] == "git"
+                    and argv[-1] == f"refs/tags/{tag}^{{commit}}"
+                    and f"safe.directory={root.resolve()}" not in argv
+                ):
+                    return subprocess.CompletedProcess(argv, 128, "", "detected dubious ownership")
+                return original_run(argv, **kwargs)
+
+            with patch("dev_tools.release.subprocess.run", side_effect=foreign_owned_checkout):
+                result = build(root, output, tag, official=True)
             self.assertEqual(
                 result["provenance"], {"commit": git("rev-parse", "HEAD"), "dirty": False}
             )

@@ -117,7 +117,15 @@ def build(
         if not tag or provenance != source_provenance(root) or provenance["dirty"]:
             raise ValueError("Official releases require a clean tagged Git checkout")
         result = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", f"refs/tags/{tag}^{{commit}}"],
+            [
+                "git",
+                "-c",
+                f"safe.directory={root.resolve()}",
+                "-C",
+                str(root),
+                "rev-parse",
+                f"refs/tags/{tag}^{{commit}}",
+            ],
             capture_output=True,
             text=True,
             check=False,
