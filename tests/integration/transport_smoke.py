@@ -119,6 +119,7 @@ def smoke() -> dict:
             linux_path(preferences),
         ]
         environment = os.environ.copy()
+        environment["WSL_UTF8"] = "1"
         environment["DEV_TOOLS_CACHE_ROOT"] = native_cache
         variables = {"DEV_TOOLS_REGISTRY_ROOT", "DEV_TOOLS_STATE_ROOT", "DEV_TOOLS_CACHE_ROOT"}
         wslenv = [
@@ -204,7 +205,18 @@ def smoke() -> dict:
             [*windows_entry, "help"], text=True, encoding="utf-8"
         )
         wsl_help = subprocess.check_output([*wsl_entry, "help"], text=True, encoding="utf-8")
-        if windows_help != wsl_help:
+
+        def command_catalog(text):
+            # Different installed versions add caller-specific update guidance
+            # (including sudo on WSL). Compare the complete command catalog;
+            # version notice behavior has separate diagnostic contract tests.
+            return "\n".join(
+                line
+                for line in text.splitlines()
+                if not line.startswith("Controller versions differ: ")
+            ).strip()
+
+        if command_catalog(windows_help) != command_catalog(wsl_help):
             raise AssertionError("native help differs")
         for entry in (windows_entry, wsl_entry):
             information = invoke(entry, "sysinfo", "--json")

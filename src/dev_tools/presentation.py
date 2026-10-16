@@ -38,7 +38,7 @@ def status_label(value: str) -> str:
         "green"
         if value in {"running", "healthy", "ok", "created", "started"}
         else "red"
-        if value in {"error", "failed", "unhealthy", "invalid", "timeout"}
+        if value in {"error", "failed", "unhealthy", "invalid", "timeout", "access-unavailable"}
         else "muted"
         if value in {"stopped", "unknown"}
         else "yellow"
@@ -78,6 +78,8 @@ LABELS = {
     "stopped": "已停止",
     "healthy": "正常",
     "unhealthy": "异常",
+    "access-unavailable": "Windows访问异常",
+    "access-unknown": "Windows访问待检查",
     "unknown": "未知",
     "loaded": "已加载",
     "missing": "未配置",

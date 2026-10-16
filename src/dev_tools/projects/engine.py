@@ -9,6 +9,7 @@ import uuid
 from ..i18n import error_detail, join_messages, message, t
 from ..runtimes.platforms.locking import operation_lock
 from ..schemas import CLI_SCHEMA_VERSION
+from .access import access_targets
 from .config import CONFIG_NAME, load_project, render_toml
 from .drivers import install_spring_artifact, run_compose, spring_classpath
 from .execution import Executor
@@ -157,6 +158,16 @@ class ProjectEngine:
             "recovery": recovery,
             "prepared": prepared,
             "maintenance_error": state.get("maintenance_error"),
+            **(
+                {
+                    "health_scope": "wsl-local",
+                    "access_targets": access_targets(
+                        self.spec, self.binding.workspace, source_root=self.binding.source
+                    ),
+                }
+                if self.binding.environment == "wsl"
+                else {}
+            ),
         }
 
     def _active(self) -> tuple[str, ...]:

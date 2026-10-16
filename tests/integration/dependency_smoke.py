@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
@@ -23,9 +24,19 @@ def smoke() -> dict:
         subprocess.check_output(["mise", "ls", "--installed", "--json"], text=True)
     )
     node = next(item["version"] for item in reversed(inventory["node"]) if item["installed"])
-    with tempfile.TemporaryDirectory(prefix="dev-tools-dependencies-") as temporary:
+    with (
+        tempfile.TemporaryDirectory(prefix="dev-tools-dependencies-") as temporary,
+        contextlib.ExitStack() as resources,
+    ):
         root = Path(temporary).resolve()
-        source = root / "dependencies & spaces"
+        source_root = root
+        if base := os.environ.get("DEV_TOOLS_TEST_SOURCE_ROOT"):
+            source_root = Path(
+                resources.enter_context(
+                    tempfile.TemporaryDirectory(prefix="dev-tools-source-", dir=base)
+                )
+            )
+        source = source_root / "dependencies & spaces"
         source.mkdir()
         for version in ("1.0.0", "2.0.0"):
             package = source / "vendor" / version
@@ -120,6 +131,7 @@ def smoke() -> dict:
         try:
             invoke("start", name)
             initial = await_version("none")
+            time.sleep(8)  # Exercise automatic dependency discovery after idle backoff.
             for version in ("1.0.0", "2.0.0"):
                 manifest["dependencies"] = {"fixture-library": f"file:vendor/{version}"}
                 (source / "package.json").write_text(json.dumps(manifest))
@@ -149,6 +161,7 @@ def smoke() -> dict:
             return {
                 "environment": native,
                 "automatic_start": True,
+                "idle_wakeup": True,
                 "add": True,
                 "upgrade": True,
                 "remove": True,

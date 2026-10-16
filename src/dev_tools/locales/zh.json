@@ -454,5 +454,14 @@
   "Connection was refused": "连接被拒绝",
   "Probe failed": "探测失败",
   "HTTP endpoint returned an error status": "HTTP 端点返回错误状态",
-  "Some process details could not be read": "部分进程详情无法读取"
+  "Some process details could not be read": "部分进程详情无法读取",
+  "Windows访问异常": "Windows访问异常",
+  "Windows访问待检查": "Windows访问待检查",
+  "Windows localhost access is reachable": "Windows localhost 访问正常",
+  "Windows localhost access failed; WSL-local health does not prove Windows access": "Windows localhost 访问失败；WSL 内部健康不代表 Windows 可访问",
+  "Windows access could not be checked; update the WSL controller for access metadata": "Windows 访问尚未检查；请更新 WSL 端以提供访问检查信息",
+  "No running services with local access checks": "没有可检查本地访问的运行服务",
+  "{project}: {detail}": "{project}：{detail}",
+  "  {service}: {target} ({stage}/{code})": "  {service}：{target}（{stage}/{code}）",
+  "Health scope: WSL local only; Windows localhost forwarding is not checked": "健康范围：仅 WSL 本机；未检查 Windows localhost 转发"
 }

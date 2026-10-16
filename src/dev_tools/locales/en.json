@@ -498,5 +498,14 @@
   "HTTP endpoint returned an error status": "HTTP endpoint returned an error status",
   "端口": "PORT",
   "目标": "TARGET",
-  "Some process details could not be read": "Some process details could not be read"
+  "Some process details could not be read": "Some process details could not be read",
+  "Windows访问异常": "Windows access failed",
+  "Windows访问待检查": "Windows access unchecked",
+  "Windows localhost access is reachable": "Windows localhost access is reachable",
+  "Windows localhost access failed; WSL-local health does not prove Windows access": "Windows localhost access failed; WSL-local health does not prove Windows access",
+  "Windows access could not be checked; update the WSL controller for access metadata": "Windows access could not be checked; update the WSL controller for access metadata",
+  "No running services with local access checks": "No running services with local access checks",
+  "{project}: {detail}": "{project}: {detail}",
+  "  {service}: {target} ({stage}/{code})": "  {service}: {target} ({stage}/{code})",
+  "Health scope: WSL local only; Windows localhost forwarding is not checked": "Health scope: WSL local only; Windows localhost forwarding is not checked"
 }

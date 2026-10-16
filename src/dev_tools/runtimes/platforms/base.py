@@ -63,8 +63,9 @@ class Backend:
     def ensure_workspace(self) -> None:
         self.binding.workspace.mkdir(parents=True, exist_ok=True)
 
-    def sync(self, spec: ProjectSpec) -> None:
+    def sync(self, spec: ProjectSpec) -> bool:
         self.ensure_workspace()
+        return False
 
     def require_control(self) -> None:
         pass

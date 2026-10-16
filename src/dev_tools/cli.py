@@ -342,6 +342,10 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
                     t("start --all cannot be combined with a project name or --service")
                 )
             preflight(environment, forwarded, settings)
+            if os.name == "nt" and environment == "wsl" and args.project_command == "status":
+                from .projects.cli import remote_wsl_status
+
+                raise SystemExit(remote_wsl_status(forwarded, settings, args.json))
             if getattr(args, "json", False):
                 result = forward_remote(
                     environment, forwarded, settings=settings, capture=True, timeout=None

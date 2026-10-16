@@ -86,7 +86,12 @@ def list_projects(environment: str, settings=None) -> list[dict]:
                 environment=target,
                 returncode=result.returncode,
             ) from None
-        return [{**item, "environment": environment} for item in payload["projects"]]
+        projects = [{**item, "environment": environment} for item in payload["projects"]]
+        if os.name == "nt" and environment == "wsl":
+            from .access import windows_access
+
+            projects = windows_access(projects)
+        return projects
     projects = []
     for name in Registry(environment).names():
         try:
@@ -211,9 +216,81 @@ def _list_state(project: dict) -> str:
             return phase
     if any(service["health"] == "unhealthy" for service in services):
         return "unhealthy"
+    access = project.get("windows_access", {}).get("state")
+    if access == "unreachable":
+        return "access-unavailable"
+    if access == "unknown":
+        return "access-unknown"
     if phases == {"running"}:
         return "running" if project["ready"] else "not-ready"
     return "partially-running" if "running" in phases else "unknown"
+
+
+def emit_access(project: dict) -> None:
+    access = project.get("windows_access")
+    if not access:
+        return
+    state = access["state"]
+    descriptions = {
+        "reachable": "Windows localhost access is reachable",
+        "unreachable": "Windows localhost access failed; WSL-local health does not prove Windows access",
+        "unknown": "Windows access could not be checked; update the WSL controller for access metadata",
+        "not-applicable": "No running services with local access checks",
+    }
+    text = t("{project}: {detail}", project=project["name"], detail=t(descriptions[state]))
+    print(warning(text) if state in {"unreachable", "unknown"} else text)
+    for check in access["checks"]:
+        if not check["reachable"]:
+            print(
+                warning(
+                    t(
+                        "  {service}: {target} ({stage}/{code})",
+                        service=check["service"],
+                        target=check["target"],
+                        stage=check["stage"],
+                        code=check["code"],
+                    )
+                )
+            )
+
+
+def remote_wsl_status(arguments, settings, as_json):
+    from ..cli_errors import RemoteError, TargetError, exit_code
+    from ..runtimes.diagnostics import response_payload
+    from ..runtimes.router import forward_remote
+    from .access import windows_access
+
+    arguments = list(arguments)
+    if "--json" not in arguments:
+        index = arguments.index("--") if "--" in arguments else len(arguments)
+        arguments.insert(index, "--json")
+    result = forward_remote("wsl", arguments, settings=settings, capture=True, timeout=None)
+    value = response_payload(result, "wsl", "status")
+    if "error" in value:
+        raise RemoteError(value, result.returncode)
+    if (
+        result.returncode != 0
+        or value.get("environment") != "wsl"
+        or not isinstance(value.get("name"), str)
+        or not isinstance(value.get("services"), dict)
+        or any(type(value.get(key)) is not bool for key in ("ready", "prepared"))
+        or value.get("healthy") is not None
+        and type(value["healthy"]) is not bool
+        or any(
+            not isinstance(service, dict)
+            or not all(isinstance(service.get(key), str) for key in ("phase", "health"))
+            for service in value.get("services", {}).values()
+        )
+    ):
+        raise TargetError(
+            "target_response_invalid",
+            message(
+                "Target controller returned an invalid response; check both controller versions"
+            ),
+            environment="wsl",
+        )
+    emit(windows_access([value])[0], as_json)
+    return exit_code(result.returncode)
 
 
 def emit(payload: dict, as_json: bool) -> None:
@@ -252,6 +329,9 @@ def emit(payload: dict, as_json: bool) -> None:
         )
         for name, value in payload["services"].items():
             print(f"  {name}：{status_label(value['phase'])}（{status_label(value['health'])}）")
+        emit_access(payload)
+        if payload.get("health_scope") == "wsl-local":
+            print(t("Health scope: WSL local only; Windows localhost forwarding is not checked"))
         if payload.get("maintenance_error"):
             print(warning(t("自动维护待处理：{error}", error=render(payload["maintenance_error"]))))
         if payload.get("recovery"):
@@ -289,6 +369,8 @@ def emit(payload: dict, as_json: bool) -> None:
             )
         )
         for project in payload["projects"]:
+            if project.get("windows_access", {}).get("state") in {"unreachable", "unknown"}:
+                emit_access(project)
             if project.get("error") or project.get("error_detail"):
                 print(
                     error(
@@ -299,6 +381,8 @@ def emit(payload: dict, as_json: bool) -> None:
                         )
                     )
                 )
+        if any(project.get("health_scope") == "wsl-local" for project in payload["projects"]):
+            print(t("Health scope: WSL local only; Windows localhost forwarding is not checked"))
         for diagnostic in payload.get("errors", []):
             print(
                 warning(

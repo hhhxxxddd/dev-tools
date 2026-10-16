@@ -2,10 +2,11 @@
 
 [简体中文](README.md) · **English**
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.3](https://img.shields.io/badge/Version-0.5.3-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.4](https://img.shields.io/badge/Version-0.5.4-blue)](CHANGELOG.md)
 
 A nearly seamless development deployment experience for Windows and WSL: discover dependencies, prepare environments, start services, and follow code and dependency declarations.
 Add, remove, or upgrade dependencies and keep developing as project configuration synchronizes them automatically. A good fit for fast-moving Vibe Coding projects.
+Idle projects reduce polling automatically and return to fast synchronization after changes; WSL dependencies and builds stay in native Linux directories.
 Supports Node.js, Python / uv, Maven / Spring Boot, and existing Docker Compose projects.
 
 ## Requirements
@@ -93,6 +94,7 @@ Omit `-e` for the current platform; add `-e win` / `-e wsl` to operate on either
 | `dev-tools -v` / `dev-tools help` | Show the version or help |
 
 Omit the project name in a directory that uniquely matches it. `list --all` combines both environments; `start --all` starts inactive projects in the selected environment.
+Windows queries of WSL `list/status` also check localhost access. Common web services must return an HTTP response; stalled forwarding appears as Windows access failed.
 Running `ssh`, `hosts`, `ports`, `which` or `net` alone displays its help. Detailed commands are in [Operation](docs/usage.en.md).
 
 ```text

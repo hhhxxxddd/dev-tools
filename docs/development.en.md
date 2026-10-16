@@ -45,6 +45,18 @@ Entrypoint changes also require checking `scripts/dev-tools.ps1` and `scripts/de
 
 Real verification scripts use temporary registrations, state and caches: `tests/integration/lifecycle_smoke.py` checks automatic preparation, service additions/removals, HTTP services, hot builds, recovery and rename; `dependency_smoke.py` uses local npm packages to verify package additions, upgrades, removals, lockfile writeback and catching up after stop without downloading third-party packages; `toolchain_smoke.py` uses installed Java/Node/Python/Maven; `transport_smoke.py` checks bidirectional paths, implicit names, help, preferences and language from Windows. WSL lifecycle tests require root and systemd. Toolchain tests add no runtime versions; transport tests require both entrypoints installed.
 
+Lifecycle tests wait for idle backoff before checking edit wakeup and application PIDs. WSL also verifies synchronization neither stops nor stays at its fast interval. When the checkout is on a Windows-mounted drive, place test sources there while registrations, state and caches remain in native Linux temporary directories:
+
+```bash
+mkdir -p dist/integration-sources
+export DEV_TOOLS_TEST_SOURCE_ROOT="$PWD/dist/integration-sources"
+python3 tests/integration/lifecycle_smoke.py
+python3 tests/integration/dependency_smoke.py
+unset DEV_TOOLS_TEST_SOURCE_ROOT
+```
+
+Monitor regressions cover expiration, start-session isolation, pre-build Git revalidation, stop cancellation and snapshot handover. Access regressions cover accepting-but-silent HTTP, IPv4/IPv6, unprivileged queries for root-owned projects and skipped symlink/FIFO metadata.
+
 [MIT License](../LICENSE)
 
 Run `tests/integration/root_windows_transport.py` as WSL root. It isolates the controller and Windows registrations, state and caches, verifying version/SSH/hosts queries plus registration, rename and unregister after sudo clears Windows PATH. The checkout must be on a mounted Windows drive. It reuses installed native Python and does not change system hosts or business registrations.
@@ -78,4 +90,4 @@ A `vX.Y.Z` tag reuses these checks and builds official assets from a clean match
 
 Ubuntu adapter tests do not establish real WSL coverage. Before releasing, run the existing isolated WSL lifecycle/dependency/toolchain scripts and Windows-to-WSL controller/transport scripts, with systemd and installed native runtimes. The controller package check installs twice into temporary native directories and verifies retained bindings, registrations and state. Never use active registrations or middleware data as test fixtures.
 
-The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.3.zip`. Candidates may describe dirty sources; `--tag v0.5.3 --official` requires committed, clean, correctly tagged sources.
+The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.4.zip`. Candidates may describe dirty sources; `--tag v0.5.4 --official` requires committed, clean, correctly tagged sources.

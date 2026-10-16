@@ -61,6 +61,8 @@
 
 `status.ready` 包含准备指纹有效、服务就绪、监控运行和无待恢复操作等条件。`healthy=null` 表示至少一个服务健康状态未知；否则当前聚合值与项目就绪状态一致。单项探测应读取 `services.<name>.health`，值为 `healthy|unhealthy|unknown`。服务 `phase` 为 `starting|running|restarting|stopped|failed`；`pid/exit_code` 可以为 null。恢复与错误详情用于诊断，不应依赖其人类模板文本。
 
+WSL 状态新增 `health_scope=wsl-local` 和 `access_targets`。Windows 查询 WSL 的 list/status 时，`health_scope=windows-to-wsl`，访问失败或未检查也是未就绪条件；原始值保留为 `runtime_ready/runtime_healthy`。`windows_access.state` 为 `reachable|unreachable|unknown|not-applicable`，`checks` 含 service、target、reachable、可选 peer/http_status 或 stage/code，以及 IPv4/IPv6 的 attempts。旧端缺少有效访问信息时 unknown 对应 `ready=false, healthy=null`。服务级 phase/health 始终描述 WSL 运行状态，停止的服务不进行 Windows 访问探测。
+
 辅助命令主要字段：config 有 `path/state/settings/origins/errors`，state 为 `loaded|missing|invalid`；sysinfo 有 `system/config_state/sections/directories/tools/commands`；report 有 `collected_at/platform/repositories/discovery_issues/collectors`；self status 有 `schema_version=1/environment/controller_version/deployment`，environment 为 `windows|wsl`，deployment 有 `state/version`，已安装时包含目标原生 `path`，WSL 另有 `distro`。部署 state 为 `installed|missing|unavailable`，不可用或缺失时 controller_version 为 null；该状态查询仍返回 0。
 
 ## 工具箱结果

@@ -178,7 +178,7 @@ def request_http(connection, stream, path: str, timeout: int) -> int:
         timer.cancel()
 
 
-def check_target(target: NetworkTarget, timeout: int) -> dict:
+def check_target(target: NetworkTarget, timeout: int, *, addresses: list | None = None) -> dict:
     stages = []
     value = {
         "target": target.display,
@@ -229,10 +229,12 @@ def check_target(target: NetworkTarget, timeout: int) -> dict:
         return result, True
 
     def dns():
-        addresses = resolve(target.host, target.port, timeout)
-        if not addresses:
+        resolved = (
+            addresses if addresses is not None else resolve(target.host, target.port, timeout)
+        )
+        if not resolved:
             raise socket.gaierror
-        return addresses, {"addresses": list(dict.fromkeys(address[0] for _, address in addresses))}
+        return resolved, {"addresses": list(dict.fromkeys(address[0] for _, address in resolved))}
 
     try:
         addresses, ok = stage("dns", dns)

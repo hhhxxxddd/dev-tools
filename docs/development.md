@@ -45,6 +45,18 @@ uvx ruff format --check src tests
 
 真实验证脚本以临时注册、状态和缓存运行：`tests/integration/lifecycle_smoke.py` 检查自动准备、服务增删、HTTP 服务、热构建、恢复和重命名；`dependency_smoke.py` 使用本地 npm 包验证依赖新增、升级、移除、锁文件回写和停止后补齐，不下载第三方包；`toolchain_smoke.py` 使用已安装的 Java/Node/Python/Maven；`transport_smoke.py` 从 Windows 检查双向路径、隐式名称、帮助、配置和语言传递。WSL 生命周期测试需要 root 和 systemd，工具链测试不安装新版本；双向测试需要两侧入口已安装。
 
+生命周期测试先等待空闲退避，再验证改动唤醒与应用 PID；WSL 还确认同步没有停止或一直维持快速轮询。仓库位于 Windows 挂载盘时，可让测试源码放在该盘，注册、状态和缓存仍使用 Linux 临时目录：
+
+```bash
+mkdir -p dist/integration-sources
+export DEV_TOOLS_TEST_SOURCE_ROOT="$PWD/dist/integration-sources"
+python3 tests/integration/lifecycle_smoke.py
+python3 tests/integration/dependency_smoke.py
+unset DEV_TOOLS_TEST_SOURCE_ROOT
+```
+
+监控回归覆盖缓存过期与启动隔离、构建前 Git 状态复核、停止取消维护和快照交接；访问回归覆盖接受连接但不响应 HTTP、IPv4/IPv6、普通用户读取 root 托管项目，以及符号链接/FIFO 元数据跳过。
+
 [MIT License](../LICENSE)
 
 `tests/integration/root_windows_transport.py` 在 WSL root 下运行，使用隔离控制器与 Windows 注册、状态、缓存，验证 sudo 清理 Windows PATH 后的版本、SSH、hosts 查询及注册、重命名、注销。源码需位于挂载的 Windows 磁盘；使用已安装的原生 Python，不修改系统 hosts 或业务注册。
@@ -78,4 +90,4 @@ Windows 端口采集直接调用 IP Helper 和 Toolhelp API，无第三方运行
 
 Ubuntu 适配器测试不能代替真实 WSL 验证。发布前运行已有隔离 WSL 生命周期、依赖、工具链脚本及 Windows→WSL 部署与传输脚本，要求 systemd 和已安装的原生运行时。控制器包检查在临时原生目录重复部署两次，确认解释器绑定、注册和状态保留。不要用活动注册或中间件数据充当测试数据。
 
-公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.3.zip`。候选可标记源码未提交；`--tag v0.5.3 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。
+公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.4.zip`。候选可标记源码未提交；`--tag v0.5.4 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。

@@ -2,10 +2,11 @@
 
 **简体中文** · [English](README.en.md)
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.3](https://img.shields.io/badge/Version-0.5.3-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.4](https://img.shields.io/badge/Version-0.5.4-blue)](CHANGELOG.md)
 
 为 Windows 和 WSL 项目提供近乎无感的开发部署体验：自动发现依赖、准备环境、启动服务，持续跟进代码和依赖声明的变化。
 依赖新增、删除或升级后，按项目配置自动同步并继续开发，适合频繁调整项目的 Vibe Coding。
+空闲时自动降低扫描频率，发现变化后恢复快速同步；WSL 的依赖与编译留在 Linux 原生目录。
 支持 Node.js、Python / uv、Maven / Spring Boot 和已有 Docker Compose 项目。
 
 ## 环境要求
@@ -93,6 +94,7 @@ dev-tools start
 | `dev-tools -v` / `dev-tools help` | 查看版本或帮助 |
 
 在唯一匹配项目的目录中可省略项目名。`list --all` 汇总两端；`start --all` 启动所选环境中尚未运行的项目。
+Windows 查询 WSL 的 `list/status` 时还会检查 localhost 访问；常见 Web 服务会等待 HTTP 响应，转发卡住时显示“Windows访问异常”。
 工具箱命令 `ssh`、`hosts`、`ports`、`which`、`net` 单独运行均显示帮助，具体操作见[运行说明](docs/usage.md)。
 
 ```text

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -24,7 +25,10 @@ def free_port() -> int:
 def smoke() -> dict:
     repository = Path(__file__).resolve().parents[2]
     environment_name = "windows" if os.name == "nt" else "wsl"
-    with tempfile.TemporaryDirectory(prefix="dev-tools-native-") as temporary:
+    with (
+        tempfile.TemporaryDirectory(prefix="dev-tools-native-") as temporary,
+        contextlib.ExitStack() as resources,
+    ):
         root = Path(temporary).resolve()
         controller = repository
         if environment_name == "windows":
@@ -34,7 +38,14 @@ def smoke() -> dict:
             (controller / ".host-python.win").write_text(
                 str(Path(sys.executable).resolve()) + "\n", encoding="utf-8"
             )
-        source = root / "项目 & spaces"
+        source_root = root
+        if base := os.environ.get("DEV_TOOLS_TEST_SOURCE_ROOT"):
+            source_root = Path(
+                resources.enter_context(
+                    tempfile.TemporaryDirectory(prefix="dev-tools-source-", dir=base)
+                )
+            )
+        source = source_root / "项目 & spaces"
         source.mkdir()
         (source / "source").mkdir()
         (source / "source/Fixture.java").write_text("class Fixture {}", encoding="utf-8")
@@ -168,7 +179,26 @@ def smoke() -> dict:
             manual_build = (workspace / "build.txt").read_text()
             first = status()
             # Each supervisor launched the same worker and watches the same declaration.
-            time.sleep(3)
+            time.sleep(8)  # Reach the maximum idle backoff before editing.
+            if environment_name == "wsl":
+                observation = Path(binding["state"]) / "source-observation.json"
+                previous = json.loads(observation.read_text())["observed_at"]
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline:
+                    current = json.loads(observation.read_text())["observed_at"]
+                    if current != previous:
+                        if current - previous < 2.8:
+                            raise AssertionError("idle rsync never reached its backoff interval")
+                        break
+                    time.sleep(0.2)
+                else:
+                    raise AssertionError("idle source polling stopped entirely")
+            idle = status()
+            if any(
+                idle["services"][service]["pid"] != first["services"][service]["pid"]
+                for service in first["services"]
+            ):
+                raise AssertionError("idle monitoring restarted an application")
             (source / "source/Fixture.java").write_text(
                 "class Fixture { int value; }", encoding="utf-8"
             )
@@ -249,6 +279,8 @@ def smoke() -> dict:
                 "automatic_prepare": True,
                 "automatic_reconfiguration": True,
                 "hot_build": True,
+                "idle_wakeup": True,
+                "idle_backoff_observed": environment_name == "wsl",
                 "resource_restart": True,
                 "rename": True,
                 "implicit_name": True,

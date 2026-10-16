@@ -188,6 +188,12 @@ WSL 的 root 或 sudo 环境也可使用 `-e win` 查询、注册和控制 Windo
 
 同一 Python worker 在两侧处理服务依赖、健康检查、重启、监控和恢复。依赖先启动并等待就绪，停止按相反顺序执行；启动失败回滚本次新增的进程。原生进程未声明健康检查时状态为 unknown；Compose 还会检查容器运行状态和容器报告的健康状态。
 
+从 Windows 执行 `dev-tools list -e wsl`、`dev-tools list --all` 或 `dev-tools status my-app -e wsl`，还会在 Windows 本机直连 localhost 检查服务访问。IPv4 和 IPv6 分别探测，避免一个地址族的超时掩盖另一个可用的地址族。只检查声明健康端口且正在运行的服务，不启动服务、不提权、不修改代理、hosts、端口转发或 WSL 配置。
+
+声明 `health.http` 时检查本地 HTTP/HTTPS 路径；TCP 健康检查对应 Spring、Vite、Next、Nuxt、Astro、常见 Python Web 命令时自动补 HTTP HEAD 检查。包管理器脚本只静态读取 `package.json`，优先读取原生工作区，工作区不可读时回退源码目录，不执行脚本或提权；不能识别的 TCP 服务仍检查 TCP。探测不跟随重定向、不读取响应正文；401/404 仍表示 HTTP 链路可达，5xx 及超时显示异常。探测并行、有界超时，同一查询中的重复目标只检查一次，不受 HTTP 代理环境变量影响。
+
+转发失败时列表显示“Windows访问异常”，状态查询的 `ready/healthy` 为 false；WSL 内服务健康保留在 `runtime_ready/runtime_healthy`，详细结果见 `windows_access.checks`。旧 WSL 端没有访问检查信息时显示“Windows访问待检查”，不据此宣称访问健康。WSL 本机查询会标明仅检查 WSL 本机，不能证明 Windows 转发可用。查询成功仍返回 0，访问失败通过状态字段表达。
+
 start 自动校验并执行统一准备计划：准备平台依赖与根级运行时，同步源码、锁文件和包，准备 Compose 镜像与 Spring classpath，再启动服务。运行期间声明、锁文件和配置变化会自动执行相同流程；后台保留监控进程，失败保存进度，修正后重试。默认启动全部服务时会跟进新发现的服务；start --service 只维护所选服务及依赖。check 只读检查计划，prepare 手动执行准备；stop 先取消运行意图，防止更新结束后重新启动。
 
 ```text

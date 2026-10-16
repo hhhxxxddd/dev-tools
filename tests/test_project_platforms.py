@@ -285,7 +285,8 @@ class WslAdapterTests(unittest.TestCase):
             (binding.source / "frontend/build/vite.ts").write_text("source configuration")
             (binding.source / "build").mkdir()
             (binding.source / "build/windows.exe").write_text("never copy")
-            backend.sync(spec)
+            self.assertTrue(backend.sync(spec))
+            self.assertFalse(backend.sync(spec), "idle rsync must report no transfers")
             self.assertFalse((binding.workspace / "node_modules").exists())
             self.assertFalse((binding.workspace / "build").exists())
             self.assertEqual(
@@ -297,11 +298,30 @@ class WslAdapterTests(unittest.TestCase):
             (binding.workspace / "build.txt").write_text("native build output")
             (binding.source / "file.txt").unlink()
             (binding.source / "new.txt").write_text("second")
-            backend.sync(spec)
+            self.assertTrue(backend.sync(spec), "new files and deletions must count as changes")
             self.assertFalse((binding.workspace / "file.txt").exists())
             self.assertEqual((binding.workspace / "new.txt").read_text(), "second")
             self.assertEqual((binding.workspace / "node_modules/native").read_text(), "keep")
             self.assertEqual((binding.workspace / "build.txt").read_text(), "native build output")
+
+    def test_directory_metadata_alone_does_not_defeat_idle_backoff(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            _, backend = self.fixture(Path(temporary))
+            spec = parse_project({"schema": 1, "name": "demo", "toolchain": "system"}, "wsl")
+            for output, changed in (
+                ("", False),
+                (".d..t......\n.d....og...\n", False),
+                (".d..t......\n>f.st......\n", True),
+                ("cd+++++++++\n", True),
+                ("*deleting   removed.txt\n", True),
+                ("cL+++++++++\n", True),
+            ):
+                with patch.object(
+                    backend,
+                    "_run",
+                    return_value=subprocess.CompletedProcess([], 0, stdout=output, stderr=""),
+                ):
+                    self.assertEqual(backend.sync(spec), changed, output)
 
     def test_native_dependencies_never_include_language_packages_or_databases(self):
         with tempfile.TemporaryDirectory() as temporary:

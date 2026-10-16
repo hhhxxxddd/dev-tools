@@ -197,19 +197,25 @@ class WslBackend(Backend):
         if os.geteuid() == 0:
             os.chown(workspace, account.pw_uid, account.pw_gid)
 
-    def sync(self, spec: ProjectSpec) -> None:
+    def sync(self, spec: ProjectSpec) -> bool:
         self.ensure_workspace()
         argv = [
             "rsync",
             "-a",
             "--delete",
             "--delay-updates",
+            "--itemize-changes",
+            "--out-format=%i",
             *[f"--include={pattern}" for pattern in spec.sync_include],
             *[f"--exclude={pattern}" for pattern in (*EXCLUDES, *spec.sync_exclude)],
             str(self.binding.source) + "/",
             str(self.binding.workspace) + "/",
         ]
-        self._run(argv, project=True)
+        result = self._run(argv, project=True)
+        # Native build outputs and ownership checks can change directory metadata
+        # on every pass. Only file/link changes, directory creation or deletion
+        # should keep the source polling active.
+        return any(line and not line.startswith(".d") for line in result.stdout.splitlines())
 
     def unit(self, worker: str) -> str:
         prefix = (

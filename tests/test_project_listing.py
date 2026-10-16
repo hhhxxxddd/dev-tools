@@ -143,7 +143,7 @@ class ProjectListingTests(unittest.TestCase):
             "schema_version": 3,
             "action": "list",
             "environment": environment,
-            "projects": [project(environment)],
+            "projects": [{**project(environment), "access_targets": []}],
         }
         settings = SimpleNamespace(language="en", errors=(), distro="Configured")
         with (
