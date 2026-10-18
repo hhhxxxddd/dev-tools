@@ -72,6 +72,10 @@ Run `tests/integration/root_windows_transport.py` as WSL root. It isolates the c
 
 `tests/integration/ssh_smoke.py` uses isolated Win/WSL controllers, SSH configuration, editors and interactive clients to verify real bidirectional process chains, editing of Include source files, stdin and native session exit codes. It does not read real SSH configuration, use keys or connect to external servers.
 
+`tests/integration/ssh_smoke.py` also exercises native/bidirectional SSH list saves and cancellation, plus native/WSL calls to the Windows hosts list. Writes affect temporary files only. `tests/integration/list_terminal_smoke.py` uses a real native WSL PTY and an isolated home to verify field editing, saving, Esc cancellation, Ctrl+C exit and terminal mode restoration. Unit tests additionally cover navigation, validation, provenance, concurrent writes, original-byte backups and failed multi-file rollback.
+
+`tests/integration/project_logs_smoke.py` uses isolated controllers, bindings and logs to verify native Win/WSL and bidirectional aggregation, raw single-service output, task logs, newly created files, live output and interrupt status 130. It does not stop business projects or modify deployed controllers.
+
 ## Performance and boundaries
 
 Ruff also checks import ordering, common mistakes and modern Python syntax. Scanning and monitoring skip symlinks, Windows directory junctions and nonregular metadata files. Tests cover malformed declarations, isolated registration failures, unborn Git repositories, detached HEAD, packed refs and worktrees.
@@ -97,4 +101,4 @@ A `vX.Y.Z` tag reuses these checks and builds official assets from a clean match
 
 Ubuntu adapter tests do not establish real WSL coverage. Before releasing, run the existing isolated WSL lifecycle/dependency/toolchain scripts and Windows-to-WSL controller/transport scripts, with systemd and installed native runtimes. The controller package check installs twice into temporary native directories and verifies retained bindings, registrations and state. Never use active registrations or middleware data as test fixtures.
 
-The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.5.zip`. Candidates may describe dirty sources; `--tag v0.5.5 --official` requires committed, clean, correctly tagged sources.
+The public CLI contract is documented [here](cli-contract.en.md). Candidate checks: `python -m dev_tools.release --output dist`, then `python -m dev_tools.package_smoke dist/dev-tools-0.5.6.zip`. Candidates may describe dirty sources; `--tag v0.5.6 --official` requires committed, clean, correctly tagged sources.

@@ -38,7 +38,33 @@ def deploy(repository: Path, root: Path):
     content = content.replace(selection, "client = sys.executable")
     content += f"\n\ndef native_identity():\n    return Path({str(home)!r}), 'fixture-user', Path({str(root / 'system/ssh_config')!r})\n"
     source.write_text(content, encoding="utf-8")
-    return {"root": str(root), "config": str(config), "included": str(included)}
+    hosts = root / "fixture-hosts"
+    hosts.write_bytes(b"# preserve hosts\r\n127.0.0.1 fixture.test\r\n")
+    controller = root / "src/dev_tools/hosts.py"
+    controller.write_text(
+        controller.read_text(encoding="utf-8")
+        + f"""
+
+def native_paths():
+    return Path({str(hosts)!r}), HostsStore(default_path().parent / 'hosts')
+
+if os.name == 'nt':
+    from .runtimes.platforms import windows_hosts as _fixture_hosts
+    def _fixture_write(before, after):
+        path = Path({str(hosts)!r})
+        assert path.read_bytes() == before
+        path.write_bytes(after)
+        return True
+    _fixture_hosts.write_system_hosts = _fixture_write
+""",
+        encoding="utf-8",
+    )
+    return {
+        "root": str(root),
+        "config": str(config),
+        "included": str(included),
+        "hosts": str(hosts),
+    }
 
 
 def smoke():
@@ -144,12 +170,16 @@ def smoke():
                 native_root + "/scripts/dev-tools",
             ]
 
-            def invoke(entry, *arguments, status=0, json_result=True):
+            def invoke(entry, *arguments, status=0, json_result=True, keys=None):
+                native_environment = environment.copy()
+                if keys is not None:
+                    native_environment["DEV_TOOLS_TERMINAL"] = "1"
+                    native_environment["WSLENV"] += ":DEV_TOOLS_TERMINAL"
                 result = subprocess.run(
                     [*entry, *arguments],
-                    input=b"Y\n",
+                    input=b"Y\n" if keys is None else keys,
                     cwd=shared,
-                    env=environment,
+                    env=native_environment,
                     capture_output=True,
                     check=False,
                     timeout=90,
@@ -162,6 +192,23 @@ def smoke():
 
             original_windows = Path(windows["config"]).read_bytes()
             for entry in (win_entry, wsl_entry):
+                before_hosts = invoke(entry, "hosts", "list", "-e", "win", "--json")
+                invoke(
+                    entry,
+                    "hosts",
+                    "list",
+                    "--edit",
+                    "-e",
+                    "win",
+                    json_result=False,
+                    keys=b"i\x15192.0.2.20\r syq",
+                )
+                edited_hosts = invoke(entry, "hosts", "list", "-e", "win", "--json")
+                assert edited_hosts["entries"][0]["address"] == "192.0.2.20", edited_hosts
+                assert (
+                    edited_hosts["entries"][0]["enabled"]
+                    is not before_hosts["entries"][0]["enabled"]
+                ), edited_hosts
                 for target in ("win", "wsl"):
                     listed = invoke(entry, "ssh", "list", "-e", target, "--json")
                     assert [host["name"] for host in listed["hosts"]] == ["fixture"], listed
@@ -182,6 +229,30 @@ def smoke():
                         "platform": "win32" if target == "win" else "linux",
                         "answer": "Y",
                     }, connection
+                    invoke(
+                        entry,
+                        "ssh",
+                        "list",
+                        "--edit",
+                        "-e",
+                        target,
+                        json_result=False,
+                        keys=b"\x1b[C\x1b[C\x1b[Ci\x152222\rsyq",
+                    )
+                    edited = invoke(entry, "ssh", "show", "fixture", "-e", target, "--json")
+                    assert edited["host"]["port"] == 2222, edited
+                    invoke(
+                        entry,
+                        "ssh",
+                        "list",
+                        "--edit",
+                        "-e",
+                        target,
+                        json_result=False,
+                        keys=b"lli\x15discarded\x1b",
+                    )
+                    cancelled = invoke(entry, "ssh", "show", "fixture", "-e", target, "--json")
+                    assert cancelled["host"]["user"] == "updated", cancelled
             assert Path(windows["config"]).read_bytes() == original_windows
             assert (
                 wsl(
@@ -202,6 +273,8 @@ def smoke():
         "native_editors": True,
         "include_preserved": True,
         "interactive_stdin": True,
+        "list_arrow_keys_save_cancel": True,
+        "hosts_native_and_remote_list_edit": True,
         "native_exit_status": True,
         "isolated_configs_clients": True,
     }

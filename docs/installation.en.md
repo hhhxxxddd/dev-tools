@@ -85,7 +85,7 @@ Versions in the controller, pyproject and tag must agree. Build and verify a loc
 $env:PYTHONPATH = "$PWD\src"
 python -m dev_tools.validation
 python -m dev_tools.release --output dist
-python -m dev_tools.package_smoke dist/dev-tools-0.5.2.zip
+python -m dev_tools.package_smoke dist/dev-tools-0.5.6.zip
 ```
 
 Outputs are `dev-tools-<version>.zip`, `SHA256SUMS` and `dev-tools.json`. The complete ZIP contains both entrypoints, configuration, examples and documentation; machine bindings, caches and local overrides are excluded. File hashes, version and source commit/dirty provenance are recorded in `.release.json`. SHA256 detects changed bytes; authenticity depends on obtaining the archive and checksums from the official GitHub release or Scoop channel.

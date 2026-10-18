@@ -82,6 +82,50 @@ class LogfileTests(unittest.TestCase):
             finally:
                 output.close()
 
+    def test_multi_follow_waits_for_new_files_without_blocking_other_sources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first, later = root / "first.log", root / "later.log"
+            first.write_text("old\n", encoding="utf-8")
+            stream = logfiles.read_logs({"first": first, "later": later}, lines=1, follow=True)
+            try:
+                self.assertEqual(next(stream), ("first", "old\n"))
+
+                def append(_):
+                    with first.open("a", encoding="utf-8") as handle:
+                        handle.write("new\n")
+                    later.write_text("appeared\n", encoding="utf-8")
+
+                with patch.object(logfiles.time, "sleep", side_effect=append):
+                    self.assertEqual(next(stream), ("first", "new\n"))
+                    self.assertEqual(next(stream), ("later", "appeared\n"))
+            finally:
+                stream.close()
+
+    def test_follow_polls_busy_sources_fairly_in_bounded_blocks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = {name: Path(temporary) / (name + ".log") for name in ("a", "b")}
+            for path in paths.values():
+                path.write_bytes(b"")
+
+            def append(_):
+                for name, path in paths.items():
+                    with path.open("ab") as handle:
+                        handle.write(name.encode() * 12)
+
+            with (
+                patch.object(logfiles, "TAIL_BLOCK_BYTES", 4),
+                patch.object(logfiles.time, "sleep", side_effect=append) as sleep,
+            ):
+                stream = logfiles.read_logs(paths, lines=0, follow=True)
+                try:
+                    self.assertEqual(
+                        [next(stream) for _ in range(6)], [("a", "aaaa"), ("b", "bbbb")] * 3
+                    )
+                    sleep.assert_called_once()
+                finally:
+                    stream.close()
+
     def test_rotation_retains_three_bounded_newest_archives(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "service.log"
@@ -162,6 +206,38 @@ class LogfileTests(unittest.TestCase):
 
                 with patch.object(logfiles.time, "sleep", side_effect=complete):
                     self.assertEqual(next(output), "中\n")
+            finally:
+                output.close()
+
+    def test_follow_seeds_decoder_with_incomplete_initial_utf8(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "service.log"
+            encoded = "中\n".encode()
+            for split in (1, 2):
+                with self.subTest(split=split):
+                    path.write_bytes(b"previous\n" + encoded[:split])
+                    output = logfiles.read_log(path, lines=1, follow=True)
+
+                    def append(_, remaining=encoded[split:]):
+                        with path.open("ab") as stream:
+                            stream.write(remaining)
+
+                    try:
+                        with patch.object(logfiles.time, "sleep", side_effect=append):
+                            self.assertEqual(next(output), "中\n")
+                    finally:
+                        output.close()
+
+    def test_follow_preserves_crlf_split_at_initial_tail_boundary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "service.log"
+            path.write_bytes(b"partial\r")
+            output = logfiles.read_log(path, lines=1, follow=True)
+            try:
+                self.assertEqual(next(output), "partial")
+                with path.open("ab") as stream:
+                    stream.write(b"\nnext\n")
+                self.assertEqual(next(output), "\nnext\n")
             finally:
                 output.close()
 

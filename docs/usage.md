@@ -109,6 +109,8 @@ Store 的 `discovery` 保留批量原始输出和候选，`checks` 保留逐项�
 
 ```text
 dev-tools ssh list
+dev-tools ssh list --edit
+dev-tools ssh list --edit -e wsl
 dev-tools ssh list my-server
 dev-tools ssh list -e win
 dev-tools ssh list -e wsl --json
@@ -128,6 +130,12 @@ dev-tools ssh connect my-server -e wsl
 
 `show <别名>` 精确匹配别名（不区分大小写），展示静态地址、用户、端口、代理标记及声明文件和行号；同名大小写冲突明确报错。它与 list 一样只读，不执行原生 SSH 或条件命令。
 
+`list --edit [关键词]` 在当前终端打开交互列表。快捷键在输入区上方合并为一行，操作说明位于顶部。`i`/Enter 编辑选中字段，Enter 暂存，Esc 撤销该次编辑，Ctrl+U 清空输入。`a` 新增，`d`/Delete 删除；`s` 或 `:w` 打开差异预览，PgUp/PgDn 滚动，按 `y` 才写入，`n`/Esc 返回继续编辑。`q`/`:q`/Esc 退出，放弃未保存的修改；Ctrl+C 或输入结束也退出并恢复终端。需要交互终端，不能与 `--json` 同用。
+
+SSH 可编辑别名、HostName、User、Port 和 ProxyJump，底部显示选中字段的来源。继承字段只显示有效值，编辑时空白表示该块未声明；清空可选字段会移除本地声明、恢复继承。只自动修改用户 `~/.ssh` 内独占单个别名、所在文件无 Match、块内无 Include/ProxyCommand 和重复可编辑字段的 Host 块，保留其他选项、注释、BOM 和换行；共享块、系统配置和复杂规则保留只读，使用 `ssh edit [别名]` 文本编辑。首值优先导致修改无法生效、影响其他别名或配置读取不完整时拒绝自动写回。新增条目追加到用户配置，首次确认保存才创建文件。
+
+保存前重读配置及 Include 文件，同时检查链接指向，发生并发变化则拒绝覆盖。写入前在本机用户配置目录的 `dev-tools/ssh/backups/<事务>/` 保存 `files.json`、原始 `.before` 和新 `.draft`，不跟随 `--config` 改位置。每个文件原子替换，保留现有权限；多文件保存失败尝试回滚已写入文件，并打印备份位置供人工核对恢复。新建 WSL 文件为 0600、目录为 0700；sudo 仍归原用户所有。预览隐藏命令正文，不运行 SSH、代理或 Match exec。
+
 `edit [别名]` 使用目标侧配置的现有编辑器。省略别名时打开该用户的 `~/.ssh/config`，首次编辑才创建文件；WSL 新文件为 0600、新建目录为 0700，保留已有权限。指定别名时打开其实际声明文件，包括 Include 文件，保留原有注释、换行和规则，不进行整份配置重写。VS Code、Cursor、Vim、Nano 等支持跳行的编辑器会定位声明行，其他编辑器显示文件和行号供查找。别名不存在时先用不带别名的 edit 添加。
 
 交互编辑后保存并关闭编辑器，回终端按 Enter 重新读取静态配置；识别到的问题以警告展示，返回 1 并保留编辑结果。这不是 OpenSSH 的完整语法或条件求值校验。用户配置通常无需提权；系统配置和只读 Include 文件仍需要现有写权限，命令不会自动提权。
@@ -144,6 +152,8 @@ dev-tools ssh connect my-server -e wsl
 
 ```text
 dev-tools hosts list
+dev-tools hosts list --edit
+dev-tools hosts list --edit -e win
 dev-tools hosts list app.test --json
 dev-tools hosts edit
 dev-tools hosts edit dev
@@ -157,6 +167,8 @@ dev-tools hosts restore
 此模块仅管理 Windows 系统 hosts，通过系统 API 定位文件；不修改 WSL 的 `/etc/hosts`。在 WSL 使用上述命令时显式加 `-e win`，所有方案、备份、编辑器和权限仍在 Windows 端处理，调用端配置文件不跨端传递。目标端需要包含 hosts 命令。
 
 `list [关键词]` 按 IP、域名或备注过滤，表格展示地址、域名、备注、所属方案与状态；注释中的合法映射标为已禁用，现有的同域名、同 IP 协议族地址冲突标黄。原有无效行保留并报告行号，读取不完整时退出 1；配置冲突本身不代表清单读取失败。查看、列方案和列备份不会创建文件、提权或刷新 DNS。
+
+`list --edit [关键词]` 打开相同的交互列表，可编辑地址、多个域名和注释，`a` 新增、`d`/Delete 删除，空格或编辑状态列切换启用状态。修改先暂存在内存，`s`/`:w` 预览差异并按 `y` 保存；`q`/`:q`/Esc 放弃。保留未修改行、托管区块标记、编码、BOM 和换行，使用现有校验、并发检查、备份、UAC 和 DNS 刷新流程。修改当前托管区块不会同步方案文件；再次 `use` 会重新应用已保存方案。写入失败或保存中断时保留草稿，并在退出列表后打印位置；保存成功后显示备份信息，DNS 刷新失败也会明确提示。`--edit` 不能与 `--json` 同用；现有 `edit [方案]` 文本编辑入口保留。
 
 `edit` 编辑当前 hosts，`edit dev` 编辑名为 dev 的方案，不立即启用。使用配置中的编辑器，其次 VISUAL、EDITOR，最后记事本；先编辑 UTF-8 草稿，保存并关闭编辑器后在终端按 Enter 提交，Ctrl+C 取消。不使用公开的 `--json` 编辑模式；需要脚本化写入时使用已保存方案的 `use --json`。校验失败、编辑器失败或文件在编辑期间被改动时保留草稿，拒绝覆盖。
 
@@ -190,7 +202,7 @@ WSL 的 root 或 sudo 环境也可使用 `-e win` 查询、注册和控制 Windo
 
 从 Windows 执行 `dev-tools list -e wsl`、`dev-tools list --all` 或 `dev-tools status my-app -e wsl`，还会在 Windows 本机直连 localhost 检查服务访问。IPv4 和 IPv6 分别探测，避免一个地址族的超时掩盖另一个可用的地址族。只检查声明健康端口且正在运行的服务，不启动服务、不提权、不修改代理、hosts、端口转发或 WSL 配置。
 
-声明 `health.http` 时检查本地 HTTP/HTTPS 路径；TCP 健康检查对应 Spring、Vite、Next、Nuxt、Astro、常见 Python Web 命令时自动补 HTTP HEAD 检查。包管理器脚本只静态读取 `package.json`，优先读取原生工作区，工作区不可读时回退源码目录，不执行脚本或提权；不能识别的 TCP 服务仍检查 TCP。探测不跟随重定向、不读取响应正文；401/404 仍表示 HTTP 链路可达，5xx 及超时显示异常。探测并行、有界超时，同一查询中的重复目标只检查一次，不受 HTTP 代理环境变量影响。
+声明 `health.http` 时检查本地 HTTP/HTTPS 路径；TCP 健康检查对应 Spring、Vite、Next、Nuxt、Astro、常见 Python Web 命令时自动补 HTTP 检查。Windows 侧 HTTP 访问探测使用 GET，兼容仅支持 GET 的健康接口；通用 `net check` 仍使用 HEAD。包管理器脚本只静态读取 `package.json`，优先读取原生工作区，工作区不可读时回退源码目录，不执行脚本或提权；不能识别的 TCP 服务仍检查 TCP。探测仅读取响应头，不跟随重定向、不读取响应正文；401/404 仍表示 HTTP 链路可达，5xx 及超时显示异常。探测并行、有界超时，同一查询中的重复目标只检查一次，不受 HTTP 代理环境变量影响。
 
 转发失败时列表显示“Windows访问异常”，状态查询的 `ready/healthy` 为 false；WSL 内服务健康保留在 `runtime_ready/runtime_healthy`，详细结果见 `windows_access.checks`。旧 WSL 端没有访问检查信息时显示“Windows访问待检查”，不据此宣称访问健康。WSL 本机查询会标明仅检查 WSL 本机，不能证明 Windows 转发可用。查询成功仍返回 0，访问失败通过状态字段表达。
 
@@ -218,7 +230,20 @@ source 构建保持服务运行；resource/structural 构建先停止受影响�
 
 ### 日志查询与保留
 
-`dev-tools logs my-app api --lines 200` 查看服务最近的日志；添加 `--follow` 持续跟踪。查询只读取当前日志，初始尾部最多读取 10 MiB，因此超长行或大量输出时可能少于指定行数；持续跟踪按块读取后续内容，并跟进文件轮转或截断。
+`dev-tools logs my-app` 汇总该项目已声明的服务和监控日志，每行带 `[服务名]` 标识；`logs my-app api` 只查看 api，保留原始输出。单个位置参数始终表示项目名，不会误当服务名；省略项目名时使用当前目录唯一匹配，指定服务用 `logs --service api`。`--task` 切换到准备/构建任务日志，省略任务名时汇总全部已声明任务。服务位置参数不能与 `--service` 同用。
+
+```powershell
+dev-tools logs my-app
+dev-tools logs my-app api --lines 200
+dev-tools logs --service api
+dev-tools logs my-app --task
+dev-tools logs my-app -e wsl --follow
+dev-tools logs my-app api -e win --follow
+```
+
+`-e win|wsl` 在任一端均可使用，日志由目标端读取，不复制日志文件；默认当前环境，不按同名项目自动切换环境。两端控制器需要分别更新后使用新参数约定。`--follow` 跟踪所有选中日志，文件尚未创建时等待，Ctrl+C 退出并返回 130；跨端跟踪和准备/启停/构建操作不使用普通查询的 30 秒超时。
+
+查询不启动服务、不安装依赖、不修改注册或状态，只读取当前日志文件。`--lines` 默认每份日志末尾 100 行，每份初始尾部最多读取 10 MiB，超长行或大量输出时可能少于请求行数。跟踪按块公平读取各文件，继续跟进轮转、截断和新建文件；初始尾部与新增内容之间保留 UTF-8 字符及换行的解码状态，避免分次写入造成乱码或重复换行。
 
 worker 和任务启动前，已有日志达到 10 MiB 时轮转，最多保留 `.1`～`.3` 三份历史文件；超大的历史日志只保留最近 10 MiB。轮转只在启动时发生，一次长时间运行的当前日志仍可能超过 10 MiB，不能将此阈值视为实时大小限制。
 
@@ -239,6 +264,8 @@ dev-tools ports show 3000 -e win --json
 ```
 
 查询实际 TCP 监听端口与已绑定的 UDP 端口，包含 IPv4/IPv6、地址、端口、PID、进程名称、可读取的可执行文件路径与项目归属。Windows 使用原生 API，WSL 读取 `/proc`，按端口与协议过滤后采集关联进程；不依据项目声明猜测实际监听情况。
+
+Windows 直接请求系统的 TCP 监听表，已建立的连接不会列入端口清单；兼容监听行状态字段为零的系统返回结果，避免漏报真实监听端口。
 
 项目归属在 Windows 通过活动 worker 的 PID、启动时间及当前进程树交叉匹配，在 WSL 使用当前 systemd 服务的 cgroup 身份，避免系统时间调整影响匹配；不凭端口或进程名猜测。Compose 转发及无法确认的进程保持空归属。权限不足或快照期间进程退出可能使 PID 为空，此时保留端口、显示警告并返回 1。没有匹配端口返回空清单和 0。本命令不结束进程。
 

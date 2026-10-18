@@ -135,7 +135,9 @@ def _probe_address(target: tuple[str, int, str], host: str) -> dict:
     )
     # Preserve the localhost Host header and TLS SNI while selecting each
     # loopback explicitly. Literal loopbacks need no resolver child process.
-    result = check_target(parse_target(logical), timeout=2, addresses=addresses)
+    # Health endpoints may only implement GET; the bounded probe still reads
+    # headers only and closes the response without consuming its body.
+    result = check_target(parse_target(logical), timeout=2, addresses=addresses, http_method="GET")
     stages = result["stages"]
     failed = next((stage for stage in stages if stage["status"] == "failed"), None)
     http_status = next((stage["http_status"] for stage in stages if "http_status" in stage), None)

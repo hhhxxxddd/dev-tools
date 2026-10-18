@@ -72,6 +72,10 @@ unset DEV_TOOLS_TEST_SOURCE_ROOT
 
 `tests/integration/ssh_smoke.py` 使用隔离的 Win/WSL 控制器、SSH 配置、编辑器和交互客户端，验证真实双向进程链、Include 原文件编辑、标准输入和原生会话退出码；不读取真实 SSH 配置、不使用密钥或连接外部服务器。
 
+该脚本还验证 SSH 列表的原生/双向保存与取消，以及 Windows hosts 列表的原生/WSL 调用，所有写入仅发生在临时文件。`tests/integration/list_terminal_smoke.py` 在原生 WSL 的真实 PTY 中验证字段编辑、保存、Esc 撤销、Ctrl+C 退出和终端模式恢复，使用隔离用户目录。列表导航、输入校验、来源追踪、并发写入、原始字节备份与多文件失败回滚另有单元测试覆盖。
+
+`tests/integration/project_logs_smoke.py` 使用隔离控制器、注册和日志，验证 Win/WSL 原生与双向项目汇总、原始单服务日志、任务日志、等待新文件和持续输出，以及中断返回 130；不停止业务项目、不修改已部署控制器。
+
 ## 性能与边界
 
 Ruff 同时检查导入排序、易错写法和 Python 现代语法。扫描与监控跳过符号链接、Windows 目录联接和非普通元数据文件；测试覆盖畸形声明、损坏注册隔离、Git 未提交状态、分离 HEAD、packed refs 和 worktree。
@@ -97,4 +101,4 @@ Windows 端口采集直接调用 IP Helper 和 Toolhelp API，无第三方运行
 
 Ubuntu 适配器测试不能代替真实 WSL 验证。发布前运行已有隔离 WSL 生命周期、依赖、工具链脚本及 Windows→WSL 部署与传输脚本，要求 systemd 和已安装的原生运行时。控制器包检查在临时原生目录重复部署两次，确认解释器绑定、注册和状态保留。不要用活动注册或中间件数据充当测试数据。
 
-公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.5.zip`。候选可标记源码未提交；`--tag v0.5.5 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。
+公开 CLI 约定见[接口文档](cli-contract.md)。候选验证：`python -m dev_tools.release --output dist`，随后 `python -m dev_tools.package_smoke dist/dev-tools-0.5.6.zip`。候选可标记源码未提交；`--tag v0.5.6 --official` 要求源码已提交、工作区干净且 tag 对应当前提交。

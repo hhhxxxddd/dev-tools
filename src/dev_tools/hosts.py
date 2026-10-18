@@ -16,6 +16,7 @@ from .cli_errors import TargetError, exit_code
 from .command_help import add_config, add_environment
 from .hosts_config import (
     Document,
+    HostsList,
     HostsStore,
     digest,
     entry_conflicts,
@@ -27,6 +28,7 @@ from .hosts_config import (
     validate_edit,
 )
 from .i18n import message, t
+from .list_editor import edit_list, field
 from .presentation import colored, format_table, warning
 from .projects.models import ProjectError
 from .runtimes.platforms.locking import operation_lock
@@ -155,6 +157,78 @@ def _edit(args, path: Path, store: HostsStore) -> dict:
     return value
 
 
+def _edit_list(args, path: Path, store: HostsStore, before: bytes) -> dict:
+    document = Document.decode(before)
+    model = HostsList(document.text)
+    result = {"changed": False}
+    preserved = []
+
+    def rows():
+        return model.entries(args.query)
+
+    def show():
+        entries = rows()
+        return [
+            (
+                item["address"],
+                " ".join(item["names"]),
+                item["comment"],
+                t("Enabled") if item["enabled"] else t("Disabled"),
+            )
+            for item in entries
+        ]
+
+    def edit(index, column):
+        old = rows()[index] if index is not None else None
+        if old and column == 3:
+            toggle(index)
+            return
+        entry = dict(old) if old else {"address": "", "names": [], "comment": "", "enabled": True}
+        for number, (key, label) in enumerate(
+            (("address", "Address"), ("names", "Domains"), ("comment", "Comment"))
+        ):
+            if old is None or column == number:
+                current = " ".join(entry[key]) if key == "names" else entry[key]
+                value = field(label, current, clear=key == "comment")
+                entry[key] = value.split() if key == "names" else value
+        model.put(entry, old["line"] if old else None)
+
+    def toggle(index):
+        item = rows()[index]
+        model.put({**item, "enabled": not item["enabled"]}, item["line"])
+
+    def after():
+        validate_edit(document.text, model.text)
+        return before if model.text == document.text else document.encode(model.text)
+
+    def save():
+        content = after()
+        try:
+            result.update(_apply(path, store, before, content, "list-edit", as_json=True))
+        except OSError, ValueError, subprocess.SubprocessError, KeyboardInterrupt:
+            drafts = store.root / "drafts"
+            drafts.mkdir(parents=True, exist_ok=True)
+            draft = drafts / (uuid.uuid4().hex + ".hosts")
+            draft.write_bytes(content)
+            preserved.append(draft)
+            raise
+
+    try:
+        edit_list(
+            headers=("Address", "Domains", "Comment", "状态"),
+            rows=show,
+            edit=edit,
+            delete=lambda index: model.delete(rows()[index]["line"]),
+            toggle=toggle,
+            preview=lambda: _diff(before, after()),
+            save=save,
+        )
+    finally:
+        for draft in preserved:
+            print(t("Hosts draft preserved: {path}", path=draft), file=sys.stderr)
+    return result
+
+
 def execute(args) -> dict:
     path, store = native_paths()
     operation = args.hosts_action
@@ -167,6 +241,9 @@ def execute(args) -> dict:
     }
     before = read_bytes(path)
     document = Document.decode(before)
+    if operation == "list" and getattr(args, "list_edit", False):
+        result.update(_edit_list(args, path, store, before))
+        return result
     if operation == "list":
         block = managed_block(document.text)
         entries, invalid = parse_entries(document.text)
@@ -238,9 +315,27 @@ def execute(args) -> dict:
     return result
 
 
+def _display_update(value: dict) -> None:
+    print(t("Hosts updated.") if value["changed"] else t("Hosts already match; no changes."))
+    if value.get("backup"):
+        print(t("Hosts backup: {backup}", backup=value["backup"]))
+    if value.get("dns_flushed") is False:
+        print(
+            warning(
+                t(
+                    "Hosts was saved but the DNS cache could not be flushed; retry with ipconfig /flushdns"
+                )
+            )
+        )
+
+
 def display(value: dict) -> None:
     operation = value["operation"]
     print(t("Windows hosts: {path}", path=value["path"]))
+    if operation == "list" and "entries" not in value:
+        if value.get("changed"):
+            _display_update(value)
+        return
     if operation == "list":
         conflicting_lines = {line for conflict in value["conflicts"] for line in conflict["lines"]}
         rows = [
@@ -336,17 +431,7 @@ def display(value: dict) -> None:
             )
         )
     else:
-        print(t("Hosts updated.") if value["changed"] else t("Hosts already match; no changes."))
-        if value.get("backup"):
-            print(t("Hosts backup: {backup}", backup=value["backup"]))
-        if value.get("dns_flushed") is False:
-            print(
-                warning(
-                    t(
-                        "Hosts was saved but the DNS cache could not be flushed; retry with ipconfig /flushdns"
-                    )
-                )
-            )
+        _display_update(value)
 
 
 def run(args) -> int:
@@ -358,18 +443,36 @@ def run(args) -> int:
 
         version = preflight("win", ["hosts", args.hosts_action], args.settings)
         arguments = ["hosts", args.hosts_action]
+        interactive = args.hosts_action == "list" and getattr(args, "list_edit", False)
+        if interactive:
+            from .list_editor import require_terminal
+
+            require_terminal()
+            arguments.append("--edit")
         for name in ("profile", "backup", "query"):
             if getattr(args, name, None):
                 arguments.extend(["--", getattr(args, name)])
         if args.json:
             arguments.insert(2, "--json")
-        result = forward_remote(
-            "win",
-            arguments,
-            settings=args.settings,
-            capture=args.json,
-            timeout=None if args.hosts_action in {"edit", "use", "off", "restore"} else 30,
-        )
+
+        def forward():
+            return forward_remote(
+                "win",
+                arguments,
+                settings=args.settings,
+                capture=args.json,
+                timeout=None
+                if interactive or args.hosts_action in {"edit", "use", "off", "restore"}
+                else 30,
+            )
+
+        if interactive:
+            from .terminal import raw_input
+
+            with raw_input():
+                result = forward()
+        else:
+            result = forward()
         code = result.returncode if args.json else result
         if code == 2:
             raise TargetError(
@@ -431,6 +534,12 @@ def add_commands(commands) -> None:
             "--json", action="store_true", default=argparse.SUPPRESS, help=t("以 JSON 输出结果")
         )
         if name == "list":
+            command.add_argument(
+                "--edit",
+                dest="list_edit",
+                action="store_true",
+                help=t("Edit entries in an interactive list"),
+            )
             command.add_argument(
                 "query",
                 nargs="?",

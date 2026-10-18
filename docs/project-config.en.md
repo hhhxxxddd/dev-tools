@@ -171,7 +171,7 @@ Lockfile validation does not rewrite arbitrary install commands into frozen inst
 | java / python / compose | Empty tables | Native driver options |
 
 Service dependencies and task dependencies form separate graphs. Start --service includes service dependencies; stop stops the whole project.
-Monitor logs are available with `dev-tools logs __sync` or `dev-tools logs __watch`.
+In the current project directory, use `dev-tools logs --service __sync` or `dev-tools logs --service __watch` for monitor logs. You can also name the project explicitly, for example `dev-tools logs my-app __watch`.
 
 Health supports:
 
@@ -329,7 +329,7 @@ dev-tools check --json
 dev-tools prepare
 dev-tools start
 dev-tools status --json
-dev-tools logs install --task
+dev-tools logs my-app install --task
 ```
 
 Preparation previews do not execute tasks, install runtimes or change registrations/caches. Platform adapters may make read-only Docker queries.

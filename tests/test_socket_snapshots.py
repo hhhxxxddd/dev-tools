@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+import ctypes
 import os
 import socket
 import struct
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from dev_tools.toolbox import ports
 from dev_tools.toolbox.platforms import windows_sockets, wsl
 
 
 class SocketTableTests(unittest.TestCase):
-    def test_windows_tables_decode_both_families_and_filter_listeners(self):
+    def test_windows_tables_decode_both_families_and_filter_ports(self):
         for family in (socket.AF_INET, socket.AF_INET6):
             address = "127.0.0.1" if family == socket.AF_INET else "::1"
             packed = socket.inet_pton(family, address)
@@ -44,8 +45,46 @@ class SocketTableTests(unittest.TestCase):
                     )
                     with self.assertRaises(ValueError):
                         windows_sockets.decode_table(table[:-1], protocol, family, None)
-        connected = struct.pack("<I", 1) + windows_sockets.TCP4.pack(5, 0, 80, 0, 0, 123)
-        self.assertEqual(windows_sockets.decode_table(connected, "tcp", socket.AF_INET, None), [])
+
+    def test_windows_listener_query_retains_rows_with_zero_state(self):
+        for family in (socket.AF_INET, socket.AF_INET6):
+            with self.subTest(family=family):
+                packed = socket.inet_pton(
+                    family, "127.0.0.1" if family == socket.AF_INET else "::1"
+                )
+                port = socket.htons(43210)
+                row = (
+                    windows_sockets.TCP4.pack(0, struct.unpack("<I", packed)[0], port, 0, 0, 123)
+                    if family == socket.AF_INET
+                    else windows_sockets.TCP6.pack(packed, 0, port, bytes(16), 0, 0, 0, 123)
+                )
+                table = struct.pack("<I", 1) + row
+
+                def query(
+                    buffer,
+                    size,
+                    order,
+                    address_family,
+                    table_class,
+                    reserved,
+                    expected_family=family,
+                    payload=table,
+                ):
+                    self.assertEqual(address_family, expected_family)
+                    self.assertEqual(table_class, 3)  # TCP_TABLE_OWNER_PID_LISTENER
+                    size._obj.value = len(payload)
+                    if buffer is None:
+                        return 122  # ERROR_INSUFFICIENT_BUFFER
+                    ctypes.memmove(buffer, payload, len(payload))
+                    return 0
+
+                api = Mock()
+                api.GetExtendedTcpTable.side_effect = query
+                rows = windows_sockets.socket_table(api, "tcp", family, 43210)
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["pid"], 123)
+                self.assertEqual(rows[0]["port"], 43210)
+                self.assertEqual(api.GetExtendedTcpTable.call_count, 2)
 
     def test_empty_linux_filter_never_enumerates_processes_or_other_protocols(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -71,6 +110,41 @@ class SocketTableTests(unittest.TestCase):
             }
             self.assertTrue(ports.collect_ports("windows", port=65535, protocol="tcp")["complete"])
             platform.return_value.port_snapshot.assert_called_once_with(port=65535, protocol="tcp")
+
+    @unittest.skipUnless(os.name == "nt", "native Windows IP Helper and process APIs")
+    def test_native_windows_listener_table_excludes_established_connections(self):
+        for family in (socket.AF_INET, socket.AF_INET6):
+            with self.subTest(family=family), socket.socket(family) as server:
+                host = "127.0.0.1" if family == socket.AF_INET else "::1"
+                try:
+                    server.bind((host, 0))
+                except OSError:
+                    if family == socket.AF_INET6 and not socket.has_ipv6:
+                        continue
+                    raise
+                server.listen()
+                port = server.getsockname()[1]
+                with socket.socket(family) as client:
+                    client.connect((host, port))
+                    connection, _ = server.accept()
+                    with connection:
+                        snapshot = windows_sockets.port_snapshot(protocol="tcp")
+                        self.assertFalse(snapshot["warnings"])
+                        own = [row for row in snapshot["entries"] if row["pid"] == os.getpid()]
+                        # The accepted socket shares the listener port; neither it
+                        # nor the client-only ephemeral port belongs in the inventory.
+                        self.assertEqual(
+                            [row for row in own if row["address"] == host and row["port"] == port],
+                            [
+                                {
+                                    "protocol": "tcp",
+                                    "address": host,
+                                    "port": port,
+                                    "pid": os.getpid(),
+                                }
+                            ],
+                        )
+                        self.assertNotIn(client.getsockname()[1], [row["port"] for row in own])
 
     @unittest.skipUnless(os.name == "nt", "native Windows IP Helper and process APIs")
     def test_native_windows_tcp_udp_owners_and_process_identity(self):

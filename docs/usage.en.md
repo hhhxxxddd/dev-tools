@@ -109,6 +109,8 @@ Running `dev-tools ssh` displays help, equivalent to `dev-tools ssh -h`; `-e win
 
 ```text
 dev-tools ssh list
+dev-tools ssh list --edit
+dev-tools ssh list --edit -e wsl
 dev-tools ssh list my-server
 dev-tools ssh list -e win
 dev-tools ssh list -e wsl --json
@@ -128,6 +130,12 @@ This is a static configuration view. Complex `Match` conditions and host-depende
 
 `show <ALIAS>` matches an exact alias case-insensitively and displays static address, user, port, proxy markers, declaration file and line. Conflicting case variants fail explicitly. Like list, it remains read-only and never runs native SSH or conditional commands.
 
+`list --edit [query]` opens an interactive terminal list. Shortcut hints occupy one line above the input area; contextual guidance appears at the top. Use `i`/Enter to edit the selected field, Enter to stage it, Esc to cancel that edit, and Ctrl+U to clear input. `a` adds and `d`/Delete deletes. `s` or `:w` opens a diff: PgUp/PgDn scroll, `y` writes, and `n`/Esc returns to editing. `q`/`:q`/Esc exits and discards pending edits; Ctrl+C or end of input also exits and restores the terminal. An interactive terminal is required; `--json` is incompatible.
+
+SSH fields are alias, HostName, User, Port and ProxyJump. The footer shows the selected field's source. Inherited fields display effective values; a blank edit means the local block has no declaration. Clearing an optional field removes its local declaration and restores inheritance. Automatic edits are limited to single-alias Host blocks inside the user's `~/.ssh`, in files without Match, with no Include/ProxyCommand or duplicate editable fields in the block. Other options, comments, BOM and newlines are preserved. Shared blocks, system configuration and complex rules stay read-only; use `ssh edit [alias]`. Ineffective changes under first-value precedence, changes affecting other aliases, and incomplete inventories are rejected. New entries append to the user config; files are created only on confirmed save.
+
+Before saving, configuration and Include files are re-read and link destinations are checked; concurrent changes prevent overwrite. Original `.before` files, new `.draft` files and `files.json` are saved under native user configuration at `dev-tools/ssh/backups/<transaction>/`, independently of `--config`. Each file is replaced atomically with existing permissions retained. Failed multi-file saves attempt rollback and print the recovery directory for manual inspection. New WSL files use 0600, new directories 0700, and sudo retains invoking-user ownership. Diff previews hide command bodies; SSH, proxies and Match exec are never executed.
+
 `edit [ALIAS]` uses the target's configured existing editor. Without an alias it opens that user's `~/.ssh/config`, creating it only on the first edit. New WSL files use 0600 and new directories 0700; existing permissions are preserved. An alias selects its actual declaration file, including Include files, retaining comments, line endings and rules without rewriting the configuration. Editors supporting line navigation, such as VS Code, Cursor, Vim and Nano, open the declaration line; other editors receive the file with its location printed for reference. For a missing alias, use edit without an alias first.
 
 Save and close an interactive editor, then press Enter in the terminal to reread static configuration. Recognized issues produce warnings and exit 1 while retaining edits. This does not perform complete OpenSSH syntax validation or condition evaluation. User configuration normally needs no elevation; system and read-only Include files require existing write permission, without automatic elevation.
@@ -144,6 +152,8 @@ Running `dev-tools hosts` displays help, equivalent to `dev-tools hosts -h`, inc
 
 ```text
 dev-tools hosts list
+dev-tools hosts list --edit
+dev-tools hosts list --edit -e win
 dev-tools hosts list app.test --json
 dev-tools hosts edit
 dev-tools hosts edit dev
@@ -157,6 +167,8 @@ dev-tools hosts restore
 This module manages only Windows system hosts, locating it through the system API; it does not change WSL `/etc/hosts`. From WSL, explicitly add `-e win`. Profiles, backups, editors and permissions stay on Windows, without forwarding the caller's configuration file. The target must contain the hosts command.
 
 `list [KEYWORD]` filters by IP, domain or comment. Columns are address, domains, comment, profile and state. Valid commented mappings are disabled; existing conflicting addresses for the same domain and IP family appear yellow. Existing invalid lines are retained and reported, with exit 1 for incomplete parsing. Configuration conflicts alone do not fail inventory reads. Listing entries, profiles or backups never creates files, elevates or flushes DNS.
+
+`list --edit [query]` opens the same interactive list. Edit addresses, multiple domains and comments; use `a` to add, `d`/Delete to delete, and Space or editing the state column to toggle enabled state. Changes remain in memory until `s`/`:w` previews the diff and `y` saves; `q`/`:q`/Esc discards them. Unchanged lines, managed markers, encoding, BOM and newlines are retained. Saves reuse validation, concurrency checks, backups, UAC and DNS refresh. Editing the active managed block does not update its profile file; a later `use` reapplies the saved profile. Failed or interrupted saves preserve a draft and print its location after exiting. Successful saves display backup information and report any DNS refresh failure. `--edit` rejects `--json`; existing `edit [profile]` text editing remains available.
 
 `edit` edits current hosts; `edit dev` edits the dev profile without activating it. Uses the configured editor, then VISUAL, EDITOR and finally Notepad. Edit a UTF-8 draft, save and close the editor, then press Enter in the terminal; Ctrl+C cancels. Interactive editing has no public `--json` mode; scripts can apply saved profiles with `use --json`. Validation failures, editor failures or concurrent changes preserve the draft and refuse overwrite.
 
@@ -174,7 +186,7 @@ Names contain 1–64 letters, digits, underscores or hyphens and exclude Windows
 
 System writes show a diff and save original bytes plus transaction checksums under `dev-tools/hosts/backups`. No differences means no write, backup or elevation. Only actual writes request UAC when needed. Original encoding, BOM, newlines outside the block and Windows security are retained; writes use file replacement and refresh the DNS cache. Files are limited to 10 MiB. Security software settings are never changed; cancelling UAC or detecting concurrent edits aborts the write.
 
-`restore [BACKUP_ID]` selects the latest backup matching the current file's checksum by default, and creates another backup before restoration. Subsequent unrelated changes block full-file overwrite; inspect `backups` and merge manually. Backups are not deleted automatically. All operations except interactive `edit` support `--json`, affecting only output; `use/off/restore --json` still modify hosts.
+`restore [BACKUP_ID]` selects the latest backup matching the current file's checksum by default, and creates another backup before restoration. Subsequent unrelated changes block full-file overwrite; inspect `backups` and merge manually. Backups are not deleted automatically. All operations except interactive `edit` and `list --edit` support `--json`, affecting only output; `use/off/restore --json` still modify hosts.
 
 ## Lifecycle and platform boundaries
 
@@ -190,7 +202,7 @@ The same Python worker handles dependencies, health, restart policies, monitorin
 
 Running `dev-tools list -e wsl`, `dev-tools list --all` or `dev-tools status my-app -e wsl` from Windows also checks localhost access directly from Windows. IPv4 and IPv6 are probed separately so a timeout on one family cannot hide the other. Only running services with declared health ports are checked. Queries never start services, elevate, or change proxies, hosts, port forwarding or WSL configuration.
 
-A local `health.http` supplies the HTTP/HTTPS path. TCP checks for Spring, Vite, Next, Nuxt, Astro and common Python web commands also receive an HTTP HEAD check. Package scripts are read statically from `package.json`, preferring the native workspace and falling back to source when the workspace is unreadable, without executing scripts or elevating; unrecognized TCP services retain TCP checks. Probes neither follow redirects nor read response bodies. HTTP 401/404 proves reachability; 5xx and timeouts fail. Probes run concurrently with bounded timeouts, deduplicate targets within a query and ignore HTTP proxy environment variables.
+A local `health.http` supplies the HTTP/HTTPS path. TCP checks for Spring, Vite, Next, Nuxt, Astro and common Python web commands also receive an HTTP check. Windows HTTP access probes use GET to support GET-only health endpoints; general `net check` still uses HEAD. Package scripts are read statically from `package.json`, preferring the native workspace and falling back to source when the workspace is unreadable, without executing scripts or elevating; unrecognized TCP services retain TCP checks. Probes read response headers only, without following redirects or reading response bodies. HTTP 401/404 proves reachability; 5xx and timeouts fail. Probes run concurrently with bounded timeouts, deduplicate targets within a query and ignore HTTP proxy environment variables.
 
 Failed forwarding appears as Windows access failed, with aggregate `ready/healthy=false`. Native WSL facts remain in `runtime_ready/runtime_healthy`; details are in `windows_access.checks`. Older WSL controllers without access metadata appear unchecked instead of implying healthy access. Queries inside WSL explicitly describe local-only health, which does not prove Windows forwarding works. Successful queries still exit 0; access failures are represented in status fields.
 
@@ -218,7 +230,20 @@ Source builds keep services running. Resource/structural builds stop affected se
 
 ### Log queries and retention
 
-`dev-tools logs my-app api --lines 200` shows recent service output; add `--follow` to follow it. Queries read the current log only. The initial tail reads at most 10 MiB, so very long lines or large output can return fewer than the requested number of lines. Following reads subsequent output in blocks and follows rotation or truncation.
+`dev-tools logs my-app` combines declared service and monitor logs, prefixing each line with `[service]`. `logs my-app api` selects api and preserves raw output. A single positional argument always names the project. Omit the project to infer it from the current directory; select a service with `logs --service api`. `--task` switches to preparation/build task logs, combining all declared tasks when no task is selected. The service positional argument cannot be combined with `--service`.
+
+```powershell
+dev-tools logs my-app
+dev-tools logs my-app api --lines 200
+dev-tools logs --service api
+dev-tools logs my-app --task
+dev-tools logs my-app -e wsl --follow
+dev-tools logs my-app api -e win --follow
+```
+
+Use `-e win|wsl` from either side. The target reads its logs without copying them. The current environment is the default; matching names do not trigger automatic environment switching. Update both controller copies separately for the new argument contract. `--follow` watches all selected logs, waits for missing files, and exits 130 on Ctrl+C. Cross-platform following and preparation/start/stop/build operations do not use the ordinary query's 30-second timeout.
+
+Queries do not start services, install dependencies or modify registrations/state. They read current log files only. `--lines` defaults to the last 100 lines per file, with each initial tail limited to 10 MiB; very long lines or large output can return fewer lines. Following reads each file fairly in bounded blocks and handles rotation, truncation and newly created files. UTF-8 and newline decoding state carries from the initial tail into new output, avoiding corrupted characters or duplicate newlines across writes.
 
 Before a worker or task starts, an existing log of at least 10 MiB is rotated, retaining up to three archives named `.1`–`.3`. Oversized archives retain only their newest 10 MiB. Rotation happens at startup only: a single long-running process can grow its current log beyond 10 MiB, so the threshold is not a live size limit.
 
@@ -238,6 +263,8 @@ dev-tools ports show 3000 -e win --json
 ```
 
 Inspect actual TCP listeners and bound UDP sockets: IPv4/IPv6, address, port, PID, process name, readable executable path and project ownership. Windows uses native APIs; WSL reads `/proc`. Collectors filter ports and protocols before reading related process details. Declared project ports are not treated as observed listeners.
+
+Windows requests the system TCP listener table directly, excluding established connections. Listener rows with a zero state field are retained so actual listening ports are not omitted on affected systems.
 
 Windows project attribution cross-checks active worker PIDs, process birth times and the current process tree. WSL uses live systemd service cgroup identities to remain independent of wall-clock adjustments. Ports and process names alone never establish ownership. Compose forwarding and unverified ownership remain unattributed. Permissions or processes exiting during a snapshot may leave PIDs null; results are retained with warnings and exit 1. No matching ports returns an empty inventory and exit 0. Processes are never terminated.
 

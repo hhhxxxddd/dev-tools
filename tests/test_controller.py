@@ -165,12 +165,17 @@ class ControllerTests(unittest.TestCase):
             first = build(REPOSITORY, root / "first", "v" + __version__)
             second = build(REPOSITORY, root / "second", "v" + __version__)
             self.assertEqual(first["sha256"], second["sha256"])
-            # Git checkouts with Windows line endings must produce the same assets.
+            # Git changes text line endings, while binary media must stay intact.
             checkout = root / "crlf-checkout"
             for name, content in payload_files(REPOSITORY).items():
                 target = checkout / name
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(content.replace(b"\n", b"\r\n"))
+                try:
+                    content.decode("utf-8")
+                except UnicodeDecodeError:
+                    target.write_bytes(content)
+                else:
+                    target.write_bytes(content.replace(b"\n", b"\r\n"))
             converted = build(
                 checkout, root / "converted", "v" + __version__, provenance=first["provenance"]
             )
@@ -182,6 +187,9 @@ class ControllerTests(unittest.TestCase):
             self.assertNotIn("wsl", manifest["installer"]["script"])
             with zipfile.ZipFile(first["archive"]) as archive:
                 self.assertIn("docs/installation.en.md", archive.namelist())
+                for media in ("dev-tools-demo.zh.mp4", "dev-tools-demo.zh.png"):
+                    name = "docs/assets/" + media
+                    self.assertEqual(archive.read(name), (REPOSITORY / name).read_bytes())
                 self.assertFalse(
                     any("__pycache__" in name or ".local." in name for name in archive.namelist())
                 )

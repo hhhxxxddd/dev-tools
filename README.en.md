@@ -2,56 +2,36 @@
 
 [简体中文](README.md) · **English**
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Platform-Windows-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.5](https://img.shields.io/badge/Version-0.5.5-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Windows-11-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.6](https://img.shields.io/badge/Version-0.5.6-blue)](CHANGELOG.md)
 
-A nearly seamless development deployment experience for Windows and WSL: discover dependencies, prepare environments, start services, and follow code and dependency declarations.
-Add, remove, or upgrade dependencies and keep developing as project configuration synchronizes them automatically. A good fit for fast-moving Vibe Coding projects.
-Idle projects reduce polling automatically and return to fast synchronization after changes; WSL dependencies and builds stay in native Linux directories.
+Hot deployment and live updates for development projects on Windows and WSL.
 
-## Supported projects
+Prepare runtimes and dependencies and start services from project declarations. Follow source, dependency and configuration changes to build or restore affected services.
 
-| Project type | Default support |
-| --- | --- |
-| Node.js / frontend | Generates dependency preparation and dev/start services from package.json; supports npm, pnpm, Yarn and Bun, with Next.js, Vite and React detection |
-| Python | Generates uv or pip preparation from pyproject.toml; FastAPI projects can receive a Uvicorn reload service |
-| Java / Maven | Detects multiple modules, Maven Wrapper and Spring Boot, generating preparation and hot deployment workflows |
-| Docker Compose | Uses existing Compose declarations; automatic discovery prefers Compose |
-| Rust / Tauri, Gradle, custom processes | Configure tasks and startup commands explicitly; Rust toolchains, Cargo workspaces and minimum versions are checked; Gradle supports JDK metadata scanning |
+## Demo
 
-Languages can be combined; declared workspaces and modules participate in scanning. See the [desktop template](examples/dev-desktop.toml) for clients sharing backend services, or other [project examples](examples/README.md). Runtime versions still follow root mise configuration; ambiguous entrypoints require explicit configuration.
+[![Windows / WSL walkthrough](docs/assets/dev-tools-demo.zh.png)](docs/assets/dev-tools-demo.zh.mp4)
 
-## Requirements
+[Watch the 42-second walkthrough](docs/assets/dev-tools-demo.zh.mp4) (Chinese): start a project → edit source → update dependencies → read logs across environments → inspect a port.
 
-| Platform / dependency | Version or requirement | Scope |
-| --- | --- | --- |
-| Windows | Windows 11 | Native Windows controller |
-| WSL (optional) | WSL 2; verified on Ubuntu 24.04 LTS | Enable systemd when managing WSL projects |
-| PowerShell | 7 or newer | Windows entrypoint and process control |
-| Python | `>=3.14.8,<3.15` | Standard-library-only controller; existing native interpreters can be bound |
-| Git | Available `git` command | Source installation, tool updates, and branch monitoring |
-| mise | Available `mise` command | Default host installation and project runtimes |
-| rsync | Available `rsync` command | WSL deployment and source synchronization |
-| Docker / Compose (optional) | Docker and Compose v2 | Required for Compose projects |
-| Scoop (optional) | Available `scoop` command | Required for Scoop installation |
-
-Project Node.js, Java, and other versions follow root mise configuration.
+Based on an isolated sample running the actual tool, with redrawn terminal interfaces, excerpted output and shortened waits. The sample uses a declared build task and a Python HTTP service; reload behavior depends on project configuration and the framework.
 
 ## Installation
 
-### Scoop (Windows)
+### Scoop
 
-Install official releases through hxd-box:
+Run in Windows PowerShell:
 
 ```powershell
 scoop bucket add hxd-box https://github.com/hhhxxxddd/hxd-box
 scoop install hxd-box/dev-tools
 ```
 
-Automatically prepares Git, PowerShell 7, mise, and the Python 3.14 controller host.
+Installs the official release and prepares Git, PowerShell 7, mise and the Python 3.14 controller host.
 
-### Git (Windows)
+### Git
 
-Prepare the dependencies above, then obtain and install the current source:
+Prepare the dependencies listed below, then run in PowerShell 7:
 
 ```powershell
 git clone https://github.com/hhhxxxddd/dev-tools.git
@@ -59,69 +39,112 @@ cd dev-tools
 .\scripts\install.ps1
 ```
 
-Reopen PowerShell after installation. See the [installation guide](docs/installation.en.md) for existing Python bindings and WSL-only installation.
+Reopen the terminal after installation. See the [installation guide](docs/installation.en.md) for existing Python bindings and native WSL installation.
 
-Both installation methods can deploy to WSL from Windows:
+To manage WSL projects, deploy from Windows to a WSL distribution with systemd enabled:
 
 ```powershell
 dev-tools self update -e wsl
 ```
 
-Ubuntu is the default. Windows and WSL keep their runtimes, dependencies, and caches separately.
+Ubuntu is the default distribution; change it in local preferences.
 
-## Quick start
+## Getting started
 
-Run inside your project:
+Run in the root of the project you want to manage:
 
-```text
-cd path/to/my-app
+```powershell
 dev-tools init
 dev-tools register
 dev-tools start
 ```
 
-`init` preserves existing configuration; `start` prepares and starts services. Reloads and dependency changes then follow your configuration.
-Tasks and services live in `dev-tools.toml`; runtime versions live in root `mise.toml` / `.mise.toml`.
+`init` generates missing project configuration and preserves existing files. `register` creates a local binding. `start` prepares the environment and starts services and monitoring.
 
-Omit `-e` for the current platform; add `-e win` / `-e wsl` to operate on either target from either side. Projects, SSH, configuration, system information, reports and controller maintenance use the same syntax. Native WSL registration and lifecycle control use `sudo`.
+Source changes trigger declared reloads or builds. Dependency, lockfile and configuration changes trigger preparation and service recovery. Some changes briefly stop services; project declarations determine the behavior.
 
-## Common commands
+Omit `-e` for the current platform. Use `-e win` / `-e wsl` from either platform to select the target, for example:
+
+```powershell
+dev-tools register -e wsl
+dev-tools start -e wsl
+dev-tools list --all
+```
+
+Registration and lifecycle operations in a native WSL terminal require `sudo`. If an entrypoint cannot be determined automatically, complete the project configuration before starting.
+
+## Supported projects
+
+| Project type | Default detection and configuration generation |
+| --- | --- |
+| Node.js / frontend | npm, pnpm, Yarn and Bun; detects Next.js, Vite and React, generating dependency preparation and dev/start services |
+| Python | Reads pyproject.toml and generates uv or pip preparation; FastAPI projects can receive a Uvicorn reload service |
+| Java / Maven | Detects multiple modules, Maven Wrapper and Spring Boot, generating preparation and hot deployment workflows |
+| Docker Compose | Uses existing Compose declarations; automatic discovery prefers Compose |
+| Rust / Tauri, Gradle, custom processes | Supports version metadata scanning; configure tasks and startup commands explicitly |
+
+Supports mixed-language projects and declared workspaces and modules. See [project configuration](docs/project-config.en.md) and [examples](examples/README.md) for fields and templates.
+
+## Common operations
 
 | Command | Purpose |
 | --- | --- |
-| `dev-tools list` | List current-environment projects; `--all` lists both |
-| `dev-tools check my-app` | Inspect the preparation plan read-only |
-| `dev-tools status my-app` | Inspect project status |
-| `dev-tools logs my-app web --follow` | Follow service logs |
+| `dev-tools list --all` | List projects, ports and status in Windows and WSL |
+| `dev-tools check my-app` | Inspect the preparation plan and blockers read-only |
+| `dev-tools status my-app -e wsl` | Inspect WSL project services and health |
+| `dev-tools logs my-app api -e wsl --follow` | Follow the api service log of the selected project |
 | `dev-tools stop my-app` | Stop services and automatic maintenance |
-| `dev-tools unregister my-app` | Unregister a project |
-| `dev-tools config edit` | Edit local preferences |
-| `dev-tools ssh list` | List SSH hosts; show inspects sources, edit opens configuration, connect logs in |
-| `dev-tools hosts list` | Inspect Windows hosts, enabled states and conflicts |
-| `dev-tools ports list` | Inspect actual listening ports and processes; `show 3000` locates a conflict |
-| `dev-tools which python` | Inspect command candidates and link targets on the target PATH |
-| `dev-tools net info` | Inspect DNS, environment proxies and WSL networking; `check HOST:PORT` diagnoses a connection |
-| `dev-tools upgrade` | Update the tool itself |
+| `dev-tools unregister my-app` | Stop and unregister; keep source, caches and runtimes by default |
+| `dev-tools upgrade` | Obtain an update; stop and restore affected projects after confirmation |
 | `dev-tools -v` / `dev-tools help` | Show the version or help |
 
-Omit the project name in a directory that uniquely matches it. `list --all` combines both environments; `start --all` starts inactive projects in the selected environment.
-Windows queries of WSL `list/status` also check localhost access. Common web services must return an HTTP response; stalled forwarding appears as Windows access failed.
-Running `ssh`, `hosts`, `ports`, `which` or `net` alone displays its help. Detailed commands are in [Operation](docs/usage.en.md).
+Omit the project name in a directory that uniquely matches a registered project. `logs my-app` combines project logs, `logs my-app api` selects a service, and `logs my-app --task` reads task logs.
 
-```text
-dev-tools ports show 3000 -e win
-dev-tools which python -e wsl
-dev-tools net check http://localhost:3000/health -e wsl
+### Toolbox
+
+| Command | Purpose |
+| --- | --- |
+| `dev-tools ports show 3000` | Locate listening ports, processes and verifiable project ownership |
+| `dev-tools which python -e wsl` | Inspect WSL PATH candidates and link targets |
+| `dev-tools net check http://localhost:3000/health` | Diagnose DNS, TCP, TLS and HTTP connections |
+| `dev-tools ssh list --edit` | Edit the SSH list interactively |
+| `dev-tools hosts list --edit -e win` | Edit Windows hosts interactively |
+
+SSH, port, PATH and network tools support Windows and WSL; hosts manages Windows only. Running a toolbox command alone displays help. Text editor commands `ssh edit` and `hosts edit` remain available.
+
+## Execution and configuration
+
+Windows uses the source directory directly. WSL synchronizes source into a native Linux workspace, keeping dependencies, builds and services in Linux. Both environments share project declarations and maintain their own runtimes, dependencies, caches and local registrations.
+
+| Configuration | Contents |
+| --- | --- |
+| Project-root `dev-tools.toml` | Tasks, services, health checks, build and synchronization policies |
+| Project-root `mise.toml` / `.mise.toml` | Project runtime versions |
+| Each platform's user `config.toml` | dev-tools language, editor, WSL distribution, system information and report preferences |
+
+```powershell
+dev-tools config edit
+dev-tools config check
 ```
 
-Port and PATH queries are read-only. Network diagnostics use direct connections and check DNS, TCP, TLS and HTTP separately. `hosts` manages Windows only; system writes request elevation when needed and create backups.
-Enter `Y`, or add `--yes`, to stop affected projects and restore them after an update; `dev-tools upgrade -e wsl` upgrades WSL.
-Chinese is the default. Set `language = "en"` through `dev-tools config edit` for English. Configuration and caches remain native to each environment.
-Scanning does not read `.gitignore`. Workflows and workspaces determine scope; configure discovery roots, exclusions and depth under `[scan]` in the [project configuration](docs/project-config.en.md#scan-scope-and-version-validation).
-Python, Vite and a reopenable desktop client can share one development lifecycle; see the [desktop template](examples/dev-desktop.toml).
+Chinese is the default. Set `language = "en"` in local preferences for English. Editors are selected from the configured command, VISUAL, EDITOR, then Windows Notepad / WSL vi.
+
+Scanning does not read `.gitignore`; workflows, workspaces and `[scan]` settings determine scope. `scan` and `check` are read-only. Runtime installation uses only project-root mise declarations. Middleware comes from the project's own Compose configuration or an external environment.
+
+## Requirements
+
+| Platform / dependency | Requirement |
+| --- | --- |
+| Windows | Windows 11 and PowerShell 7 or newer |
+| WSL (optional) | WSL 2, verified on Ubuntu 24.04 LTS; systemd enabled and rsync available |
+| Python | `>=3.14.8,<3.15`; standard-library-only controller, with support for existing native interpreters |
+| Git / mise | Git for source installation and updates; mise for default host installation and project runtimes |
+| Docker (optional) | Docker and Compose v2 for Compose projects |
+
+Project Node.js, Java and other versions follow project-root mise configuration, separately from the controller host.
 
 ## Documentation
 
-[Installation and updates](docs/installation.en.md) · [Project configuration](docs/project-config.en.md) · [Operation](docs/usage.en.md) · [CLI contract](docs/cli-contract.en.md)
+[Installation and updates](docs/installation.en.md) · [Project configuration](docs/project-config.en.md) · [Operation](docs/usage.en.md) · [Examples](examples/README.md)
 
-[Examples](examples/README.md) · [Development and contributing](docs/development.en.md) · [Changelog](CHANGELOG.md)
+[CLI and automation contract](docs/cli-contract.en.md) · [Development and contributing](docs/development.en.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)

@@ -300,6 +300,8 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
     args = command_parser.parse_args(arguments or ["help"])
     set_request(args)
     args.settings = settings
+    if getattr(args, "list_edit", False) and args.json:
+        command_parser.error(t("list --edit does not support --json"))
     if args.command == "hosts" and args.hosts_action == "edit" and args.json:
         command_parser.error(t("hosts edit does not support --json"))
     if args.command == "ssh" and args.ssh_action in {"edit", "connect"} and args.json:
@@ -313,9 +315,15 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
             command_parser.error(t("self --json requires status"))
         if args.source and args.self_action in {"status", "recover"}:
             command_parser.error(t("self --source requires update or upgrade"))
-    for field in ("name", "new_name", "service"):
+    if args.command == "logs" and args.service is not None and args.service_option is not None:
+        command_parser.error(t("logs 的服务位置参数不能与 --service 同时使用"))
+    for field in ("name", "new_name", "service", "service_option"):
         value = getattr(args, field, None)
-        if value and not (args.command == "logs" and field == "service" and value.startswith("__")):
+        if value is not None and not (
+            args.command == "logs"
+            and field in {"service", "service_option"}
+            and value in {"__sync", "__watch"}
+        ):
             try:
                 validate_name(value)
             except ProjectError:
@@ -346,16 +354,32 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
                 from .projects.cli import remote_wsl_status
 
                 raise SystemExit(remote_wsl_status(forwarded, settings, args.json))
+            long_running = (
+                args.project_command
+                in {
+                    "register",
+                    "prepare",
+                    "start",
+                    "stop",
+                    "restart",
+                    "build",
+                    "rename",
+                    "unregister",
+                }
+                or args.project_command == "logs"
+                and args.follow
+            )
+            timeout = None if long_running else 30
             if getattr(args, "json", False):
                 result = forward_remote(
-                    environment, forwarded, settings=settings, capture=True, timeout=None
+                    environment, forwarded, settings=settings, capture=True, timeout=timeout
                 )
                 if result is not None:
                     value = response_payload(result, environment, args.command)
                     print(json.dumps(value, ensure_ascii=False, indent=2))
                     raise SystemExit(exit_code(result.returncode))
             else:
-                code = forward_remote(environment, forwarded, settings=settings)
+                code = forward_remote(environment, forwarded, settings=settings, timeout=timeout)
                 if code is not None:
                     raise SystemExit(exit_code(code))
     code = args.func(args)

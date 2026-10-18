@@ -171,7 +171,7 @@ manager 为 npm/pnpm/yarn/bun/uv 时，准备计划要求 workdir 中存在相�
 | java / python / compose | 空表 | 原生驱动选项 |
 
 服务依赖与任务依赖是两个独立的图。start --service 会包含服务依赖；stop 停止整个项目。
-监控日志可以通过 `dev-tools logs __sync` 或 `dev-tools logs __watch` 查看。
+在当前项目目录中，可通过 `dev-tools logs --service __sync` 或 `dev-tools logs --service __watch` 查看监控日志；也可显式指定项目名，例如 `dev-tools logs my-app __watch`。
 
 health 支持：
 
@@ -329,7 +329,7 @@ dev-tools check --json
 dev-tools prepare
 dev-tools start
 dev-tools status --json
-dev-tools logs install --task
+dev-tools logs my-app install --task
 ```
 
 准备预览不执行任务、不安装运行时、不改变注册或缓存；平台适配器可能进行只读 Docker 查询。

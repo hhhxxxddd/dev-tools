@@ -240,6 +240,54 @@ def validate_edit(before: str, after: str) -> None:
             _conflict(item)
 
 
+class HostsList:
+    """Change only selected mapping lines; leave markers and unrelated text intact."""
+
+    def __init__(self, text: str):
+        managed_block(text)
+        self.text = text
+
+    def entries(self, query: str = "") -> list[dict]:
+        return [
+            item
+            for item in parse_entries(self.text)[0]
+            if query.casefold()
+            in (item["address"] + " " + " ".join(item["names"]) + " " + item["comment"]).casefold()
+        ]
+
+    def put(self, entry: dict, line: int | None = None) -> None:
+        values = [entry["address"], *entry["names"], entry["comment"]]
+        if any(any(ord(c) < 32 or ord(c) == 127 for c in value) for value in values):
+            raise ValueError(message("Control characters are not allowed in list fields"))
+        body = entry["address"] + " " + " ".join(entry["names"])
+        if entry["comment"]:
+            body += " # " + entry["comment"]
+        body = body if entry["enabled"] else "# " + body
+        parsed = validate_content(body)
+        if len(parsed) != 1 or parsed[0]["names"] != entry["names"]:
+            raise ValueError(message("Invalid hosts list entry"))
+        lines = self.text.splitlines(keepends=True)
+        newline = Document(self.text).newline
+        if line is None:
+            prefix = "" if not self.text or self.text.endswith(("\n", "\r")) else newline
+            self.text += prefix + body + newline
+        else:
+            original = lines[line - 1]
+            previous = parse_entries(original)[0]
+            if previous and all(
+                previous[0][key] == entry[key] for key in ("address", "names", "comment", "enabled")
+            ):
+                return
+            ending = original[len(original.rstrip("\r\n")) :]
+            lines[line - 1] = body + ending
+            self.text = "".join(lines)
+
+    def delete(self, line: int) -> None:
+        lines = self.text.splitlines(keepends=True)
+        del lines[line - 1]
+        self.text = "".join(lines)
+
+
 def switch_profile(document: Document, name: str | None, profile: str = "") -> str:
     block = managed_block(document.text)
     start, end = (block[0], block[1]) if block else (len(document.text), len(document.text))

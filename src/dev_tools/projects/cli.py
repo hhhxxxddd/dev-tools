@@ -520,7 +520,12 @@ def run(args: argparse.Namespace) -> int:
     elif action == "build":
         engine.rebuild(service=args.service)
     elif action == "logs":
-        engine.logs(args.service, lines=args.lines, follow=args.follow, task=args.task)
+        engine.logs(
+            getattr(args, "service_option", None) or args.service,
+            lines=args.lines,
+            follow=args.follow,
+            task=args.task,
+        )
         return 0
     elif action == "rename":
         validate_name(args.new_name)
@@ -593,7 +598,7 @@ def add_commands(commands) -> None:
         ("restart", t("重启项目服务和监控")),
         ("status", t("查看项目准备情况、服务状态和健康检查")),
         ("build", t("使用已准备的运行时重新构建项目")),
-        ("logs", t("查看指定服务的日志")),
+        ("logs", t("查看项目日志，可筛选服务、任务或持续跟踪")),
         ("unregister", t("停止服务并注销；默认保留源码、缓存和运行时")),
         ("show", t("查看项目声明和本机绑定")),
         ("rename", t("修改注册名称并恢复原先运行的服务")),
@@ -631,8 +636,17 @@ def add_commands(commands) -> None:
         if action == "logs":
             command.add_argument(
                 "service",
+                nargs="?",
                 metavar=t("服务或任务名"),
-                help=t("服务或监控名称（__sync / __watch）；--task 时填写任务名"),
+                help=t(
+                    "省略时汇总项目日志；可指定服务或监控（__sync / __watch），--task 时指定任务"
+                ),
+            )
+            command.add_argument(
+                "--service",
+                dest="service_option",
+                metavar=t("服务或任务名"),
+                help=t("仅查看指定服务或任务；省略项目名时按当前目录匹配"),
             )
             command.add_argument(
                 "--lines",

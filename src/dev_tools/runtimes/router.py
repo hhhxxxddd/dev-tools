@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from ..i18n import language, message
@@ -131,6 +132,26 @@ def _windows_entry(arguments: list[str]) -> list[str]:
     return ["-Command", script]
 
 
+def _transport_environment(capture: bool) -> dict:
+    environment = os.environ.copy()
+    environment["DEV_TOOLS_TERMINAL"] = (
+        "1"
+        if not capture
+        and (
+            color_enabled()
+            or os.environ.get("DEV_TOOLS_TERMINAL") == "1"
+            or sys.stdin.isatty()
+            and sys.stdout.isatty()
+        )
+        else "0"
+    )
+    # Terminal capability and color preferences are independent. Normalize empty
+    # NO_COLOR too, since Windows interop cannot reliably carry empty variables.
+    if "NO_COLOR" in environment or environment.get("TERM") == "dumb":
+        environment["NO_COLOR"] = "1"
+    return environment
+
+
 def forward_remote(
     environment: str,
     arguments: list[str],
@@ -153,7 +174,7 @@ def forward_remote(
             "timeout": timeout,
         }
         if capture
-        else {}
+        else {"timeout": timeout}
     )
     if stdin is not None:
         options["stdin"] = stdin
@@ -164,10 +185,7 @@ def forward_remote(
             raise TargetError(
                 "target_unavailable", message("WSL is unavailable"), environment="wsl"
             )
-        transport_environment = os.environ.copy()
-        transport_environment["DEV_TOOLS_TERMINAL"] = (
-            "1" if not capture and color_enabled() else "0"
-        )
+        transport_environment = _transport_environment(capture)
         result = _run_transport(
             [
                 "pwsh",
@@ -222,12 +240,13 @@ def forward_remote(
                 forwarded[index : index + 1] = [option, _windows_path(value)]
                 index += 1
             index += 1
-    environment_variables = os.environ.copy()
+    environment_variables = _transport_environment(capture)
     environment_variables["DEV_TOOLS_CONFIG"] = ""
     environment_variables["DEV_TOOLS_TRANSPORT_LANGUAGE"] = language()
-    environment_variables["DEV_TOOLS_TERMINAL"] = "1" if not capture and color_enabled() else "0"
     # WSL interop only transfers explicitly listed variables to Windows.
     transported = {"DEV_TOOLS_CONFIG", "DEV_TOOLS_TRANSPORT_LANGUAGE", "DEV_TOOLS_TERMINAL"}
+    if "NO_COLOR" in environment_variables:
+        transported.add("NO_COLOR")
     wslenv = [
         entry
         for entry in environment_variables.get("WSLENV", "").split(":")

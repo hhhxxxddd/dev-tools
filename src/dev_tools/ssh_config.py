@@ -89,12 +89,23 @@ def _expand(value: str, tokens: dict[str, str]) -> str | None:
 
 
 class Inventory:
-    def __init__(self, home: Path, username: str):
+    def __init__(
+        self,
+        home: Path,
+        username: str,
+        overrides: dict[Path, bytes] | None = None,
+        *,
+        snapshot: bool = False,
+    ):
         self.home, self.username = home, username
         self.files: list[str] = []
         self.warnings: list[dict] = []
         self.aliases: dict[str, Directive] = {}
         self._cache: dict[tuple[Path, Path], list[Directive]] = {}
+        self.contents: dict[Path, bytes | None] = {}
+        self.paths: dict[Path, Path] = {}
+        self.overrides = overrides or {}
+        self.snapshot = snapshot
 
     def warn(self, code: str, source: Path, line: int = 0) -> None:
         item = {"code": code, "source": str(source), "line": line}
@@ -105,7 +116,10 @@ class Inventory:
         self, path: Path, base: Path, stack: tuple[Path, ...] = (), *, optional: bool = False
     ) -> list[Directive]:
         try:
+            original = path.absolute()
             path = path.resolve()
+            if self.snapshot:
+                self.paths[original] = path
             if path in stack or len(stack) >= MAX_DEPTH:
                 self.warn("include_cycle", path)
                 return [Directive("unknown", [], path, 0)]
@@ -114,17 +128,24 @@ class Inventory:
             if len(self.files) >= MAX_FILES:
                 self.warn("scan_limit", path)
                 return [Directive("unknown", [], path, 0)]
-            info = path.stat()
-            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_BYTES:
-                self.warn("scan_limit", path)
-                return [Directive("unknown", [], path, 0)]
-            with path.open("rb") as stream:
-                data = stream.read(MAX_BYTES + 1)
+            if path in self.overrides:
+                data = self.overrides[path]
+            else:
+                info = path.stat()
+                if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_BYTES:
+                    self.warn("scan_limit", path)
+                    return [Directive("unknown", [], path, 0)]
+                with path.open("rb") as stream:
+                    data = stream.read(MAX_BYTES + 1)
             if len(data) > MAX_BYTES:
                 self.warn("scan_limit", path)
                 return [Directive("unknown", [], path, 0)]
             content = data.decode("utf-8-sig")
+            if self.snapshot:
+                self.contents[path] = data
         except FileNotFoundError:
+            if self.snapshot:
+                self.contents[path] = None
             if optional:
                 return []
             self.warn("unreadable", path)
@@ -214,6 +235,7 @@ class Inventory:
 
     def host(self, alias: str, roots: list[list[Directive]]) -> dict | None:
         values = {}
+        origins = {}
         source = None
         conditional = True
 
@@ -241,6 +263,8 @@ class Inventory:
                             visit(child, active)
                     elif item.key == "unknown":
                         for field in FIELDS:
+                            if field not in values:
+                                origins[field] = {"source": str(item.source), "line": item.line}
                             values.setdefault(field, UNKNOWN)
                     elif item.key in {"hostname", "user", "port", "proxyjump", "proxycommand"}:
                         field = "proxy" if item.key.startswith("proxy") else item.key
@@ -264,7 +288,10 @@ class Inventory:
                             and previous["value"].lower() == "none"
                         ):
                             values[field] = value if active is True else UNKNOWN
+                            origins[field] = {"source": str(item.source), "line": item.line}
                         else:
+                            if field not in values:
+                                origins[field] = {"source": str(item.source), "line": item.line}
                             values.setdefault(field, value if active is True else UNKNOWN)
 
         for root in roots:
@@ -296,27 +323,30 @@ class Inventory:
             "line": source.line,
             "unresolved_fields": unresolved,
             "conditional": conditional,
+            "field_sources": {field: origins.get(field) for field in FIELDS},
+        }
+
+    def collect(self, system_config: Path, *, query: str = "") -> dict:
+        roots = [
+            self.read(self.home / ".ssh/config", self.home / ".ssh", optional=True),
+            self.read(system_config, system_config.parent, optional=True),
+        ]
+        hosts = []
+        for alias in sorted(self.aliases, key=str.casefold):
+            host = self.host(alias, roots)
+            if (
+                host
+                and query.casefold()
+                in " ".join(str(host[k] or "") for k in ("name", "hostname", "user")).casefold()
+            ):
+                hosts.append(host)
+        return {
+            "hosts": hosts,
+            "files": self.files,
+            "warnings": self.warnings,
+            "complete": not self.warnings,
         }
 
 
 def collect_hosts(home: Path, username: str, system_config: Path, *, query: str = "") -> dict:
-    inventory = Inventory(home, username)
-    roots = [
-        inventory.read(home / ".ssh/config", home / ".ssh", optional=True),
-        inventory.read(system_config, system_config.parent, optional=True),
-    ]
-    hosts = []
-    for alias in sorted(inventory.aliases, key=str.casefold):
-        host = inventory.host(alias, roots)
-        if (
-            host
-            and query.casefold()
-            in " ".join(str(host[k] or "") for k in ("name", "hostname", "user")).casefold()
-        ):
-            hosts.append(host)
-    return {
-        "hosts": hosts,
-        "files": inventory.files,
-        "warnings": inventory.warnings,
-        "complete": not inventory.warnings,
-    }
+    return Inventory(home, username).collect(system_config, query=query)

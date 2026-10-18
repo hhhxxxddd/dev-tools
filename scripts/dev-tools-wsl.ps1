@@ -113,11 +113,13 @@ try {
         else { $Arguments += @('--user', ([string]$nativeUser).Trim()) }
     }
     $nativeCwd = (Get-Location).ProviderPath
+    $colorEnvironment = @()
+    if ((Test-Path Env:NO_COLOR) -or $env:TERM -eq 'dumb') { $colorEnvironment = @('NO_COLOR=1') }
     # --cd accepts absolute Windows paths and translates them in the target distro.
     if ($control) {
-        & wsl.exe -d $Distro -u root --cd $nativeCwd --exec env -u DEV_TOOLS_CONFIG "DEV_TOOLS_TRANSPORT_LANGUAGE=$Language" "DEV_TOOLS_TERMINAL=$env:DEV_TOOLS_TERMINAL" @identity dev-tools -e wsl @Arguments
+        & wsl.exe -d $Distro -u root --cd $nativeCwd --exec env -u DEV_TOOLS_CONFIG "DEV_TOOLS_TRANSPORT_LANGUAGE=$Language" "DEV_TOOLS_TERMINAL=$env:DEV_TOOLS_TERMINAL" @colorEnvironment @identity dev-tools -e wsl @Arguments
     } else {
-        & wsl.exe -d $Distro --cd $nativeCwd --exec env -u DEV_TOOLS_CONFIG "DEV_TOOLS_TRANSPORT_LANGUAGE=$Language" "DEV_TOOLS_TERMINAL=$env:DEV_TOOLS_TERMINAL" dev-tools -e wsl @Arguments
+        & wsl.exe -d $Distro --cd $nativeCwd --exec env -u DEV_TOOLS_CONFIG "DEV_TOOLS_TRANSPORT_LANGUAGE=$Language" "DEV_TOOLS_TERMINAL=$env:DEV_TOOLS_TERMINAL" @colorEnvironment dev-tools -e wsl @Arguments
     }
     $exitCode = $LASTEXITCODE
 } finally {

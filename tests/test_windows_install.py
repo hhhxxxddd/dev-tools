@@ -207,7 +207,11 @@ if (-not $blocked) { throw 'Invalid existing binding accepted' }
 $env:DEV_TOOLS_PYTHON = $Python
 & $Installer -NoProfile
 if ([IO.File]::ReadAllText($binding).Trim() -ne $Python) { throw 'Explicit repair failed' }
-$env:DEV_TOOLS_PYTHON = (Get-Command pwsh).Source
+# A real shell can become interactive when given Python flags and keep the
+# captured pipes open after the fixture times out. Use a bounded invalid host.
+$notPython = Join-Path $repository 'not-python.cmd'
+[IO.File]::WriteAllText($notPython, "@exit /b 1`r`n")
+$env:DEV_TOOLS_PYTHON = $notPython
 $blocked = $false
 try { & $Installer -NoProfile } catch {
   if ($_.Exception.Message -like '*requires native Windows Python*') { $blocked = $true }

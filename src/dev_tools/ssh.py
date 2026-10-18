@@ -292,15 +292,24 @@ def run(args: argparse.Namespace) -> int:
 
     native = "win" if os.name == "nt" else "wsl"
     operation = args.ssh_action
+    list_edit = operation == "list" and getattr(args, "list_edit", False)
+    if list_edit:
+        from .list_editor import require_terminal
+
+        require_terminal()
     if operation in {"show", "edit", "connect"} and args.alias:
         _alias(args.alias)
-    if operation in {"edit", "connect"}:
+    if operation in {"edit", "connect"} or list_edit:
         if args.env == native:
+            if list_edit:
+                from .ssh_list import run_list
+
+                return run_list(*native_identity(), args.query)
             return _edit(args) if operation == "edit" else _connect(args)
         version = preflight(args.env, ["ssh", operation], args.settings)
         supported = forward_remote(
             args.env,
-            ["ssh", operation, "--help"],
+            ["ssh", operation, *(["--edit"] if list_edit else []), "--help"],
             settings=args.settings,
             capture=True,
             stdin=subprocess.DEVNULL,
@@ -323,11 +332,22 @@ def run(args: argparse.Namespace) -> int:
                 target_version=version,
             )
         arguments = ["ssh", operation]
-        if args.alias:
-            arguments.extend(["--", args.alias])
-        result = forward_remote(
-            args.env, arguments, settings=args.settings, capture=False, timeout=None
-        )
+        if list_edit:
+            arguments.append("--edit")
+        query = args.query if list_edit else args.alias
+        if query:
+            arguments.extend(["--", query])
+        if list_edit:
+            from .terminal import raw_input
+
+            with raw_input():
+                result = forward_remote(
+                    args.env, arguments, settings=args.settings, capture=False, timeout=None
+                )
+        else:
+            result = forward_remote(
+                args.env, arguments, settings=args.settings, capture=False, timeout=None
+            )
         return _client_status(result) if operation == "connect" else exit_code(result)
     if args.env != native:
         version = preflight(args.env, ["ssh", operation], args.settings)
@@ -412,6 +432,12 @@ def add_commands(commands) -> None:
     )
     listing.add_argument(
         "--json", action="store_true", default=argparse.SUPPRESS, help=t("以 JSON 输出结果")
+    )
+    listing.add_argument(
+        "--edit",
+        dest="list_edit",
+        action="store_true",
+        help=t("Edit entries in an interactive list"),
     )
     listing.set_defaults(func=run)
     for name, description in (

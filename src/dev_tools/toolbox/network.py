@@ -146,7 +146,7 @@ def connect(addresses: list, timeout: int):
     raise last
 
 
-def request_http(connection, stream, path: str, timeout: int) -> int:
+def request_http(connection, stream, path: str, timeout: int, *, method: str = "HEAD") -> int:
     # A socket timeout alone resets on each read. Bound the whole response even
     # when a peer sends a slow stream of headers without finishing them.
     expired = threading.Event()
@@ -163,7 +163,7 @@ def request_http(connection, stream, path: str, timeout: int) -> int:
     timer.start()
     try:
         stream.settimeout(timeout)
-        connection.request("HEAD", path, headers={"Connection": "close"})
+        connection.request(method, path, headers={"Connection": "close"})
         response = connection.getresponse()
         status = response.status
         response.close()
@@ -178,7 +178,13 @@ def request_http(connection, stream, path: str, timeout: int) -> int:
         timer.cancel()
 
 
-def check_target(target: NetworkTarget, timeout: int, *, addresses: list | None = None) -> dict:
+def check_target(
+    target: NetworkTarget,
+    timeout: int,
+    *,
+    addresses: list | None = None,
+    http_method: str = "HEAD",
+) -> dict:
     stages = []
     value = {
         "target": target.display,
@@ -266,7 +272,7 @@ def check_target(target: NetworkTarget, timeout: int, *, addresses: list | None 
             connection.sock = stream
 
             def http_probe():
-                status = request_http(connection, stream, target.path, timeout)
+                status = request_http(connection, stream, target.path, timeout, method=http_method)
                 return status, {"http_status": status}
 
             status, ok = stage("http", http_probe)

@@ -12,9 +12,9 @@
 
 `--json` 只选择输出格式。`scan` 只读扫描；`check` 只读检查完整准备计划；`init` 创建缺少的配置；`prepare`、`start` 执行准备。没有公开的 `--dry-run`。
 
-支持 JSON 的命令在 stdout 输出一个 UTF-8 JSON 对象，过程日志与第三方输出使用 stderr。分别捕获两条流，不要解析 `2>&1` 的合并输出。跨平台调用也验证目标返回单个 JSON 对象；长时间准备不使用列表查询的 30 秒超时。
+支持 JSON 的命令在 stdout 输出一个 UTF-8 JSON 对象，过程日志与第三方输出使用 stderr。分别捕获两条流，不要解析 `2>&1` 的合并输出。跨平台调用也验证目标返回单个 JSON 对象；持续日志跟踪与长时间准备、启停和构建操作，无论文本或 JSON 输出，均不使用列表查询的 30 秒超时。
 
-`logs` 输出原始日志，没有 JSON 模式；`--` 后的参数不作为控制器选项解释。`config edit --json`、`self update --json`、`self upgrade --json` 和 `ssh edit/connect --json` 是参数错误。语言仅由本机配置选择，默认中文；键名、错误代码、状态枚举和数字不随语言变化。说明、描述、诊断文字和第三方输出不适合机器匹配。
+`logs [项目名] [服务名]` 的单个位置参数始终为项目名，省略服务时汇总并加 `[服务名]` 标识，指定服务时输出原始日志。省略项目名筛选服务使用 `logs --service 服务名`；`--task` 可汇总或筛选任务，位置服务参数与 `--service` 互斥。logs 没有 JSON 模式；`--` 后的参数不作为控制器选项解释。`config edit --json`、`self update --json`、`self upgrade --json` 和 `ssh edit/connect --json` 是参数错误。语言仅由本机配置选择，默认中文；键名、错误代码、状态枚举和数字不随语言变化。说明、描述、诊断文字和第三方输出不适合机器匹配。
 
 ## 退出码
 
@@ -65,6 +65,8 @@
 
 WSL 状态新增 `health_scope=wsl-local` 和 `access_targets`。Windows 查询 WSL 的 list/status 时，`health_scope=windows-to-wsl`，访问失败或未检查也是未就绪条件；原始值保留为 `runtime_ready/runtime_healthy`。`windows_access.state` 为 `reachable|unreachable|unknown|not-applicable`，`checks` 含 service、target、reachable、可选 peer/http_status 或 stage/code，以及 IPv4/IPv6 的 attempts。旧端缺少有效访问信息时 unknown 对应 `ready=false, healthy=null`。服务级 phase/health 始终描述 WSL 运行状态，停止的服务不进行 Windows 访问探测。
 
+Windows 侧 HTTP 访问探测使用 `GET`，仅读取响应头并关闭连接；保留超时限制，不跟随重定向或使用代理。仅支持 `GET` 的健康接口不会因不支持 `HEAD` 被误判；5xx 响应仍表示访问失败。通用 `net check` 继续使用 `HEAD`。
+
 辅助命令主要字段：config 有 `path/state/settings/origins/errors`，state 为 `loaded|missing|invalid`；sysinfo 有 `system/config_state/sections/directories/tools/commands`；report 有 `collected_at/platform/repositories/discovery_issues/collectors`；self status 有 `schema_version=1/environment/controller_version/deployment`，environment 为 `windows|wsl`，deployment 有 `state/version`，已安装时包含目标原生 `path`，WSL 另有 `distro`。部署 state 为 `installed|missing|unavailable`，不可用或缺失时 controller_version 为 null；该状态查询仍返回 0。
 
 服务状态新增布尔 required，表示当前启动选择内必须就绪的服务及其依赖；缺少该字段时按 true 处理。可选客户端关闭不阻塞项目 ready/healthy，也不使 list 显示“部分运行”；status 保留其 stopped/failed 状态及“可选”标记。Windows-to-WSL 访问聚合只由必需服务的检查决定，可选服务的访问结果仍保留在 checks 中。显式 start 遇到可选服务启动失败返回 1，共享服务与监控继续运行，不创建项目级恢复阻塞。
@@ -72,6 +74,8 @@ WSL 状态新增 `health_scope=wsl-local` 和 `access_targets`。Windows 查询 
 health.json 为 HTTP 响应字段子集，要求字段类型和值匹配，允许额外字段，最多读取 64 KiB；不跟随重定向或使用代理。scan/init/check 的 scope.reasons 另支持 tauri，表示已纳入前端的 src-tauri 元数据。
 
 ## 工具箱结果
+
+`ssh list --edit` 和 `hosts list --edit` 是交互式写入入口，不能与 `--json` 同用；普通 list 仍只读。交互按键不属于机器接口；未确认保存不写配置。SSH 主机新增 `field_sources`：hostname/user/port/proxy 对应 `{source,line}` 或 null（内建默认值），与别名声明的 source/line 分开。
 
 `ssh list [关键词] --json` 使用 `schema_version=3`、`action=ssh`、`operation=list` 和 `environment=windows|wsl`，省略环境时仅查当前端。结果含 `hosts/files/warnings` 数组和布尔 `complete`。主机字段为 `name/hostname/user/port/proxy_jump/proxy_command/source/line/unresolved_fields/conditional`；端口为整数或 null，`proxy_command` 为布尔或 null，`conditional` 为布尔。无法静态确定的字段为 null，并在 `unresolved_fields` 中列出（`hostname|user|port|proxy`）。`source/line` 指向别名声明；`warnings` 项有稳定的 `code/source/line`。完整读取返回 0，部分读取保留结果并返回 1；条件配置本身不视为读取失败。
 

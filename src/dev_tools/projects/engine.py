@@ -15,7 +15,7 @@ from .drivers import install_spring_artifact, run_compose, spring_classpath
 from .execution import Executor
 from .health import http_ready
 from .lifecycle import ServiceSelection, ServiceStartup, restoration_plan, start_selection
-from .logfiles import read_log
+from .logfiles import read_logs
 from .maintenance import LOCKFILES, atomic_write, clean_venv_task, discovery_plan
 from .models import ProjectBinding, ProjectError, ProjectSpec, dependency_order, within
 from .planning import PreparationPlan, fingerprint, preparation_plan, preparation_revisions
@@ -717,15 +717,39 @@ class ProjectEngine:
                 raise
 
     def logs(
-        self, service: str, *, lines: int = 100, follow: bool = False, task: bool = False
+        self,
+        service: str | None = None,
+        *,
+        lines: int = 100,
+        follow: bool = False,
+        task: bool = False,
     ) -> None:
         allowed = self.spec.tasks if task else {*self.spec.services, "__sync", "__watch"}
-        if service not in allowed:
+        if service is not None and service not in allowed:
             raise ProjectError(message("unknown service: {service}", service=service))
         directory = "logs/tasks" if task else "logs"
-        path = self.binding.state / directory / f"{service}.log"
-        if not path.is_file():
+        names = [service] if service else sorted(allowed)
+        paths = {name: self.binding.state / directory / f"{name}.log" for name in names}
+        if not paths or not any(path.is_file() for path in paths.values()) and not follow:
             print(t("暂无日志。"))
             return
-        for content in read_log(path, lines=lines, follow=follow):
-            print(content, end="", flush=follow)
+        if follow and not any(path.is_file() for path in paths.values()):
+            print(t("暂无日志，等待新增内容；按 Ctrl+C 停止。"), flush=True)
+        previous, start = None, True
+        for name, content in read_logs(paths, lines=lines, follow=follow):
+            if service is not None:
+                print(content, end="", flush=follow)
+                continue
+            fragments = []
+            if previous != name and not start:
+                fragments.append("\n")
+                start = True
+            for part in content.splitlines(keepends=True):
+                if start:
+                    fragments.append(f"[{name}] ")
+                fragments.append(part)
+                start = part.endswith("\n")
+            print("".join(fragments), end="", flush=follow)
+            previous = name
+        if service is None and not start:
+            print()

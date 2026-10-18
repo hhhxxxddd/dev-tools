@@ -48,8 +48,7 @@ def rotate_log(path: Path) -> bool:
     return True
 
 
-def read_log(path: Path, *, lines: int, follow: bool = False):
-    """Yield a tail, then follow the named file across rotation or truncation."""
+def _tail(path: Path, lines: int):
     with path.open("rb") as stream:
         metadata = os.fstat(stream.fileno())
         identity = metadata.st_dev, metadata.st_ino
@@ -66,28 +65,64 @@ def read_log(path: Path, *, lines: int, follow: bool = False):
             chunks.append(chunk)
             size += len(chunk)
             newlines += chunk.count(b"\n")
-    for line in b"".join(reversed(chunks)).splitlines(keepends=True)[-lines:]:
-        yield line.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
-    decoder = io.IncrementalNewlineDecoder(
-        codecs.getincrementaldecoder("utf-8")(errors="replace"), translate=True
-    )
-    while follow:
+    content = b"".join(b"".join(reversed(chunks)).splitlines(keepends=True)[-lines:])
+    return identity, offset, content
+
+
+class _Cursor:
+    def __init__(self, path: Path):
+        self.path = path
+        self.identity, self.offset = None, 0
+        self.decoder = io.IncrementalNewlineDecoder(
+            codecs.getincrementaldecoder("utf-8")(errors="replace"), translate=True
+        )
+
+    def tail(self, lines, *, follow=False):
         try:
-            # Close readers before yielding/waiting so Windows can rotate logs.
-            with path.open("rb") as stream:
-                metadata = os.fstat(stream.fileno())
-                current_identity = metadata.st_dev, metadata.st_ino
-                if current_identity != identity or metadata.st_size < offset:
-                    identity, offset = current_identity, 0
-                    decoder.reset()
-                stream.seek(offset)
-                content = stream.read(TAIL_BLOCK_BYTES)
-                offset = stream.tell()
+            self.identity, self.offset, content = _tail(self.path, lines)
+            # Keep an incomplete UTF-8 character or CR at EOF in the same
+            # decoder used by subsequent polls, rather than replacing it early.
+            return self.decoder.decode(content, final=not follow).splitlines(keepends=True)
         except FileNotFoundError:
-            content = b""
-        if content:
-            text = decoder.decode(content)
-            if text:
-                yield text
-        else:
+            return []
+
+    def read(self):
+        try:
+            # Each poll closes its handle before yielding, including on Windows.
+            with self.path.open("rb") as stream:
+                metadata = os.fstat(stream.fileno())
+                identity = metadata.st_dev, metadata.st_ino
+                if identity != self.identity or metadata.st_size < self.offset:
+                    self.identity, self.offset = identity, 0
+                    self.decoder.reset()
+                stream.seek(self.offset)
+                content = stream.read(TAIL_BLOCK_BYTES)
+                self.offset = stream.tell()
+        except FileNotFoundError:
+            return ""
+        return self.decoder.decode(content) if content else ""
+
+
+def read_logs(paths: dict[str, Path], *, lines: int, follow: bool = False):
+    """Multiplex files fairly without threads; missing logs can appear later."""
+    if not paths:
+        return
+    cursors = {name: _Cursor(path) for name, path in paths.items()}
+    for name, cursor in cursors.items():
+        for content in cursor.tail(lines, follow=follow):
+            yield name, content
+    while follow:
+        found = False
+        for name, cursor in cursors.items():
+            content = cursor.read()
+            if content:
+                found = True
+                yield name, content
+        if not found:
             time.sleep(0.25)
+
+
+def read_log(path: Path, *, lines: int, follow: bool = False):
+    """Yield a tail, then follow the named file across rotation or truncation."""
+    for _, content in read_logs({"log": path}, lines=lines, follow=follow):
+        yield content

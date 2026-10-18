@@ -85,7 +85,7 @@ sudo env DEV_TOOLS_PYTHON=/opt/dev-runtimes/python/3.14.8/bin/python3 bash scrip
 $env:PYTHONPATH = "$PWD\src"
 python -m dev_tools.validation
 python -m dev_tools.release --output dist
-python -m dev_tools.package_smoke dist/dev-tools-0.5.2.zip
+python -m dev_tools.package_smoke dist/dev-tools-0.5.6.zip
 ```
 
 产物为 `dev-tools-<版本>.zip`、`SHA256SUMS` 和 `dev-tools.json`。完整 ZIP 包含两端入口、配置、示例与文档，排除本机绑定、缓存与本地覆盖。`.release.json` 记录逐文件哈希、版本、源码提交及 dirty 标记。SHA256 用于确认字节完整性；来源真实性依赖从官方 GitHub Release 或 Scoop 渠道取得包与校验值。

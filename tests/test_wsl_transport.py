@@ -120,12 +120,15 @@ function global:wsl.exe {
                 encoding="utf-8",
                 timeout=30,
                 check=False,
+                env={**os.environ, "NO_COLOR": "1", "DEV_TOOLS_TERMINAL": "1"},
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             calls = json.loads(log.read_text(encoding="utf-8"))
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0][-4:], ["wsl", "check", "fixture-project", "--json"])
             self.assertTrue(any(value.startswith("DEV_TOOLS_TERMINAL=") for value in calls[0]))
+            self.assertIn("DEV_TOOLS_TERMINAL=1", calls[0])
+            self.assertIn("NO_COLOR=1", calls[0])
             self.assertNotIn("-u", calls[0][: calls[0].index("--exec")])
             self.assertEqual(Path(calls[0][calls[0].index("--cd") + 1]).resolve(), cwd.resolve())
             for arguments in calls:

@@ -164,7 +164,7 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertEqual(stopped.exception.code, 0)
         self.assertEqual(json.loads(output.getvalue()), payload)
         route.assert_called_once_with(
-            "win", ["status", "demo", "--json"], settings=ANY, capture=True, timeout=None
+            "win", ["status", "demo", "--json"], settings=ANY, capture=True, timeout=30
         )
         if sys.platform == "win32":
             self.assertNotIn("dev_tools.runtimes.platforms.wsl", sys.modules)

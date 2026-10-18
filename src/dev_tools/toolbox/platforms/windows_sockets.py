@@ -11,10 +11,17 @@ TCP4 = struct.Struct("<6I")
 TCP6 = struct.Struct("<16sII16sIIII")
 UDP4 = struct.Struct("<3I")
 UDP6 = struct.Struct("<16sIII")
+TCP_TABLE_OWNER_PID_LISTENER = 3
+UDP_TABLE_OWNER_PID = 1
 
 
 def decode_table(data: bytes, protocol: str, family: int, port: int | None) -> list[dict]:
-    """Fixed-width DWORD layouts match both 32-bit and 64-bit Windows ABIs."""
+    """Decode TCP listener or UDP owner-PID tables, never unfiltered TCP tables.
+
+    Fixed-width DWORD layouts match both 32-bit and 64-bit Windows ABIs.
+    The TCP table class already selects listeners; some Windows builds return
+    a zero state for those rows, so filtering dwState again would lose listeners.
+    """
     ipv6 = family == socket.AF_INET6
     layout = (TCP6 if ipv6 else TCP4) if protocol == "tcp" else (UDP6 if ipv6 else UDP4)
     if len(data) < 4:
@@ -27,8 +34,6 @@ def decode_table(data: bytes, protocol: str, family: int, port: int | None) -> l
         values = layout.unpack_from(data, 4 + index * layout.size)
         address, scope = (values[0], values[1]) if ipv6 else (None, 0)
         if protocol == "tcp":
-            if values[-2 if ipv6 else 0] != 2:  # MIB_TCP_STATE_LISTEN
-                continue
             local_port = values[2]
             if not ipv6:
                 address = struct.pack("<I", values[1])
@@ -52,8 +57,9 @@ def socket_table(api, protocol: str, family: int, port: int | None) -> list[dict
     function.restype = DWORD
     size = DWORD()
     buffer = None
+    table_class = TCP_TABLE_OWNER_PID_LISTENER if protocol == "tcp" else UDP_TABLE_OWNER_PID
     for _ in range(4):
-        code = function(buffer, ctypes.byref(size), 0, family, 3 if protocol == "tcp" else 1, 0)
+        code = function(buffer, ctypes.byref(size), 0, family, table_class, 0)
         if code in {50, 232} and family == socket.AF_INET6:
             return []
         if code == 232:  # ERROR_NO_DATA

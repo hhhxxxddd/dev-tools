@@ -391,3 +391,65 @@ class EnvironmentRoutingTests(unittest.TestCase):
             self.assertEqual(entry.call_args.args[0], expected)
             self.assertTrue(process.call_args.kwargs["capture_output"])
             self.assertIsNone(process.call_args.kwargs["timeout"])
+
+    def test_text_transport_passes_query_timeout_and_long_running_opt_out(self):
+        for platform, target in (("nt", "wsl"), ("posix", "win")):
+            for timeout in (30, None):
+                with (
+                    self.subTest(platform=platform, timeout=timeout),
+                    patch(
+                        "dev_tools.runtimes.router.os",
+                        SimpleNamespace(name=platform, environ=os.environ),
+                    ),
+                    patch("dev_tools.runtimes.router.shutil.which", return_value="wsl.exe"),
+                    patch(
+                        "dev_tools.runtimes.platforms.windows_interop.powershell_entry",
+                        return_value="pwsh.exe",
+                    ),
+                    patch("dev_tools.runtimes.router._windows_path", side_effect=str),
+                    patch(
+                        "dev_tools.runtimes.router._windows_entry",
+                        return_value=["-File", "entry.ps1"],
+                    ),
+                    patch(
+                        "dev_tools.runtimes.router._run_transport",
+                        return_value=subprocess.CompletedProcess([], 0),
+                    ) as process,
+                ):
+                    forward_remote(
+                        target, ["logs", "demo"], settings=self.settings, timeout=timeout
+                    )
+                self.assertTrue("timeout" in process.call_args.kwargs)
+                self.assertEqual(process.call_args.kwargs["timeout"], timeout)
+
+    def test_no_color_remains_separate_from_remote_interactive_capability(self):
+        for platform, target in (("nt", "wsl"), ("posix", "win")):
+            with (
+                self.subTest(platform=platform),
+                patch.dict(os.environ, {"DEV_TOOLS_TERMINAL": "1", "NO_COLOR": ""}),
+                patch(
+                    "dev_tools.runtimes.router.os",
+                    SimpleNamespace(name=platform, environ=os.environ),
+                ),
+                patch("dev_tools.runtimes.router.shutil.which", return_value="wsl.exe"),
+                patch(
+                    "dev_tools.runtimes.platforms.windows_interop.powershell_entry",
+                    return_value="pwsh.exe",
+                ),
+                patch("dev_tools.runtimes.router._windows_path", side_effect=str),
+                patch(
+                    "dev_tools.runtimes.router._windows_entry", return_value=["-File", "entry.ps1"]
+                ),
+                patch(
+                    "dev_tools.runtimes.router._run_transport",
+                    return_value=subprocess.CompletedProcess([], 0),
+                ) as process,
+            ):
+                forward_remote(
+                    target, ["ssh", "list", "--edit"], settings=self.settings, timeout=None
+                )
+            environment = process.call_args.kwargs["env"]
+            self.assertEqual(environment["DEV_TOOLS_TERMINAL"], "1")
+            self.assertEqual(environment["NO_COLOR"], "1")
+            if target == "win":
+                self.assertIn("NO_COLOR/w", environment["WSLENV"].split(":"))

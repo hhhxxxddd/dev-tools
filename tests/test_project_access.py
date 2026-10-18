@@ -223,7 +223,7 @@ class ProjectAccessTests(unittest.TestCase):
 
     def test_http_auth_response_proves_access_without_reading_a_body(self):
         class Auth(http.server.BaseHTTPRequestHandler):
-            def do_HEAD(self):
+            def do_GET(self):
                 self.send_response(401 if self.headers["Host"].startswith("localhost:") else 503)
                 self.end_headers()
 
@@ -235,6 +235,47 @@ class ProjectAccessTests(unittest.TestCase):
             value = probe(("http", port, "/"))
         self.assertTrue(value["reachable"])
         self.assertEqual(value["http_status"], 401)
+
+    def test_get_only_health_preserves_readiness_and_still_rejects_server_errors(self):
+        for status in (200, 503):
+            with self.subTest(status=status):
+                requests = []
+
+                class GetOnly(http.server.BaseHTTPRequestHandler):
+                    response_status = status
+                    received_requests = requests
+
+                    def do_GET(self):
+                        self.received_requests.append(
+                            (self.command, self.path, self.headers["Host"])
+                        )
+                        self.send_response(self.response_status)
+                        # A healthy response needs no body download, even when
+                        # the advertised body is large and never arrives.
+                        self.send_header("Content-Length", str(1024**3))
+                        self.end_headers()
+
+                    def log_message(self, *_):
+                        pass
+
+                port = self.serve(GetOnly)
+                project = self.project()
+                project["access_targets"][0].update(port=port, path="/health")
+                before = copy.deepcopy(project)
+                with (
+                    patch("dev_tools.toolbox.network.resolve", side_effect=AssertionError("DNS")),
+                    patch("subprocess.run", side_effect=AssertionError("project execution")),
+                ):
+                    value = windows_access([project])[0]
+                self.assertEqual(value["ready"], status == 200)
+                self.assertEqual(value["healthy"], status == 200)
+                self.assertTrue(value["runtime_ready"])
+                self.assertTrue(value["runtime_healthy"])
+                check = value["windows_access"]["checks"][0]
+                self.assertEqual(check["http_status"], status)
+                self.assertEqual(check["reachable"], status == 200)
+                self.assertEqual(requests, [("GET", "/health", f"localhost:{port}")])
+                self.assertEqual(project, before)
 
     def test_remote_status_is_captured_and_rendered_with_windows_access(self):
         result = subprocess.CompletedProcess([], 0, json.dumps(self.project()), "")

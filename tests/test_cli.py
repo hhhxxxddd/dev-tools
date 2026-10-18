@@ -355,9 +355,10 @@ class CliTests(unittest.TestCase):
                     self.assertEqual(args.env, environment)
                     self.assertEqual(args.name, "demo")
 
-    def test_optional_name_keeps_logs_service_and_rename_destination_unambiguous(self):
+    def test_logs_project_precedes_optional_service_and_rename_destination_is_unambiguous(self):
         for tokens, name, service in (
-            (["logs", "api"], None, "api"),
+            (["logs"], None, None),
+            (["logs", "demo"], "demo", None),
             (["logs", "demo", "api"], "demo", "api"),
         ):
             args = parser().parse_args(tokens)
