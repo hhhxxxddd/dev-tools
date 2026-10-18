@@ -10,9 +10,11 @@ Prepare runtimes and dependencies and start services from project declarations. 
 
 ## Demo
 
-[![Windows / WSL walkthrough](docs/assets/dev-tools-demo.zh.png)](docs/assets/dev-tools-demo.zh.mp4)
+https://github.com/user-attachments/assets/e900a509-ee51-41ab-9b7c-e11007f653cb
 
-[Watch the 42-second walkthrough](docs/assets/dev-tools-demo.zh.mp4) (Chinese): start a project → edit source → update dependencies → read logs across environments → inspect a port.
+42-second walkthrough (Chinese): start a project → edit source → update dependencies → read logs across environments → inspect a port.
+
+[Download MP4](docs/assets/dev-tools-demo.zh.mp4) · [View screenshot](docs/assets/dev-tools-demo.zh.png)
 
 Based on an isolated sample running the actual tool, with redrawn terminal interfaces, excerpted output and shortened waits. The sample uses a declared build task and a Python HTTP service; reload behavior depends on project configuration and the framework.
 

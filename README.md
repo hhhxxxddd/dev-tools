@@ -10,9 +10,11 @@ Windows / WSL 开发项目的热部署与热更新工具。
 
 ## 演示
 
-[![Windows / WSL 操作演示](docs/assets/dev-tools-demo.zh.png)](docs/assets/dev-tools-demo.zh.mp4)
+https://github.com/user-attachments/assets/e900a509-ee51-41ab-9b7c-e11007f653cb
 
-[观看 42 秒操作演示](docs/assets/dev-tools-demo.zh.mp4)：启动项目 → 修改源码 → 更新依赖 → 跨端查看日志 → 定位端口。
+42 秒操作演示：启动项目 → 修改源码 → 更新依赖 → 跨端查看日志 → 定位端口。
+
+[下载 MP4](docs/assets/dev-tools-demo.zh.mp4) · [查看截图](docs/assets/dev-tools-demo.zh.png)
 
 基于隔离样例实际运行结果制作，终端界面重绘，输出节选并压缩等待时间。样例使用声明的构建任务与 Python HTTP 服务；热更新方式由项目配置和框架决定。
 
