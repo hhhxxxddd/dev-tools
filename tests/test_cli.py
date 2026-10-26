@@ -315,7 +315,23 @@ class CliTests(unittest.TestCase):
                     "项目尚未注册" if language == "zh" else "project is not registered", lines[-1]
                 )
                 payload = json.loads(invoke(as_json=True))
-                self.assertEqual(payload["projects"][:-1], projects)
+                self.assertEqual(
+                    [
+                        {
+                            key: value
+                            for key, value in project.items()
+                            if key not in {"diagnostics", "summary"}
+                        }
+                        for project in payload["projects"][:-1]
+                    ],
+                    projects,
+                )
+                self.assertTrue(
+                    all(
+                        "diagnostics" in project and "summary" in project
+                        for project in payload["projects"]
+                    )
+                )
                 self.assertEqual(payload["environment"], environment)
                 self.assertFalse(payload["projects"][-1]["ready"])
 

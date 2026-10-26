@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..i18n import error_detail, join_messages, message
+from .diagnostics import error_diagnostics
 from .models import ProjectError, ProjectSpec, dependency_order
 from .registry import write_json
 
@@ -173,6 +174,7 @@ class ServiceStartup:
             "operation": "start",
             "error": str(error),
             "error_detail": error_detail(error),
+            "diagnostics": error_diagnostics(error),
             "cleanup_error": cleanup_error,
             "restore_workers": list(self.selection.names),
         }

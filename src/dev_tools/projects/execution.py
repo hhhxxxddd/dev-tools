@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 from ..i18n import message
 from ..workflows import mise_environment
+from .diagnostic_evidence import failure_log
+from .diagnostics import diagnostic
 from .logfiles import rotate_log
 from .models import CommandSpec, ProjectBinding, ProjectError, ProjectSpec, within
 from .process_errors import run_process
@@ -134,6 +138,7 @@ class Executor:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         rotate_log(log_path)
         with log_path.open("ab") as log:
+            log_start = os.fstat(log.fileno()).st_size
             result = run_process(
                 argv,
                 cwd=cwd,
@@ -144,7 +149,7 @@ class Executor:
                 **self.backend.task_options(),
             )
         if result.returncode:
-            raise ProjectError(
+            error = ProjectError(
                 message(
                     "task {name} failed ({returncode}); log: {log_path}",
                     name=task.name,
@@ -152,3 +157,17 @@ class Executor:
                     log_path=log_path,
                 )
             )
+            error.diagnostics = [
+                diagnostic(
+                    "task.failed",
+                    stage="build",
+                    evidence={"task": task.name, "exit_code": result.returncode},
+                )
+            ]
+            error.diagnostics.extend(
+                diagnostic("log.message", severity="info", evidence={"message": value})
+                for value in failure_log(
+                    log_path, {"phase": "failed", "updated_at": time.time()}, start=log_start
+                )
+            )
+            raise error

@@ -60,6 +60,10 @@ LABELS = {
     "status": "项目状态",
     "show": "项目配置与绑定",
     "build": "构建项目",
+    "health": "健康检查",
+    "runtime": "服务运行",
+    "monitor": "项目监控",
+    "access": "访问检查",
     "rename": "重命名项目",
     "unregister": "注销项目",
     "created": "已生成",
@@ -118,22 +122,47 @@ def label(value: str | bool | None) -> str:
     return t(LABELS.get(value, value))
 
 
-def format_table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
-    def width(value: str) -> int:
-        return sum(
-            0
-            if unicodedata.combining(char)
-            else 2
-            if unicodedata.east_asian_width(char) in "WF"
-            else 1
-            for char in ANSI.sub("", value)
-        )
+def display_width(value: str) -> int:
+    return sum(
+        0 if unicodedata.combining(char) else 2 if unicodedata.east_asian_width(char) in "WF" else 1
+        for char in ANSI.sub("", value)
+    )
 
-    widths = [max(width(row[index]) for row in [headers, *rows]) for index in range(len(headers))]
+
+def wrap_text(value: str, width: int, *, initial_indent="", subsequent_indent="") -> str:
+    """Wrap plain terminal prose by display cells, including Chinese and long tokens."""
+    lines = []
+    indent = initial_indent
+    for paragraph in ANSI.sub("", value).splitlines() or [""]:
+        line = indent
+        for word in re.findall(r"\S+\s*|\s+", paragraph):
+            if line.strip() and display_width(line + word.rstrip()) > width:
+                lines.append(line.rstrip())
+                indent = subsequent_indent
+                line = indent
+            for char in word:
+                if line.strip() and display_width(line + char) > width:
+                    lines.append(line.rstrip())
+                    indent = subsequent_indent
+                    line = indent
+                if char.isspace() and not line.strip():
+                    continue
+                line += char
+        lines.append(line.rstrip())
+        indent = subsequent_indent
+    return "\n".join(lines)
+
+
+def format_table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
+
+    widths = [
+        max(display_width(row[index]) for row in [headers, *rows]) for index in range(len(headers))
+    ]
 
     def line(row):
         return "  ".join(
-            value + " " * (size - width(value)) for value, size in zip(row, widths, strict=True)
+            value + " " * (size - display_width(value))
+            for value, size in zip(row, widths, strict=True)
         ).rstrip()
 
     return "\n".join([line(headers), line(tuple("-" * size for size in widths)), *map(line, rows)])

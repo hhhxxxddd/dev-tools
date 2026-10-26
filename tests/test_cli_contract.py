@@ -57,7 +57,10 @@ class CliContractTests(unittest.TestCase):
         exit_status, output, errors = result
         self.assertEqual(exit_status, status, output + errors)
         value = json.loads(output)  # Also rejects multiple documents or text prefixes.
-        self.assertEqual(set(value), {"schema_version", "action", "error"})
+        expected = {"schema_version", "action", "error"}
+        if action in {"prepare", "start", "restart", "build"}:
+            expected.update({"diagnostics", "summary"})
+        self.assertEqual(set(value), expected)
         self.assertEqual(value["schema_version"], CLI_SCHEMA_VERSION)
         self.assertEqual(value["action"], action)
         self.assertEqual(set(value["error"]), {"code", "message", "details"})
@@ -102,6 +105,11 @@ class CliContractTests(unittest.TestCase):
                 "recovery",
                 "prepared",
                 "maintenance_error",
+                "summary",
+                "diagnostics",
+                "desired_running",
+                "expected_workers",
+                "recovery_progress",
             },
         )
         self.assertEqual(value["schema_version"], CLI_SCHEMA_VERSION)

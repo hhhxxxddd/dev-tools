@@ -11,9 +11,11 @@ from ..runtimes.platforms.locking import operation_lock
 from ..schemas import CLI_SCHEMA_VERSION
 from .access import access_targets
 from .config import CONFIG_NAME, load_project, render_toml
+from .diagnostic_evidence import failure_log, safe_message
+from .diagnostics import diagnostic, enrich, error_diagnostics, recovery_progress
 from .drivers import install_spring_artifact, run_compose, spring_classpath
 from .execution import Executor
-from .health import http_ready
+from .health import connection_failure, http_probe
 from .lifecycle import ServiceSelection, ServiceStartup, restoration_plan, start_selection
 from .logfiles import read_logs
 from .maintenance import LOCKFILES, atomic_write, clean_venv_task, discovery_plan
@@ -22,14 +24,20 @@ from .planning import PreparationPlan, fingerprint, preparation_plan, preparatio
 from .registry import read_json, write_json
 
 
-def _probe(service, executor) -> str:
+def _probe(service, executor) -> tuple[str, list[dict]]:
     if service.driver == "compose":
         try:
             result = run_compose(
                 executor, service, "ps", "--format", "json", capture=True, check=False, timeout=5
             )
-        except ProjectError, OSError:
-            return "unhealthy"
+        except (ProjectError, OSError) as exc:
+            return "unhealthy", [
+                diagnostic(
+                    "compose.query_failed",
+                    stage="health",
+                    evidence={"message": safe_message(str(exc))},
+                )
+            ]
         try:
             value = json.loads(result.stdout)
             containers = value if isinstance(value, list) else [value]
@@ -46,20 +54,54 @@ def _probe(service, executor) -> str:
             and str(item.get("Health", "")).lower() not in {"unhealthy", "starting"}
             for item in containers
         )
-        if result.returncode != 0 or not healthy:
-            return "unhealthy"
+        if result.returncode != 0:
+            return "unhealthy", [
+                diagnostic(
+                    "compose.query_failed",
+                    stage="health",
+                    evidence={
+                        "exit_code": result.returncode,
+                        "message": safe_message(result.stderr or "docker compose ps"),
+                    },
+                )
+            ]
+        if not containers:
+            return "unhealthy", [diagnostic("compose.empty", stage="health")]
+        if not healthy:
+            values = [
+                diagnostic(
+                    "compose.container_state",
+                    stage="health",
+                    evidence={
+                        "container": item.get("Name") or item.get("Service") or "unknown",
+                        "state": str(item.get("State", "unknown")).lower(),
+                        "health": str(item.get("Health") or "unknown").lower(),
+                    },
+                )
+                for item in containers
+                if isinstance(item, dict)
+                and (
+                    str(item.get("State", "")).lower() != "running"
+                    or str(item.get("Health", "")).lower() in {"unhealthy", "starting"}
+                )
+            ]
+            return "unhealthy", values or [diagnostic("compose.unhealthy", stage="health")]
     checks = service.health
     if not checks.get("tcp") and not checks.get("http"):
-        return "healthy" if service.driver == "compose" else "unknown"
+        return ("healthy" if service.driver == "compose" else "unknown"), []
     try:
         if checks.get("tcp"):
             with socket.create_connection(("127.0.0.1", checks["tcp"]), timeout=0.5):
                 pass
-        if checks.get("http") and not http_ready(checks):
-            return "unhealthy"
-        return "healthy"
-    except OSError:
-        return "unhealthy"
+        if checks.get("http"):
+            healthy, values = http_probe(checks)
+            return ("healthy" if healthy else "unhealthy"), values
+        return "healthy", []
+    except OSError as exc:
+        value = connection_failure(exc)
+        if checks.get("tcp"):
+            value["evidence"]["target"] = f"tcp://127.0.0.1:{checks['tcp']}"
+        return "unhealthy", [value]
 
 
 class ProjectEngine:
@@ -72,7 +114,41 @@ class ProjectEngine:
         return read_json(self.state_path)
 
     def save(self, **updates) -> None:
-        write_json(self.state_path, {**self.state(), **updates})
+        state = self.state()
+        if updates.get("recovery"):
+            previous = state.get("recovery") or {}
+            recovery = dict(updates["recovery"])
+            for key in (
+                "attempt",
+                "started_at",
+                "stage",
+                "current_service",
+                "current_task",
+                "last_failure",
+            ):
+                if key in previous:
+                    recovery.setdefault(key, previous[key])
+            recovery.setdefault("attempt", 1)
+            recovery.setdefault("started_at", time.time())
+            recovery["updated_at"] = time.time()
+            if recovery.get("error"):
+                recovery["last_failure"] = recovery.get("diagnostics") or error_diagnostics(
+                    detail=recovery.get("error_detail")
+                )
+            updates["recovery"] = recovery
+        write_json(self.state_path, {**state, **updates})
+
+    def recovery_stage(self, stage, *, service=None, task=None):
+        recovery = self.state().get("recovery")
+        if recovery:
+            self.save(
+                recovery={
+                    **recovery,
+                    "stage": stage,
+                    "current_service": service,
+                    "current_task": task,
+                }
+            )
 
     def plan(self, *, force=False) -> PreparationPlan:
         with Inspection(self.binding.source, platform=self.binding.environment).activate():
@@ -114,7 +190,35 @@ class ProjectEngine:
         service = self.spec.services[name]
         worker = self.backend.phase(name) if worker is None else worker
         phase = worker.get("phase", "starting")
-        health = _probe(service, self.executor) if phase == "running" else "unknown"
+        health, diagnostics = (
+            _probe(service, self.executor) if phase == "running" else ("unknown", [])
+        )
+        for value in diagnostics:
+            value["service"] = name
+        log_diagnostics = []
+        if phase in {"failed", "restarting"} or phase == "running" and health == "unhealthy":
+            failure = worker.get("last_failure") or {}
+            offset = (
+                failure.get("log_start")
+                if phase in {"failed", "restarting"}
+                else worker.get("log_start")
+            )
+            end = failure.get("log_end") if phase in {"failed", "restarting"} else None
+            confirmed = type(offset) is int and type(end) is int and 0 <= offset <= end
+            log_diagnostics = [
+                diagnostic(
+                    "log.message" if confirmed else "log.tail",
+                    service=name,
+                    severity="info",
+                    evidence={"message": text},
+                )
+                for text in failure_log(
+                    self.binding.state / "logs" / f"{name}.log",
+                    worker,
+                    start=offset if type(offset) is int else 0,
+                    end=end if confirmed else None,
+                )
+            ]
         return {
             "name": name,
             "driver": service.driver,
@@ -125,6 +229,11 @@ class ProjectEngine:
             "exit_code": worker.get("exit_code"),
             "error": worker.get("error", ""),
             "error_detail": worker.get("error_detail"),
+            "diagnostics": diagnostics,
+            "log_diagnostics": log_diagnostics,
+            "updated_at": worker.get("updated_at"),
+            "last_failure": worker.get("last_failure"),
+            "restart_count": worker.get("restart_count"),
         }
 
     def status(self) -> dict:
@@ -159,29 +268,34 @@ class ProjectEngine:
             and all(workers.get(name, {}).get("phase") == "running" for name in expected)
         )
         health = None if any(services[name]["health"] == "unknown" for name in required) else ready
-        return {
-            "schema_version": CLI_SCHEMA_VERSION,
-            "action": "status",
-            "name": self.binding.name,
-            "environment": self.binding.environment,
-            "ready": ready,
-            "healthy": health,
-            "services": services,
-            "workers": workers,
-            "recovery": recovery,
-            "prepared": prepared,
-            "maintenance_error": state.get("maintenance_error"),
-            **(
-                {
-                    "health_scope": "wsl-local",
-                    "access_targets": access_targets(
-                        self.spec, self.binding.workspace, source_root=self.binding.source
-                    ),
-                }
-                if self.binding.environment == "wsl"
-                else {}
-            ),
-        }
+        return enrich(
+            {
+                "schema_version": CLI_SCHEMA_VERSION,
+                "action": "status",
+                "name": self.binding.name,
+                "environment": self.binding.environment,
+                "ready": ready,
+                "healthy": health,
+                "services": services,
+                "workers": workers,
+                "recovery": recovery,
+                "prepared": prepared,
+                "maintenance_error": state.get("maintenance_error"),
+                "desired_running": intent.get("running"),
+                "expected_workers": sorted(expected) if intent.get("running") else [],
+                "recovery_progress": recovery_progress(recovery),
+                **(
+                    {
+                        "health_scope": "wsl-local",
+                        "access_targets": access_targets(
+                            self.spec, self.binding.workspace, source_root=self.binding.source
+                        ),
+                    }
+                    if self.binding.environment == "wsl"
+                    else {}
+                ),
+            }
+        )
 
     def _active(self) -> tuple[str, ...]:
         return tuple(name for name in self.backend.known_workers() if self.backend.active(name))
@@ -223,12 +337,14 @@ class ProjectEngine:
     def _wait(self, name: str, *, intent_token=None, required: bool | None = None) -> None:
         from ..progress import stage
 
+        self.recovery_stage("health", service=name)
         with stage("Health check: {service}", service=name):
             self._wait_ready(name, intent_token=intent_token, required=required)
 
     def _wait_ready(self, name: str, *, intent_token=None, required: bool | None = None) -> None:
         required = self.spec.services[name].required if required is None else required
         deadline = time.monotonic() + float(self.spec.services[name].health.get("timeout", 15))
+        status = {}
         while time.monotonic() < deadline:
             self._check_intent(intent_token)
             status = self.service_status(name)
@@ -237,15 +353,28 @@ class ProjectEngine:
             if not required and status["phase"] == "stopped" and status.get("exit_code") == 0:
                 return
             if status["phase"] == "failed":
-                raise ProjectError(
+                error = ProjectError(
                     message(
                         "service {name} failed: {error}; inspect project logs",
                         name=name,
                         error=status.get("error_detail") or status["error"],
                     )
                 )
+                error.diagnostics = enrich({"services": {name: status}})["diagnostics"]
+                raise error
             time.sleep(0.2)
-        raise ProjectError(message("service {name} did not become ready before timeout", name=name))
+        error = ProjectError(
+            message("service {name} did not become ready before timeout", name=name)
+        )
+        error.diagnostics = enrich({"services": {name: status}})["diagnostics"] or [
+            diagnostic(
+                "process.exited" if type(status.get("exit_code")) is int else "service.not_ready",
+                service=name,
+                stage="health",
+                evidence={"exit_code": status.get("exit_code")},
+            )
+        ]
+        raise error
 
     def _start(
         self,
@@ -382,6 +511,18 @@ class ProjectEngine:
         self.save(
             recovery={
                 "operation": "prepare",
+                "attempt": recovery.get("attempt", 0) + 1,
+                "stage": "prepare",
+                "current_service": None,
+                "current_task": None,
+                "next_retry_at": None,
+                "last_failure": recovery.get("last_failure")
+                or recovery.get("diagnostics")
+                or (
+                    error_diagnostics(detail=recovery.get("error_detail"))
+                    if recovery.get("error")
+                    else []
+                ),
                 "restore_workers": list(active),
                 "completed_tasks": [],
             }
@@ -437,6 +578,7 @@ class ProjectEngine:
                 )
             for name in selected:
                 self._check_intent(intent_token)
+                self.recovery_stage("prepare", task=name)
                 with stage("Run dependency/build task: {task}", task=name):
                     self.executor.task(
                         clean_venv_task(self.spec.tasks[name], self.binding.workspace)
@@ -487,6 +629,7 @@ class ProjectEngine:
                     "completed_tasks": completed,
                     "error": str(exc),
                     "error_detail": error_detail(exc),
+                    "diagnostics": error_diagnostics(exc),
                 }
             )
             raise
@@ -515,7 +658,15 @@ class ProjectEngine:
                     structural=structural,
                 )
             except (ValueError, OSError) as exc:
-                self.save(maintenance_error=error_detail(exc))
+                recovery = self.state().get("recovery")
+                self.save(
+                    maintenance_error=error_detail(exc),
+                    **(
+                        {"recovery": {**recovery, "next_retry_at": time.time() + 30}}
+                        if recovery
+                        else {}
+                    ),
+                )
                 raise
 
     def _prepare_for_start(self, plan, token):
@@ -654,6 +805,11 @@ class ProjectEngine:
             stop = tuple(name for name in active if name in affected) if kind != "source" else ()
             record = {
                 "operation": "build",
+                "attempt": recovery.get("attempt", 0) + 1,
+                "stage": "build",
+                "current_service": service,
+                "current_task": None,
+                "next_retry_at": None,
                 "service": service,
                 "kind": kind,
                 "restore_workers": list(stop),
@@ -679,6 +835,7 @@ class ProjectEngine:
                 names = self.spec.task_order(selected)
                 for name in names:
                     task = self.spec.tasks[name]
+                    self.recovery_stage("build", task=name)
                     self.executor.task(
                         clean_venv_task(task, self.binding.workspace) if kind == "branch" else task
                     )
@@ -713,7 +870,15 @@ class ProjectEngine:
                 if not intent or intent.get("running"):
                     self._start(stop, intent_token=intent.get("token"))
             except (ProjectError, OSError) as exc:
-                self.save(recovery={**record, "error": str(exc), "error_detail": error_detail(exc)})
+                self.save(
+                    recovery={
+                        **record,
+                        "error": str(exc),
+                        "error_detail": error_detail(exc),
+                        "diagnostics": error_diagnostics(exc),
+                        "next_retry_at": time.time() + 30 if lock_timeout == 0 else None,
+                    }
+                )
                 raise
 
     def logs(

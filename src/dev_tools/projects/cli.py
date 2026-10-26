@@ -3,17 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 from urllib.parse import urlsplit
 
 from ..i18n import error_detail, message, render, t
-from ..presentation import colored, error, format_table, label, status_label, warning
+from ..presentation import colored, error, format_table, label, status_label, warning, wrap_text
 from ..progress import progress_scope, stage
 from ..runtimes.platforms.factory import backend_for
 from ..runtimes.platforms.layout import require_registration_control
 from ..runtimes.platforms.locking import operation_lock
 from ..schemas import CLI_SCHEMA_VERSION
 from .config import load_project, parse_project
+from .diagnostics import describe, enrich, error_diagnostics, recovery_progress, summary
 from .drivers import remove_owned_tree
 from .engine import ProjectEngine
 from .models import ProjectError, validate_name
@@ -75,6 +77,13 @@ def list_projects(environment: str, settings=None) -> list[dict]:
                     not isinstance(item, dict)
                     or not isinstance(item.get("name"), str)
                     or item.get("environment", environment) != environment
+                    or "services" in item
+                    and (
+                        not isinstance(item["services"], dict)
+                        or any(
+                            not isinstance(service, dict) for service in item["services"].values()
+                        )
+                    )
                     for item in payload["projects"]
                 )
             ):
@@ -91,7 +100,10 @@ def list_projects(environment: str, settings=None) -> list[dict]:
             from .access import windows_access
 
             projects = windows_access(projects)
-        return projects
+        from .remote_evidence import remote_log_evidence
+
+        projects = remote_log_evidence(projects, target, settings)
+        return [enrich(project) for project in projects]
     projects = []
     for name in Registry(environment).names():
         try:
@@ -107,7 +119,7 @@ def list_projects(environment: str, settings=None) -> list[dict]:
                     "error_detail": error_detail(exc),
                 }
             )
-    return projects
+    return [enrich(project) for project in projects]
 
 
 def project_columns(engine):
@@ -157,12 +169,15 @@ def start_all(environment, as_json):
                     engine.start()
                 results.append({"name": name, "status": "started"})
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            facts = error_diagnostics(exc)
             results.append(
                 {
                     "name": name,
                     "status": "failed",
                     "error": error_payload(exc, action="start")["error"],
                     "error_detail": error_detail(exc),
+                    "diagnostics": facts,
+                    "summary": summary(facts),
                 }
             )
     payload = {
@@ -197,6 +212,8 @@ def start_all(environment, as_json):
             )
             if item.get("error_detail"):
                 print(error(render(item["error_detail"])))
+            if item.get("summary"):
+                print(warning(t("Reason summary: {summary}", summary=item["summary"])))
         if not results:
             print(t("  暂无已注册项目。"))
     return 0 if payload["complete"] else 1
@@ -205,6 +222,10 @@ def start_all(environment, as_json):
 def _list_state(project: dict) -> str:
     if project.get("error") or project.get("error_detail"):
         return "error"
+    if project.get("desired_running") is False and all(
+        service.get("phase") == "stopped" for service in project.get("services", {}).values()
+    ):
+        return "stopped"
     if project.get("recovery") or project.get("maintenance_error"):
         return "recovery-pending"
     services = [
@@ -293,8 +314,170 @@ def remote_wsl_status(arguments, settings, as_json):
             ),
             environment="wsl",
         )
-    emit(windows_access([value])[0], as_json)
+    from .remote_evidence import remote_log_evidence
+
+    value = remote_log_evidence(windows_access([value]), "wsl", settings)[0]
+    emit(enrich(value), as_json)
     return exit_code(result.returncode)
+
+
+def emit_diagnostics(payload, *, detailed=False):
+    value = enrich(payload)
+    if not value["summary"]:
+        return
+    width = max(30, min(shutil.get_terminal_size(fallback=(110, 24)).columns, 120))
+    print()
+    print(t("Reason summary:"))
+    print(
+        warning(
+            wrap_text(
+                t("Cause: {reason}", reason=value["summary"]),
+                width,
+                initial_indent="  ",
+                subsequent_indent="    ",
+            )
+        )
+    )
+    if detailed:
+        for fact in value["diagnostics"]:
+            if (
+                fact["code"].startswith("log.")
+                or fact["code"] == "access.observed"
+                or fact not in value["diagnostics"][:2]
+            ):
+                print(
+                    wrap_text(describe(fact), width, initial_indent="  ", subsequent_indent="    ")
+                )
+        progress = recovery_progress(payload.get("recovery"))
+        if progress:
+            target = progress["service"] or progress["task"]
+            progress_stage = label(progress["stage"] or "unknown")
+            if target:
+                progress_stage += f" ({target})"
+            print(
+                t(
+                    "  Recovery stage: {stage}; attempt: {attempt}",
+                    stage=progress_stage,
+                    attempt=progress["attempt"] or "?",
+                )
+            )
+            if progress["retry_in_seconds"] is not None:
+                print(t("  Retry in {seconds}s", seconds=progress["retry_in_seconds"]))
+            if isinstance(progress["last_progress_at"], int | float):
+                import time
+
+                print(
+                    t(
+                        "  Last progress: {seconds}s ago",
+                        seconds=max(0, round(time.time() - progress["last_progress_at"])),
+                    )
+                )
+        services = list(
+            dict.fromkeys(
+                fact.get("service") for fact in value["diagnostics"] if fact.get("service")
+            )
+        )
+        for service in services[:3]:
+            environment = "win" if payload.get("environment") == "windows" else "wsl"
+            print(
+                t(
+                    "  Inspect logs: {command}",
+                    command=f"dev-tools logs {payload['name']} {service} -e {environment}",
+                )
+            )
+
+
+def emit_list_summaries(payload):
+    entries = []
+    for project in payload["projects"]:
+        value = enrich(project)
+        reason = value["summary"]
+        if project.get("error") or project.get("error_detail"):
+            reason = render(project.get("error_detail") or project["error"])
+        if not reason:
+            access = project.get("windows_access", {}).get("state")
+            if access == "unreachable":
+                reason = t(
+                    "Windows localhost access failed; WSL-local health does not prove Windows access"
+                )
+            elif access == "unknown":
+                reason = t(
+                    "Windows access could not be checked; update the WSL controller for access metadata"
+                )
+        if reason:
+            environment = label(project.get("environment", payload["environment"]))
+            heading = f"{project['name']} [{environment} / {label(_list_state(project))}]"
+            entries.append((heading, reason, recovery_progress(project.get("recovery")), value))
+    for failure in payload.get("errors", []):
+        heading = f"{label(failure['environment'])} [{label('error')}]"
+        entries.append(
+            (heading, render(failure.get("error_detail") or failure["error"]), None, None)
+        )
+    if not entries:
+        return
+    width = max(30, min(shutil.get_terminal_size(fallback=(110, 24)).columns, 120))
+    print()
+    print(t("Reason summaries:"))
+    for index, (heading, reason, progress, project) in enumerate(entries):
+        if index:
+            print()
+        print(wrap_text(heading, width, initial_indent="  ", subsequent_indent="    "))
+        print(
+            warning(
+                wrap_text(
+                    t("Cause: {reason}", reason=reason),
+                    width,
+                    initial_indent="    ",
+                    subsequent_indent="      ",
+                )
+            )
+        )
+        if project:
+            details = [
+                fact
+                for fact in project["diagnostics"]
+                if fact["code"].startswith("log.") or fact["code"] == "access.observed"
+            ]
+            for fact in details[:3]:
+                print(
+                    wrap_text(
+                        describe(fact), width, initial_indent="    ", subsequent_indent="      "
+                    )
+                )
+            if not project.get("error") and (
+                details
+                or any(
+                    fact["code"]
+                    in {
+                        "health.details_missing",
+                        "health.probe_failed",
+                        "process.exited",
+                        "process.failed",
+                        "service.not_ready",
+                        "operation.failed",
+                    }
+                    for fact in project["diagnostics"]
+                )
+            ):
+                environment = "win" if project.get("environment") == "windows" else "wsl"
+                command = f"dev-tools status {project['name']} -e {environment}"
+                print(
+                    wrap_text(
+                        t("  Inspect status: {command}", command=command).strip(),
+                        width,
+                        initial_indent="    ",
+                        subsequent_indent="      ",
+                    )
+                )
+        if progress and progress["retry_in_seconds"] is not None:
+            print(
+                wrap_text(
+                    t("  Retry in {seconds}s", seconds=progress["retry_in_seconds"]).strip(),
+                    width,
+                    initial_indent="    ",
+                    subsequent_indent="      ",
+                )
+            )
 
 
 def emit(payload: dict, as_json: bool) -> None:
@@ -336,10 +519,11 @@ def emit(payload: dict, as_json: bool) -> None:
             print(
                 f"  {name}{optional}：{status_label(value['phase'])}（{status_label(value['health'])}）"
             )
+        emit_diagnostics(payload, detailed=True)
         emit_access(payload)
         if payload.get("health_scope") == "wsl-local":
             print(t("Health scope: WSL local only; Windows localhost forwarding is not checked"))
-        if payload.get("maintenance_error"):
+        if payload.get("maintenance_error") and not enrich(payload)["summary"]:
             print(warning(t("自动维护待处理：{error}", error=render(payload["maintenance_error"]))))
         if payload.get("recovery"):
             recovery = payload["recovery"]
@@ -352,7 +536,7 @@ def emit(payload: dict, as_json: bool) -> None:
                 t("  待恢复服务与监控：")
                 + (", ".join(recovery.get("restore_workers", [])) or t("无"))
             )
-            if recovery.get("error"):
+            if recovery.get("error") and not enrich(payload)["summary"]:
                 print(
                     t(
                         "  恢复原因：{value}",
@@ -375,31 +559,9 @@ def emit(payload: dict, as_json: bool) -> None:
                 ],
             )
         )
-        for project in payload["projects"]:
-            if project.get("windows_access", {}).get("state") in {"unreachable", "unknown"}:
-                emit_access(project)
-            if project.get("error") or project.get("error_detail"):
-                print(
-                    error(
-                        t(
-                            "  {name}：{value}",
-                            name=project["name"],
-                            value=render(project.get("error_detail") or project["error"]),
-                        )
-                    )
-                )
+        emit_list_summaries(payload)
         if any(project.get("health_scope") == "wsl-local" for project in payload["projects"]):
             print(t("Health scope: WSL local only; Windows localhost forwarding is not checked"))
-        for diagnostic in payload.get("errors", []):
-            print(
-                warning(
-                    t(
-                        "  {environment}：{value}",
-                        environment=label(diagnostic["environment"]),
-                        value=render(diagnostic.get("error_detail") or diagnostic["error"]),
-                    )
-                )
-            )
         if not payload["projects"] and not payload.get("errors"):
             print(t("  暂无已注册项目。"))
     if "runtime_versions" in payload:
@@ -435,6 +597,19 @@ def emit(payload: dict, as_json: bool) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
+    try:
+        return _run(args)
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        if args.project_command in {"prepare", "start", "restart", "build"}:
+            exc.diagnostics = error_diagnostics(exc)
+            exc.diagnostic_context = {
+                "name": getattr(args, "name", None),
+                "environment": "windows" if args.env == "win" else args.env,
+            }
+        raise
+
+
+def _run(args: argparse.Namespace) -> int:
     action = args.project_command
     environment = "windows" if args.env == "win" else args.env
     payload = {"schema_version": CLI_SCHEMA_VERSION, "action": action, "environment": environment}

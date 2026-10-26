@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Windows-11-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.6](https://img.shields.io/badge/Version-0.5.6-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Windows-11-blue)](docs/installation.en.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.en.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.en.md) [![Version 0.5.7](https://img.shields.io/badge/Version-0.5.7-blue)](CHANGELOG.md)
 
 Hot deployment and live updates for development projects on Windows and WSL.
 
@@ -101,6 +101,8 @@ Supports mixed-language projects and declared workspaces and modules. See [proje
 | `dev-tools -v` / `dev-tools help` | Show the version or help |
 
 Omit the project name in a directory that uniquely matches a registered project. `logs my-app` combines project logs, `logs my-app api` selects a service, and `logs my-app --task` reads task logs.
+
+`list` prints reason summaries below its table; `status` expands diagnostics, recovery progress and log commands. JSON adds `summary` and `diagnostics` with stable codes, also included in operation failures. Queries remain read-only and never trigger recovery or restarts; see [Usage](docs/usage.en.md).
 
 ### Toolbox
 

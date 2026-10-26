@@ -190,6 +190,39 @@ dev-tools hosts restore
 
 ## 生命周期与平台边界
 
+### 原因摘要与恢复进度
+
+文本列表的“原因摘要”独立于表格，按“项目 [环境 / 状态] → 原因 → 重试倒计时”分行展示，长内容按终端显示宽度续行缩进；正常且无诊断时不显示空区块。JSON 输出不受此排版影响。
+
+`list` 保留五列表格，在表格下展示有诊断的项目摘要；`status` 展开具体诊断、恢复阶段、尝试次数、最近进展和日志命令。`start/prepare/restart/build` 失败输出同一份原因摘要，JSON 对应新增 `summary` 和 `diagnostics`。摘要只陈述已观察到的事实，例如 HTTP 状态或退出码，不推断隧道、数据库或某个框架的根因。可选服务失败只作为警告；主动停止不展示旧恢复错误；同一服务的健康失败和访问失败去重。
+
+恢复期间保留最近失败，下一次尝试不会立即抹掉原因；成功后清除。旧 worker 没有重试元数据时次数和时间显示未知，不据此判断卡死。新 worker 保留当前启动的日志起点、失败尝试的起止范围及通用错误码；本地文件读取和旧端输出的分析均限于 8 KiB，提取最多两条异常首句，脱敏后作为线索展示。无法关联到某次尝试时明确标记发生时间未确认。新元数据由后续正常启动的 worker 产生，查询不重启现有 worker。
+
+旧目标控制器缺少诊断字段时，调用端最多使用 3 次 show/logs 只读请求，补充目标平台的探测地址和失败进程日志；总预算 4 秒，单次最多 2 秒，进程失败优先。健康服务不做额外请求。补充失败不改变查询退出码，不触发升级、提权、安装或恢复。健康摘要保留探测目标、异常类型或 HTTP 状态；JSON 不匹配报告字段路径；Compose 报告具体容器状态。日志线索始终与已确认的失败事实分开，未取得详情时明确表示远端未上报。
+
+以下为示例节选，非本机故障记录。`list --all` 的表格后可显示：
+
+```text
+原因摘要：
+  my-app [WSL / 待恢复]
+    原因：api: HTTP 就绪检查返回 503 (http://127.0.0.1:8080/ready)
+    30 秒后重试
+```
+
+`status my-app -e wsl` 展开恢复信息，例如 `恢复阶段：健康检查 (api)；尝试次数：2`。改为本机配置 `language = "en"` 后，标题变为 `Reason summary:`、阶段变为 `Health check`；原始第三方异常保持原文。对应的 JSON 事实不随语言变化，节选如下：
+
+```json
+{
+  "code": "health.http_status",
+  "stage": "health",
+  "severity": "error",
+  "service": "api",
+  "evidence": {"http_status": 503, "target": "http://127.0.0.1:8080/ready"}
+}
+```
+
+### 原生与跨端控制
+
 WSL 的 root 或 sudo 环境也可使用 `-e win` 查询、注册和控制 Windows 项目。即使 Linux PATH 不含 Windows 目录，也会根据实际磁盘挂载定位 PowerShell 7；必要时通过 Windows 自带 PowerShell 只读查询 Windows PATH 和安装记录，不读取用户 profile 或改动系统配置。WSL root 不会自动获得 Windows 管理员权限，Windows hosts 写入仍按需请求 UAC。命令为 `dev-tools hosts list -e win`（`hosts` 为复数）。
 
 `dev-tools list` 默认只读查询当前环境；`list -e win` / `list -e wsl` 查询指定侧。只有 `list --all` 汇总 Windows 和配置的 WSL 发行版，同名注册按环境保留两行。输出由调用端按本机语言统一渲染，包含配置声明的端口与运行时类型；查询不会更新部署或改变项目运行状态。

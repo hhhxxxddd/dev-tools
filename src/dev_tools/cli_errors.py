@@ -149,17 +149,21 @@ def error_payload(error: BaseException, *, code: str | None = None, action: str 
     request = _request.get()
     action = action or (request.action if request else None)
     if isinstance(error, RemoteError):
-        return error.payload
+        return _with_summary(dict(error.payload), error, action)
     if isinstance(error, TargetError):
-        return {
-            "schema_version": CLI_SCHEMA_VERSION,
-            "action": action,
-            "error": {
-                "code": error.code,
-                "message": t(ERROR_MESSAGES[error.code]),
-                "details": error.details,
+        return _with_summary(
+            {
+                "schema_version": CLI_SCHEMA_VERSION,
+                "action": action,
+                "error": {
+                    "code": error.code,
+                    "message": t(ERROR_MESSAGES[error.code]),
+                    "details": error.details,
+                },
             },
-        }
+            error,
+            action,
+        )
     value = error.args[0] if error.args else None
     source = getattr(value, "source", "")
     parameters = getattr(value, "parameters", {})
@@ -196,16 +200,41 @@ def error_payload(error: BaseException, *, code: str | None = None, action: str 
         returncode = _number(getattr(error, "returncode", parameters.get("returncode")))
         if isinstance(returncode, int):
             details["returncode"] = returncode
-    return {
+    payload = {
         "schema_version": CLI_SCHEMA_VERSION,
         "action": action,
         "error": {"code": code, "message": t(ERROR_MESSAGES[code]), "details": details},
     }
+    return _with_summary(payload, error, action)
+
+
+def _with_summary(payload, error, action):
+    if action in {"prepare", "start", "restart", "build"}:
+        from .projects.diagnostics import diagnostic, error_diagnostics, normalize, summary
+
+        values = normalize(payload.get("diagnostics")) or error_diagnostics(error)
+        public = payload.get("error", {})
+        if (
+            all(value["code"] == "operation.failed" for value in values)
+            and public.get("code") in ERROR_MESSAGES
+            and public["code"] != "operation_failed"
+        ):
+            values = [
+                diagnostic(
+                    "controller.reported",
+                    evidence={"code": public["code"], "message": public["message"]},
+                )
+            ]
+        payload.update(diagnostics=values, summary=summary(values))
+    return payload
 
 
 def emit_error(error: BaseException, *, code: str | None = None) -> None:
+    payload = error_payload(error, code=code)
+    facts = payload.get("diagnostics") or getattr(error, "diagnostics", None)
+    context = getattr(error, "diagnostic_context", {})
     if json_requested():
-        print(json.dumps(error_payload(error, code=code), ensure_ascii=False, indent=2))
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     if isinstance(error, subprocess.TimeoutExpired):
         error = ValueError(message("Controller command timed out; check the environment and retry"))
@@ -215,6 +244,39 @@ def emit_error(error: BaseException, *, code: str | None = None) -> None:
         from .presentation import error as error_text
 
         print(error_text(f"dev-tools: {render(error)}", stream=sys.stderr), file=sys.stderr)
+        if facts:
+            import shutil
+
+            from .presentation import wrap_text
+            from .projects.diagnostics import NAME, describe, normalize, summary
+
+            width = max(30, min(shutil.get_terminal_size(fallback=(110, 24)).columns, 120))
+            print(
+                wrap_text(
+                    t("Reason summary: {summary}", summary=summary(facts)),
+                    width,
+                    subsequent_indent="  ",
+                ),
+                file=sys.stderr,
+            )
+            for fact in normalize(facts):
+                if fact["code"].startswith("log."):
+                    print(
+                        wrap_text(
+                            describe(fact), width, initial_indent="  ", subsequent_indent="    "
+                        ),
+                        file=sys.stderr,
+                    )
+            name = context.get("name")
+            if isinstance(name, str) and NAME.fullmatch(name):
+                environment = "win" if context.get("environment") == "windows" else "wsl"
+                print(
+                    t(
+                        "  Inspect status: {command}",
+                        command=f"dev-tools status {name} -e {environment}",
+                    ),
+                    file=sys.stderr,
+                )
 
 
 def exit_code(value: int | None) -> int:

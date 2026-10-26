@@ -190,6 +190,39 @@ System writes show a diff and save original bytes plus transaction checksums und
 
 ## Lifecycle and platform boundaries
 
+### Reason summaries and recovery progress
+
+The text list has a separate "Reason summaries" section, with project [environment / state], cause and retry countdown on separate lines. Long text wraps with hanging indentation using terminal display width. Healthy projects without diagnostics produce no empty section. JSON output is unaffected by this layout.
+
+`list` retains its five-column table and prints project summaries below it. `status` expands diagnostics, recovery stage, attempt count, last progress and log commands. Failed `start/prepare/restart/build` operations use the same summaries; JSON adds `summary` and `diagnostics`. Summaries state observed facts such as HTTP status or exit code without inferring tunnel, database or framework root causes. Optional failures are warnings, explicit stops suppress old recovery errors, and health/access failures for the same service are deduplicated.
+
+Recovery retains the last failure across attempts and clears it on success. Missing retry metadata from older workers is unknown and never proves a hang. New workers retain the current attempt log offset, failed-attempt byte ranges and generic error codes. Local file reads and analysis of older-target output are limited to 8 KiB and up to two redacted exception first sentences as clues. Clues not tied to a specific attempt explicitly mark their event time as unverified. Subsequent normal worker starts produce new metadata; queries never restart existing workers.
+
+When an older target omits diagnostic fields, the caller uses at most three read-only show/logs requests to supplement target-native probe addresses and failed-process logs. The total budget is four seconds, with at most two seconds per request; process failures take priority. Healthy services incur no extra requests. Supplement failures never change query exit codes or trigger upgrades, elevation, installation or recovery. Health summaries retain targets, exception types or HTTP statuses; JSON mismatches report field paths, and Compose reports concrete container states. Log clues remain separate from confirmed failure facts; missing target details are explicit.
+
+These are illustrative excerpts, not local incident records. After the `list --all` table:
+
+```text
+Reason summaries:
+  my-app [WSL / Recovery pending]
+    Cause: api: HTTP readiness returned 503 (http://127.0.0.1:8080/ready)
+    Retry in 30s
+```
+
+`status my-app -e wsl` expands recovery information, for example `Recovery stage: Health check (api); attempt: 2`. Setting the native configuration to `language = "zh"` changes the heading to `原因摘要：` and the stage to `健康检查`; raw third-party exceptions retain their original text. Corresponding JSON facts remain unchanged across languages, for example:
+
+```json
+{
+  "code": "health.http_status",
+  "stage": "health",
+  "severity": "error",
+  "service": "api",
+  "evidence": {"http_status": 503, "target": "http://127.0.0.1:8080/ready"}
+}
+```
+
+### Native and cross-platform control
+
 WSL root and sudo environments can also use `-e win` to query, register and control Windows projects. When Linux PATH excludes Windows directories, PowerShell 7 is located from actual drive mounts; if needed, inbox Windows PowerShell reads Windows PATH and installation records without loading user profiles or changing system configuration. WSL root does not automatically obtain Windows administrator rights; hosts writes still request UAC when needed. Use `dev-tools hosts list -e win` (`hosts` is plural).
 
 `dev-tools list` defaults to a read-only query of the current environment. Use `list -e win` / `list -e wsl` to select a target. Only `list --all` combines Windows and the configured WSL distribution. Identical registration names remain separate rows by environment. The caller renders both using its language settings, including declared ports and runtime types; queries do not update deployments or change running projects.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import codecs
 import io
 import os
+import re
 import time
 from itertools import pairwise
 from pathlib import Path
@@ -16,6 +17,25 @@ from .models import ProjectError
 LOG_MAX_BYTES = 10 * 1024 * 1024
 LOG_BACKUPS = 3
 TAIL_BLOCK_BYTES = 64 * 1024
+
+
+def failure_codes(path: Path, start: int) -> list[str]:
+    """Read only this failed run's bounded tail; never retain arbitrary log text."""
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(start, stream.tell() - 4096))
+            recent = stream.read(4096).decode("utf-8", errors="replace")
+        return list(
+            dict.fromkeys(
+                re.findall(
+                    r"\b(?:ERR_[A-Z0-9_]{2,64}|EADDRINUSE|EACCES|ENOENT|ECONNREFUSED|MODULE_NOT_FOUND|[A-Z][A-Za-z]{1,48}Error)\b",
+                    recent,
+                )
+            )
+        )[:3]
+    except OSError:
+        return []
 
 
 def rotate_log(path: Path) -> bool:

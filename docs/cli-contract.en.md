@@ -4,6 +4,14 @@
 
 This contract applies from 0.5.0. Commands, exit codes and JSON outputs are public interfaces. Python modules, worker entrypoints and local state files are not APIs for third-party callers.
 
+## Reason summaries and diagnostics
+
+Project statuses and list entries add `summary` (string or null) and `diagnostics` (up to 32 facts). Each diagnostic includes stable `code`, `stage`, `severity=error|warning|info`, optional `service` and allowlisted `evidence` such as `http_status/exit_code/check`. Full raw logs, response bodies, environment variables and unfiltered exception arguments are excluded. Optional clue messages contain bounded, redacted exception first sentences. Summaries use the caller's language; automation should use codes. Failed `start/prepare/restart/build` documents add these fields without changing exit codes or the existing `error` object.
+
+Evidence may also include redacted target, integer errno, exception/command and Compose container/state/health. log.message identifies an attempt-associated exception clue; log.tail identifies tail evidence with unverified event time. Neither asserts a root cause. Service log_diagnostics use the same fact structure as project diagnostics. Status and operation-failure text show these clues without including full raw logs.
+
+Statuses also add `desired_running` (boolean or null), `expected_workers` and `recovery_progress` (object or null). Progress includes `state=waiting|running|failed|unknown` and `stage/service/task/attempt/last_progress_at/retry_in_seconds`; missing metadata from old workers is null. Times are Unix seconds and countdowns are presentation only; queries never write state. Service entries may include `diagnostics/updated_at/last_failure/restart_count`. Existing health, readiness and optional-service aggregation semantics remain unchanged.
+
 ## Commands and output
 
 The environment option is `-e win|wsl`. Every command defaults to the current platform, including list, config, sysinfo, report and self. Explicit targets work locally and across platforms, before or after the command. Cross-platform execution reads target-side configuration without forwarding the caller's --config. Windows hosts actions still support only win and reject wsl explicitly. Project names may be omitted only when the current directory uniquely matches a registered source or workspace; ambiguous matches are never guessed. `list --all` cannot be combined with an explicit environment option.

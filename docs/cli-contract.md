@@ -4,6 +4,14 @@
 
 本约定从 0.5.0 起适用。公共接口是命令、退出码和 JSON 输出；Python 模块、worker 入口及本机状态文件不是供第三方调用的 API。
 
+## 原因摘要与诊断
+
+项目状态和列表项新增 `summary`（字符串或 null）、`diagnostics`（最多 32 条事实）。诊断包含稳定 `code`、`stage`、`severity=error|warning|info`、可选 `service` 和白名单 `evidence`（如 `http_status/exit_code/check`）；不包含完整原始日志、响应正文、环境变量或未过滤的异常参数；异常线索的 message 为限长、脱敏后的异常首句。`summary` 按调用端语言生成，自动化应判断错误码。`start/prepare/restart/build` 的错误文档也增加这两个字段，不改变退出码或原有 `error` 字段。
+
+evidence 还可包含脱敏 target、整数 errno、exception/command，以及 Compose 的 container/state/health。log.message 为关联到失败尝试的异常线索，log.tail 为发生时间未确认的日志尾部线索，两者不作为已确认根因。服务项的 log_diagnostics 与项目诊断共享相同事实结构。status 的文本与操作失败文本也显示这些线索，不增加原始日志正文。
+
+状态新增 `desired_running`（布尔或 null）、`expected_workers` 和 `recovery_progress`（对象或 null）。恢复进度含 `state=waiting|running|failed|unknown`、`stage/service/task/attempt/last_progress_at/retry_in_seconds`；旧 worker 缺少的值为 null。时间为 Unix 秒，倒计时仅用于展示；查询不写入状态。服务项可含 `diagnostics/updated_at/last_failure/restart_count`。健康、就绪和可选服务的既有聚合语义不变。
+
 ## 命令与输出
 
 环境参数为 `-e win|wsl`，所有命令省略时使用当前平台，包括 list、config、sysinfo、report 和 self。显式环境在同端和跨端均生效，支持放在命令前后。跨端读取目标侧配置，不传递调用端 --config；Windows hosts 的实际操作仍只支持 win，指定 wsl 明确报错。项目名可以省略，但当前目录必须唯一匹配注册的源码或工作目录；多重匹配不会猜测。`list --all` 不能与显式环境参数同时使用。

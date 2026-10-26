@@ -37,7 +37,9 @@ class DriverTests(unittest.TestCase):
         executor.resolve.return_value = (["docker", "compose", "ps"], Path.cwd(), {})
         executor.run.side_effect = ProjectError("timeout")
         with patch("dev_tools.projects.drivers.compose_command"):
-            self.assertEqual(_probe(service, executor), "unhealthy")
+            health, diagnostics = _probe(service, executor)
+            self.assertEqual(health, "unhealthy")
+            self.assertEqual(diagnostics[0]["code"], "compose.query_failed")
         self.assertEqual(executor.run.call_args.kwargs["timeout"], 5)
 
     def test_compose_health_accepts_json_lists_and_lines_and_honors_tcp_probe(self):
@@ -57,7 +59,7 @@ class DriverTests(unittest.TestCase):
                 "dev_tools.projects.engine.run_compose",
                 return_value=subprocess.CompletedProcess([], 0, content),
             ):
-                self.assertEqual(_probe(service, None), expected)
+                self.assertEqual(_probe(service, None)[0], expected)
         with socket.socket() as server:
             server.bind(("127.0.0.1", 0))
             port = server.getsockname()[1]
@@ -73,7 +75,7 @@ class DriverTests(unittest.TestCase):
             "dev_tools.projects.engine.run_compose",
             return_value=subprocess.CompletedProcess([], 0, '{"State":"running"}'),
         ):
-            self.assertEqual(_probe(service, None), "unhealthy")
+            self.assertEqual(_probe(service, None)[0], "unhealthy")
 
     def fixture(self, root):
         source = root / "source"

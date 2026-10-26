@@ -79,9 +79,10 @@ class TerminalTests(unittest.TestCase):
             "complete": False,
             "errors": [{"environment": "windows", "error": "target unavailable"}],
         }
-        with contextlib.redirect_stdout(stream := Terminal()):
+        with contextlib.redirect_stdout(stream := Terminal()), language_scope("zh"):
             emit(payload, False)
-        self.assertIn("\x1b[33m  Windows：target unavailable\x1b[0m", stream.getvalue())
+        self.assertIn("\n\n原因摘要：\n  Windows [检查失败]\n", stream.getvalue())
+        self.assertIn("\x1b[33m    原因：target unavailable\x1b[0m", stream.getvalue())
         self.assertNotIn("\x1b[31m", stream.getvalue())
         with contextlib.redirect_stdout(stream := Terminal()):
             emit(payload, True)

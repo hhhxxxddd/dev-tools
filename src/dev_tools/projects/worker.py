@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import time
@@ -9,7 +10,7 @@ from threading import Event
 
 from ..i18n import error_detail, message
 from .drivers import compose_command, spring_classpath
-from .logfiles import rotate_log
+from .logfiles import failure_codes, rotate_log
 from .models import ProjectError
 from .monitoring import sync_loop, watch_loop
 from .process_errors import process_error
@@ -55,6 +56,8 @@ def run_worker(engine, name: str) -> int:
         if name not in engine.spec.services:
             raise ProjectError(message("unknown service: {service}", service=name))
         service = engine.spec.services[name]
+        last_failure = None
+        restart_count = 0
         while not stop.is_set():
             child = None
             try:
@@ -71,6 +74,8 @@ def run_worker(engine, name: str) -> int:
                     additions=service.env,
                     spring_classpath=classpath,
                 )
+                log.flush()
+                log_start = os.fstat(log.fileno()).st_size
                 child = subprocess.Popen(
                     argv,
                     cwd=cwd,
@@ -79,7 +84,13 @@ def run_worker(engine, name: str) -> int:
                     stderr=subprocess.STDOUT,
                     **engine.backend.child_options(),
                 )
-                phase("running", pid=child.pid)
+                phase(
+                    "running",
+                    pid=child.pid,
+                    log_start=log_start,
+                    last_failure=last_failure,
+                    restart_count=restart_count,
+                )
                 while child.poll() is None and not stop.wait(0.2):
                     pass
                 if stop.is_set():
@@ -91,6 +102,17 @@ def run_worker(engine, name: str) -> int:
                 restart = (
                     service.restart == "always" or service.restart == "on-failure" and code != 0
                 )
+                if code:
+                    codes = failure_codes(log_path, log_start)
+                    last_failure = {
+                        "exit_code": code,
+                        "at": time.time(),
+                        "log_codes": codes,
+                        "log_start": log_start,
+                        "log_end": os.fstat(log.fileno()).st_size,
+                    }
+                if restart:
+                    restart_count += 1
                 phase(
                     "restarting" if restart else "failed" if code else "stopped",
                     exit_code=code,
@@ -98,6 +120,8 @@ def run_worker(engine, name: str) -> int:
                     error_detail=message("command exited with code {code}", code=code).as_dict()
                     if code
                     else None,
+                    last_failure=last_failure,
+                    restart_count=restart_count,
                 )
                 if not restart:
                     return code

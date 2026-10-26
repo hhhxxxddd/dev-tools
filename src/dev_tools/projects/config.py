@@ -218,7 +218,7 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
         if driver == "process" and not command.argv and not command.script:
             raise ProjectError(message("service {key} needs a command", key=key))
         health = _table(item.get("health", {}), "health")
-        if set(health) - {"tcp", "http", "timeout", "json"}:
+        if set(health) - {"tcp", "http", "timeout", "json", "details"}:
             raise ProjectError(message("service {key}: unknown health check", key=key))
         port = health.get("tcp")
         if port is not None and (type(port) is not int or not 1 <= port <= 65535):
@@ -245,6 +245,32 @@ def parse_project(raw: dict[str, Any], platform: str) -> ProjectSpec:
                         "service {key}: health.json requires HTTP and a nonempty table", key=key
                     )
                 )
+        if "details" in health:
+            paths = health["details"]
+            if (
+                not health.get("http")
+                or not isinstance(paths, list)
+                or len(paths) > 16
+                or any(
+                    not isinstance(path, str)
+                    or not path.startswith("/")
+                    or not 1 < len(path) <= 128
+                    or len(path.split("/")) > 9
+                    or any(
+                        char
+                        not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-/~.@+"
+                        for char in path
+                    )
+                    for path in paths
+                )
+            ):
+                raise ProjectError(
+                    message(
+                        "service {key}: health.details requires HTTP and up to 16 JSON pointers",
+                        key=key,
+                    )
+                )
+        if "json" in health:
             try:
                 json.dumps(expected, allow_nan=False)
             except (TypeError, ValueError) as exc:

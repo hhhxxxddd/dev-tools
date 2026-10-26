@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Windows-11-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.6](https://img.shields.io/badge/Version-0.5.6-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Windows-11-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.7](https://img.shields.io/badge/Version-0.5.7-blue)](CHANGELOG.md)
 
 Windows / WSL 开发项目的热部署与热更新工具。
 
@@ -101,6 +101,8 @@ dev-tools list --all
 | `dev-tools -v` / `dev-tools help` | 查看版本或帮助 |
 
 在唯一匹配的已注册项目目录中可省略项目名。`logs my-app` 汇总项目日志，`logs my-app api` 指定服务，`logs my-app --task` 查看任务日志。
+
+`list` 在表格后显示异常项目的原因摘要；`status` 展开诊断、恢复进度及日志入口。JSON 增加 `summary` 和稳定错误码的 `diagnostics`，操作失败也提供同一份摘要。查询保持只读，不触发恢复或重启；详情见 [运行说明](docs/usage.md)。
 
 ### 工具箱
 

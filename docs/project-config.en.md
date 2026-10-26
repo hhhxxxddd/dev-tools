@@ -180,6 +180,8 @@ Health supports:
 - json: an optional nonempty expected-field table requiring http. Responses must contain matching fields and types; extra fields are allowed. Reads at most 64 KiB and checks an overall deadline between reads so trickling bodies cannot stall queries; responses are not saved to state or logs.
 - timeout: readiness wait in seconds, default 15, greater than 0 and at most 300.
 
+- details: an optional array of JSON object field paths, using `/` separators and JSON Pointer `~0/~1` escapes; only object fields are traversed. Requires http, with up to 16 paths, 128 characters and eight segments per path. For example, `details = ["/checks/storage", "/checks/queue"]`. Only field names with false or fixed failure values (failed/error/unhealthy/unavailable/down) are reported; response values and bodies are excluded. Details may be read from non-2xx responses within the same 64 KiB and read deadline limits. Details are advisory and do not change existing readiness decisions.
+
 When both TCP and HTTP are declared, both must succeed. Native processes without a probe have health unknown; process readiness and confirmed health are reported separately. Compose also checks container state and container-reported health. Each container-state query is limited to 5 seconds; failure or timeout reports unhealthy.
 
 ## Desktop clients and shared services
