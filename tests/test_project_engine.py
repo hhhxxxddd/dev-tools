@@ -118,7 +118,9 @@ class EngineContractTests(unittest.TestCase):
     def test_prepare_start_stop_and_status_have_one_contract(self):
         for engine in self.both():
             engine.prepare()
-            self.assertEqual(engine.backend.events, ["requirements", "sync", "task:install"])
+            self.assertEqual(
+                engine.backend.events, ["requirements", "sync", "task:install", "task:compile"]
+            )
             engine.backend.events.clear()
             with patch("dev_tools.projects.monitoring.git_snapshot", return_value={}):
                 engine.start(("web",))

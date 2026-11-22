@@ -257,16 +257,30 @@ def sync_loop(engine, stop: Event, ready=lambda: None) -> None:
 
 
 def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
+    from .build_freshness import build_inputs, stale_builds
+
     watch_root = engine.binding.workspace
-    snapshots = _resume_snapshots(
-        engine,
-        {policy.service: file_snapshot(watch_root, policy) for policy in engine.spec.builds},
-    )
+    initial_files = {
+        policy.service: file_snapshot(watch_root, policy) for policy in engine.spec.builds
+    }
+    snapshots = _resume_snapshots(engine, initial_files)
     observed_git, observed_revision = source_snapshot(engine, shared=True)
     observed_files = snapshots
     settled_since = time.monotonic()
     retry_after = 0.0
     fresh_after = 0.0
+    try:
+        # A valid handover already carries the pre-replacement baseline and lets
+        # the ordinary watcher classify changes without an unnecessary restart.
+        check_initial_build = snapshots == initial_files and bool(
+            stale_builds(
+                engine.spec,
+                build_inputs(engine.spec, engine.binding, engine.executor),
+                engine.state(),
+            )
+        )
+    except ValueError, OSError:
+        check_initial_build = bool(engine.spec.builds)
     poll = IdlePoll(0.5, 1.5)
     ready()
     while not stop.wait(poll.delay):
@@ -301,9 +315,24 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
             continue
         state = engine.state()
         recovery = state.get("recovery") or {}
+        initial_stale = ()
+        if check_initial_build:
+            try:
+                initial_stale = stale_builds(
+                    engine.spec, build_inputs(engine.spec, engine.binding, engine.executor), state
+                )
+                if not initial_stale:
+                    check_initial_build = False
+            except (ValueError, OSError) as exc:
+                poll.update(False)
+                if time.monotonic() >= retry_after:
+                    print(t("自动维护待处理：{error}", error=str(exc)), flush=True)
+                    retry_after = time.monotonic() + 30
+                continue
         branch_changed = engine.spec.rebuild_on_branch and current_git != state.get("git", {})
         pending = (
             bool(recovery)
+            or bool(initial_stale)
             or branch_changed
             or current_revision != state.get("prepared_revision")
             or current_files != snapshots
@@ -325,9 +354,11 @@ def watch_loop(engine, stop: Event, ready=lambda: None) -> None:
                 current_revision != state.get("prepared_revision")
                 or recovery.get("operation") in {"prepare", "start"}
                 or branch_changed
+                or initial_stale
             ):
-                engine.maintain(structural=bool(branch_changed))
+                engine.maintain(structural=bool(branch_changed or initial_stale))
                 engine.save(git=current_git)
+                check_initial_build = False
                 snapshots = {
                     policy.service: file_snapshot(watch_root, policy)
                     for policy in engine.spec.builds

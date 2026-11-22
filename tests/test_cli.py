@@ -191,7 +191,10 @@ class CliTests(unittest.TestCase):
                     payload = json.loads(output.getvalue())
                     self.assertEqual(payload["action"], "check")
                     self.assertEqual(payload["ready"], not blocked)
-                    self.assertEqual([task["name"] for task in payload["tasks"]], ["install"])
+                    self.assertEqual(
+                        [task["name"] for task in payload["tasks"]], ["install", "compile"]
+                    )
+                    self.assertEqual(payload["stale_builds"], ["api"])
                     self.assertFalse(engine.backend.events)
                     self.assertEqual(
                         before,

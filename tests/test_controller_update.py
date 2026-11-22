@@ -129,6 +129,29 @@ class ControllerUpdateTests(unittest.TestCase):
         self.assertEqual(restore_receipt(self.path), 0)
         self.assertEqual(engine.backend.running, {"api", "__watch"})
 
+    def test_restore_refuses_source_changes_after_final_sync_and_can_retry(self):
+        for environment in ("windows", "wsl"):
+            with self.subTest(environment=environment):
+                engine, path = self.fixture(environment)
+                source = engine.binding.source / "A.java"
+                source.write_text("before", encoding="utf-8")
+                engine.prepare()
+                original = engine.backend.running.copy()
+                UpdateSession(yes=True).stop()
+                sync = engine.backend.sync
+
+                def edit_after_sync(spec, sync=sync, source=source):
+                    sync(spec)
+                    source.write_text("changed", encoding="utf-8")
+
+                engine.backend.events.clear()
+                with patch.object(engine.backend, "sync", side_effect=edit_after_sync):
+                    self.assertEqual(restore_receipt(path), 1)
+                self.assertNotIn("start:api", engine.backend.events)
+                self.assertEqual(read_json(path)["phase"], "recovery_pending")
+                self.assertEqual(restore_receipt(path), 0)
+                self.assertEqual(engine.backend.running, original)
+
     def test_user_stop_during_update_is_respected(self):
         engine, self.path = self.fixture("windows")
         with patch("dev_tools.controller_update.subprocess.run", side_effect=self.restore_process):

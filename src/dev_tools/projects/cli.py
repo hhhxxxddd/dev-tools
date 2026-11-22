@@ -566,6 +566,8 @@ def emit(payload: dict, as_json: bool) -> None:
             print(t("  暂无已注册项目。"))
     if "runtime_versions" in payload:
         print(t("  运行时版本：") + (", ".join(payload["runtime_versions"]) or t("无")))
+        if payload.get("stale_builds"):
+            print(t("  构建需要更新：{services}", services=", ".join(payload["stale_builds"])))
         if payload.get("configuration_update"):
             print(t("  将更新自动发现的项目配置。"))
         for task in payload.get("resolution_tasks", []):

@@ -271,6 +271,14 @@ def smoke() -> dict:
             invoke("stop", name)
             if status()["ready"]:
                 raise AssertionError("stop did not stop services")
+            previous_build = (workspace / "build.txt").read_text()
+            (source / "source/Fixture.java").write_text(
+                "class Fixture { int editedWhileStopped; }", encoding="utf-8"
+            )
+            invoke("start", name)
+            if (workspace / "build.txt").read_text() == previous_build or not status()["ready"]:
+                raise AssertionError("restart did not rebuild edits made while stopped")
+            invoke("stop", name)
             return {
                 "environment": environment_name,
                 "schema_version": plan["schema_version"],
@@ -282,6 +290,7 @@ def smoke() -> dict:
                 "idle_wakeup": True,
                 "idle_backoff_observed": environment_name == "wsl",
                 "resource_restart": True,
+                "stopped_source_rebuild": True,
                 "rename": True,
                 "implicit_name": True,
                 "list": True,

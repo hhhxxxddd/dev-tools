@@ -340,9 +340,7 @@ class NativeMonitorTests(unittest.TestCase):
                 watch_loop(engine, Stop())
             self.assertTrue(engine.status()["ready"])
             self.assertEqual((engine.binding.workspace / "A.java").read_text(), "edited source")
-            self.assertEqual(
-                engine.backend.events.count("task:compile"), 0 if change_configuration else 1
-            )
+            self.assertEqual(engine.backend.events.count("task:compile"), 1)
 
     def test_wsl_builds_after_source_changes_reach_the_native_workspace(self):
         self.exercise("wsl")
@@ -352,3 +350,24 @@ class NativeMonitorTests(unittest.TestCase):
 
     def test_wsl_maintenance_refreshes_native_baseline_without_duplicate_builds(self):
         self.exercise("wsl", change_configuration=True)
+
+    def test_monitor_detects_edit_before_its_initial_snapshot(self):
+        for environment in ("windows", "wsl"):
+            with self.subTest(environment=environment):
+                engine = self.fixture(environment)
+                source = engine.binding.source / "late.java"
+                source.write_text("edit after service startup")
+                if environment == "wsl":
+                    engine.backend.sync(engine.spec)
+                engine.backend.events.clear()
+                clock = self.clock_stop(8)
+                with (
+                    patch("dev_tools.projects.monitoring.git_snapshot", return_value={}),
+                    patch(
+                        "dev_tools.projects.monitoring.time.monotonic",
+                        side_effect=lambda clock=clock: clock.now,
+                    ),
+                ):
+                    watch_loop(engine, clock)
+                self.assertEqual(engine.backend.events.count("task:compile"), 1)
+                self.assertEqual(engine.plan().stale_builds, ())

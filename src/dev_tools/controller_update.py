@@ -217,6 +217,7 @@ def restore_receipt(path):
                 engine.backend.sync(engine.spec)
                 for service in services:
                     spring_classpath(engine.binding, engine.backend, engine.spec.services[service])
+                engine._assert_build_fresh()
                 engine._start(
                     services,
                     infrastructure=bool(monitors),

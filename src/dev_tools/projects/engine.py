@@ -4,6 +4,7 @@ import json
 import socket
 import time
 import uuid
+from dataclasses import replace
 
 from ..i18n import error_detail, join_messages, message, t
 from ..inspection import Inspection
@@ -156,11 +157,13 @@ class ProjectEngine:
             return self._plan(declared, force=force)
 
     def _plan(self, declared: ProjectSpec, *, force=False) -> PreparationPlan:
+        from .build_freshness import build_inputs, stale_builds
+
         state = self.state()
         spec, baseline = discovery_plan(
             declared, self.binding.source, state, self.binding.environment
         )
-        return preparation_plan(
+        plan = preparation_plan(
             spec,
             self.binding,
             self.backend,
@@ -169,6 +172,14 @@ class ProjectEngine:
             configuration_update=spec.raw != declared.raw,
             force=force,
         )
+        stale = stale_builds(spec, build_inputs(spec, self.binding, self.executor), state)
+        if not stale:
+            return plan
+        selected = (
+            *plan.pending_tasks,
+            *(item.structural_task for item in spec.builds if item.service in stale),
+        )
+        return replace(plan, pending_tasks=spec.task_order(selected), stale_builds=stale)
 
     def intent(self) -> dict:
         return read_json(self.binding.state / "intent.json")
@@ -502,6 +513,7 @@ class ProjectEngine:
         structural=False,
     ) -> None:
         from ..progress import stage
+        from .build_freshness import build_inputs
 
         self._validate_plan(plan)
         recovery = self.state().get("recovery") or {}
@@ -557,6 +569,7 @@ class ProjectEngine:
                         cwd=self.binding.source,
                     )
             self._check_intent(intent_token)
+            inputs_before = build_inputs(self.spec, self.binding, self.executor)
             with stage("Synchronize native workspace"):
                 self.backend.sync(self.spec)
             if revision != fingerprint(self.binding, spec=self.spec):
@@ -602,12 +615,22 @@ class ProjectEngine:
                 spring_classpath(self.binding, self.backend, service, reload=structural)
             if revision != fingerprint(self.binding, spec=self.spec):
                 raise ProjectError(message("project declarations changed during preparation tasks"))
+            completed_builds = {
+                item.service for item in self.spec.builds if item.structural_task in completed
+            }
+            inputs_after = build_inputs(self.spec, self.binding, self.executor)
+            if any(inputs_before[name] != inputs_after[name] for name in completed_builds):
+                raise ProjectError(message("project sources changed during build; retry"))
+            recorded = self.state().get("built_inputs")
+            built_inputs = dict(recorded) if isinstance(recorded, dict) else {}
+            built_inputs.update({name: inputs_after[name] for name in completed_builds})
             declarations, installations = preparation_revisions(self.spec, self.binding, plan.tasks)
             self.save(
                 prepared_revision=revision,
                 dependency_revisions=declarations,
                 task_revisions=installations,
                 runtime_versions=list(plan.runtime_versions),
+                built_inputs=built_inputs,
                 discovery_baseline=plan.discovery_baseline,
                 maintenance_error=None,
             )
@@ -681,6 +704,14 @@ class ProjectEngine:
         else:
             self._set_spec(plan.spec)
 
+    def _assert_build_fresh(self):
+        from .build_freshness import build_inputs, stale_builds
+
+        if stale_builds(
+            self.spec, build_inputs(self.spec, self.binding, self.executor), self.state()
+        ):
+            raise ProjectError(message("project sources changed during build; retry"))
+
     def start(self, selected: tuple[str, ...] | None = None) -> None:
         from ..progress import stage
         from ..runtimes.platforms.layout import storage
@@ -727,6 +758,7 @@ class ProjectEngine:
                 self.backend.sync(self.spec)
                 for name in names:
                     spring_classpath(self.binding, self.backend, self.spec.services[name])
+            self._assert_build_fresh()
             from .monitoring import git_snapshot
 
             self.save(git=git_snapshot(self.executor), last_project=self.spec.raw)
@@ -750,6 +782,8 @@ class ProjectEngine:
     def rebuild(
         self, *, service: str | None = None, kind: str = "branch", lock_timeout: float = 15
     ) -> None:
+        from .build_freshness import build_inputs, partial_build_covers
+
         if kind not in {"branch", "source", "resource", "structural"}:
             raise ProjectError(message("unknown build kind: {kind}", kind=kind))
         if service is not None and not any(item.service == service for item in self.spec.builds):
@@ -817,6 +851,7 @@ class ProjectEngine:
             self.save(recovery=record)
             try:
                 self._stop(stop)
+                inputs_before = build_inputs(self.spec, self.binding, self.executor)
                 self.backend.sync(self.spec)
                 if kind == "branch":
                     selected = tuple(
@@ -853,6 +888,26 @@ class ProjectEngine:
                     raise ProjectError(
                         message("project declarations changed during build; run prepare")
                     )
+                built = {
+                    item.service
+                    for item in self.spec.builds
+                    if service is None or item.service == service
+                }
+                inputs_after = build_inputs(self.spec, self.binding, self.executor)
+                if any(inputs_before[name] != inputs_after[name] for name in built):
+                    raise ProjectError(message("project sources changed during build; retry"))
+                recorded = self.state().get("built_inputs")
+                built_inputs = dict(recorded) if isinstance(recorded, dict) else {}
+                for policy in self.spec.builds:
+                    if policy.service in built and (
+                        kind in {"branch", "structural"}
+                        or partial_build_covers(
+                            built_inputs.get(policy.service),
+                            inputs_after[policy.service],
+                            kind,
+                        )
+                    ):
+                        built_inputs[policy.service] = inputs_after[policy.service]
                 if kind == "branch":
                     declarations, installations = preparation_revisions(
                         self.spec, self.binding, plan.tasks
@@ -862,10 +917,11 @@ class ProjectEngine:
                         dependency_revisions=declarations,
                         task_revisions=installations,
                         runtime_versions=list(plan.runtime_versions),
+                        built_inputs=built_inputs,
                         recovery=None,
                     )
                 else:
-                    self.save(recovery=None)
+                    self.save(recovery=None, built_inputs=built_inputs)
                 intent = self.intent()
                 if not intent or intent.get("running"):
                     self._start(stop, intent_token=intent.get("token"))

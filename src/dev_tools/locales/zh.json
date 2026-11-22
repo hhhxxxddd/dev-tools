@@ -576,5 +576,9 @@
   "健康检查": "健康检查",
   "服务运行": "服务运行",
   "项目监控": "项目监控",
-  "访问检查": "访问检查"
+  "访问检查": "访问检查",
+  "Git operation in progress; retry after it finishes": "Git 操作正在进行，请完成后重试",
+  "project sources changed during build; retry": "构建期间项目源码发生变化，请重试",
+  "cannot read project Git state; retry": "无法读取项目 Git 状态，请重试",
+  "  构建需要更新：{services}": "  构建需要更新：{services}"
 }

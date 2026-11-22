@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Windows-11-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.7](https://img.shields.io/badge/Version-0.5.7-blue)](CHANGELOG.md)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE) [![Windows](https://img.shields.io/badge/Windows-11-blue)](docs/installation.md) [![WSL Ubuntu](https://img.shields.io/badge/WSL-Ubuntu-brightgreen)](docs/installation.md) [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue)](docs/installation.md) [![Version 0.5.8](https://img.shields.io/badge/Version-0.5.8-blue)](CHANGELOG.md)
 
 Windows / WSL 开发项目的热部署与热更新工具。
 

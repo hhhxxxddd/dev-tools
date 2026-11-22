@@ -6,8 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from dev_tools.projects.build_freshness import git_source_state
 from dev_tools.projects.monitoring import git_snapshot
 
 
@@ -75,3 +76,17 @@ class GitSnapshotTests(unittest.TestCase):
         self.assertTrue(self.snapshot(linked)["busy"])
         self.git("checkout", "--detach", head)
         self.assertEqual(self.snapshot(), {"head": head, "branch": "", "busy": False})
+
+    def test_read_only_build_state_supports_packed_refs_and_worktrees(self):
+        head = self.commit()
+        self.git("pack-refs", "--all")
+        linked = self.root / "linked worktree"
+        self.git("worktree", "add", "-b", "feature", str(linked))
+        with patch("subprocess.run") as execute:
+            self.assertEqual(
+                git_source_state(self.source), {"head": head, "branch": "main", "busy": False}
+            )
+            self.assertEqual(
+                git_source_state(linked), {"head": head, "branch": "feature", "busy": False}
+            )
+        execute.assert_not_called()

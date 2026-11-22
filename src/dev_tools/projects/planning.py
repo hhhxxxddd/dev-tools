@@ -179,6 +179,7 @@ class PreparationPlan:
     runtime_install: bool = False
     scope: dict = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
+    stale_builds: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -205,6 +206,7 @@ class PreparationPlan:
                 task.as_dict() | {"name": task.name} for task in self.resolution_tasks
             ],
             "configuration_update": self.configuration_update,
+            "stale_builds": list(self.stale_builds),
             "unresolved": list(self.unresolved),
             "ready": not self.unresolved,
             "scope": self.scope,

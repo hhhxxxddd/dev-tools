@@ -143,6 +143,7 @@ class ProcessFailureTests(unittest.TestCase):
                     side_effect=[
                         subprocess.TimeoutExpired(["fixture"], 20),
                         subprocess.CompletedProcess(["fixture"], 0),
+                        subprocess.CompletedProcess(["fixture"], 0),
                     ],
                 ),
                 contextlib.redirect_stdout(output),

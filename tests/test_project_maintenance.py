@@ -128,7 +128,7 @@ class MaintenanceTests(unittest.TestCase):
             engine.prepare()
             self.assertFalse(engine.plan().pending_tasks)
             wrapper.write_text(wrapper.read_text().replace("3.9.10", "3.9.12"))
-            self.assertEqual(engine.plan().pending_tasks, ("install",))
+            self.assertEqual(engine.plan().pending_tasks, ("install", "compile"))
 
     def test_uv_configuration_change_triggers_monitor_fingerprint_and_resolution(self):
         from dev_tools.projects.planning import fingerprint

@@ -20,6 +20,8 @@ evidence 还可包含脱敏 target、整数 errno、exception/command，以及 C
 
 `--json` 只选择输出格式。`scan` 只读扫描；`check` 只读检查完整准备计划；`init` 创建缺少的配置；`prepare`、`start` 执行准备。没有公开的 `--dry-run`。
 
+`check --json` 的 `stale_builds` 是需要结构构建的服务名数组，可能为空；`tasks` 包含计划执行的任务。旧状态没有构建指纹时也会列入。`ready` 表示计划没有未解决的问题，并不表示 `stale_builds` 为空或服务已启动。
+
 支持 JSON 的命令在 stdout 输出一个 UTF-8 JSON 对象，过程日志与第三方输出使用 stderr。分别捕获两条流，不要解析 `2>&1` 的合并输出。跨平台调用也验证目标返回单个 JSON 对象；持续日志跟踪与长时间准备、启停和构建操作，无论文本或 JSON 输出，均不使用列表查询的 30 秒超时。
 
 `logs [项目名] [服务名]` 的单个位置参数始终为项目名，省略服务时汇总并加 `[服务名]` 标识，指定服务时输出原始日志。省略项目名筛选服务使用 `logs --service 服务名`；`--task` 可汇总或筛选任务，位置服务参数与 `--service` 互斥。logs 没有 JSON 模式；`--` 后的参数不作为控制器选项解释。`config edit --json`、`self update --json`、`self upgrade --json` 和 `ssh edit/connect --json` 是参数错误。语言仅由本机配置选择，默认中文；键名、错误代码、状态枚举和数字不随语言变化。说明、描述、诊断文字和第三方输出不适合机器匹配。

@@ -598,5 +598,9 @@
   "健康检查": "Health check",
   "服务运行": "Service runtime",
   "项目监控": "Project monitors",
-  "访问检查": "Access check"
+  "访问检查": "Access check",
+  "Git operation in progress; retry after it finishes": "Git operation in progress; retry after it finishes",
+  "project sources changed during build; retry": "project sources changed during build; retry",
+  "cannot read project Git state; retry": "cannot read project Git state; retry",
+  "  构建需要更新：{services}": "  Builds requiring updates: {services}"
 }
