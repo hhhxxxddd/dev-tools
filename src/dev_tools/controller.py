@@ -67,22 +67,16 @@ def deployment_status(distro: str) -> dict:
 
 
 def deployment_notice(settings) -> str:
+    from .runtimes.diagnostics import target_status, update_instruction, version_notice
+
     status = deployment_status(settings.distro)
     if status["state"] == "installed":
-        if status.get("version") and status["version"] != __version__:
-            from .runtimes.diagnostics import version_notice
-
-            return version_notice("wsl", status["version"])
-        if not WINDOWS and shutil.which("pwsh.exe"):
-            from .runtimes.diagnostics import target_status, version_notice
-
-            windows = target_status("win", settings)
-            if windows.get("version") and windows["version"] != __version__:
-                return version_notice("win", windows["version"])
-        return ""
-    instruction = "dev-tools self update -e wsl"
-    if not WINDOWS:
-        instruction = "sudo dev-tools self update -e wsl"
+        notice = version_notice("wsl", status.get("version"))
+        if notice or WINDOWS:
+            return notice
+        windows = target_status("win", settings)
+        return version_notice("win", windows.get("version"), suggest_target=False)
+    instruction = update_instruction("wsl")
     if status["state"] == "missing":
         return t(
             "WSL deployment is missing or incomplete ({distro}). Deploy it with: {command}",

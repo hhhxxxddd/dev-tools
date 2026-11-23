@@ -46,7 +46,7 @@ JSON_COMMANDS = frozenset(
 ERROR_MESSAGES = {
     "invalid_arguments": "Invalid command arguments; see dev-tools help",
     "invalid_config": "Configuration is invalid; check the configuration and retry",
-    "project_not_registered": "Project is not registered; run dev-tools register",
+    "project_not_registered": "Project is not registered in the selected environment",
     "timeout": "Operation timed out; check the environment and retry",
     "preparation_failed": "Project preparation failed; inspect project logs and retry",
     "operation_failed": "Operation failed; check the environment or project logs and retry",
@@ -244,6 +244,13 @@ def emit_error(error: BaseException, *, code: str | None = None) -> None:
         from .presentation import error as error_text
 
         print(error_text(f"dev-tools: {render(error)}", stream=sys.stderr), file=sys.stderr)
+        if payload["error"]["code"] == "project_not_registered":
+            print(
+                t(
+                    "Use dev-tools list --all to find the project's environment, then pass -e win or -e wsl."
+                ),
+                file=sys.stderr,
+            )
         if facts:
             import shutil
 

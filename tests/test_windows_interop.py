@@ -60,7 +60,10 @@ class WindowsInteropTests(unittest.TestCase):
                 file.write_bytes(b"fixture")
                 file.chmod(0o755)
             responses = [
-                subprocess.CompletedProcess([], 0, "Z:\\portable path\\pwsh.exe\n", ""),
+                subprocess.CompletedProcess(
+                    [], 0, "Z:\\unavailable\\pwsh.exe\r\nZ:\\portable path\\pwsh.exe\r\n", ""
+                ),
+                subprocess.CompletedProcess([], 1, "", "unavailable path"),
                 subprocess.CompletedProcess([], 0, str(candidate) + "\n", ""),
             ]
             with (
@@ -77,12 +80,13 @@ class WindowsInteropTests(unittest.TestCase):
                 ) as execute,
             ):
                 self.assertEqual(powershell_entry(), str(candidate))
-            first, second = execute.call_args_list
+            first, missing, usable = execute.call_args_list
             self.assertIn("-NoProfile", first.args[0])
             self.assertIn("-NonInteractive", first.args[0])
             self.assertIn("-CommandType Application", first.args[0][-1])
             self.assertNotIn("-File", first.args[0])
-            self.assertEqual(second.args[0][1:], ["-u", "Z:\\portable path\\pwsh.exe"])
+            self.assertEqual(missing.args[0][1:], ["-u", "Z:\\unavailable\\pwsh.exe"])
+            self.assertEqual(usable.args[0][1:], ["-u", "Z:\\portable path\\pwsh.exe"])
 
     def test_missing_powershell_is_specific_and_does_not_change_environment(self):
         with (

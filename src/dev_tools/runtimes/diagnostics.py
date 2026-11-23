@@ -90,13 +90,32 @@ def update_instruction(environment):
     return ("" if os.name == "nt" else "sudo ") + "dev-tools self update -e wsl"
 
 
-def version_notice(environment, version):
+def _release_version(version):
+    match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)", version or "")
+    return tuple(map(int, match.groups())) if match else None
+
+
+def version_notice(environment, version, *, suggest_target=True):
+    target = _release_version(version)
+    local = _release_version(__version__)
+    if (
+        target is None
+        or local is None
+        or target == local
+        or (target < local and not suggest_target)
+    ):
+        return ""
+    command = (
+        ("dev-tools upgrade" if os.name == "nt" else "sudo dev-tools upgrade")
+        if target > local
+        else update_instruction(environment)
+    )
     return t(
         "Controller versions differ: local {local}; target {environment} {target}. Update with: {command}",
         local=__version__,
         environment=environment,
         target=version,
-        command=update_instruction(environment),
+        command=command,
     )
 
 
@@ -107,12 +126,12 @@ def preflight(environment, arguments, settings):
     version = status.get("version")
     if status["state"] != "installed":
         raise unavailable_target(environment, status)
-    if version and version != __version__:
+    notice = version_notice(environment, version)
+    if notice:
         from ..presentation import warning
 
-        print(warning(version_notice(environment, version), stream=sys.stderr), file=sys.stderr)
-    if version and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-        target_version = tuple(map(int, version.split(".")))
+        print(warning(notice, stream=sys.stderr), file=sys.stderr)
+    if target_version := _release_version(version):
         legacy = target_version < (0, 5, 0)
         command = arguments[0] if arguments else "help"
         unsupported = (

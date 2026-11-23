@@ -69,11 +69,12 @@ Omit `-e` for the current platform. Use `-e win` / `-e wsl` from either platform
 
 ```powershell
 dev-tools register -e wsl
-dev-tools start -e wsl
 dev-tools list --all
+dev-tools start my-app -e wsl
+dev-tools start my-app -e win
 ```
 
-Registration and lifecycle operations in a native WSL terminal require `sudo`. If an entrypoint cannot be determined automatically, complete the project configuration before starting.
+Run `list --all` from any directory to find the project's registered name and environment, then pass the name and `-e`. Use `-e wsl` to start a WSL project from Windows and `-e win` to start a Windows project from WSL. When controlling WSL projects directly in WSL, registration and lifecycle operations require `sudo`. If an entrypoint cannot be determined automatically, complete the project configuration before starting.
 
 ## Supported projects
 

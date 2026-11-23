@@ -69,13 +69,13 @@ def powershell_entry() -> str:
     locate = (
         "$ErrorActionPreference='Stop'; "
         "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); "
-        "$entry=Get-Command pwsh.exe -CommandType Application -ErrorAction SilentlyContinue; "
-        "if($entry){[Console]::WriteLine($entry.Source);exit 0}; "
+        "foreach($entry in (Get-Command pwsh.exe -CommandType Application -All -ErrorAction SilentlyContinue)){"
+        "[Console]::WriteLine($entry.Source)}; "
         "$versions=Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\PowerShellCore\\InstalledVersions' -ErrorAction SilentlyContinue; "
         "foreach($version in $versions){"
         "$location=(Get-ItemProperty -LiteralPath $version.PSPath).InstallLocation; "
         "if($location){$path=Join-Path $location 'pwsh.exe'; "
-        "if(Test-Path -LiteralPath $path -PathType Leaf){[Console]::WriteLine($path);exit 0}}}; exit 1"
+        "if(Test-Path -LiteralPath $path -PathType Leaf){[Console]::WriteLine($path)}}}; exit 0"
     )
     for mount in mounts:
         bootstrap = mount / "Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
@@ -92,8 +92,11 @@ def powershell_entry() -> str:
                 timeout=5,
                 stdin=subprocess.DEVNULL,
             )
-            value = result.stdout.strip()
-            if result.returncode == 0 and re.fullmatch(r"[A-Za-z]:[\\/][^\r\n]+", value):
+            if result.returncode:
+                continue
+            for value in result.stdout.splitlines():
+                if not re.fullmatch(r"[A-Za-z]:[\\/][^\r\n]+", value):
+                    continue
                 candidate = _from_windows_path(value)
                 if candidate:
                     return str(candidate)

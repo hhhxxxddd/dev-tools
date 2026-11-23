@@ -69,11 +69,12 @@ dev-tools start
 
 ```powershell
 dev-tools register -e wsl
-dev-tools start -e wsl
 dev-tools list --all
+dev-tools start my-app -e wsl
+dev-tools start my-app -e win
 ```
 
-原生 WSL 终端中的注册、启停等控制操作需要 `sudo`。入口无法自动确定时，先补充项目配置，再启动。
+在任意目录可用 `list --all` 查看项目名称和注册环境，再指定项目名与 `-e`。从 Windows 启动 WSL 项目使用 `-e wsl`；从 WSL 启动 Windows 项目使用 `-e win`。直接在 WSL 中控制 WSL 项目时，注册、启停等操作需要 `sudo`。入口无法自动确定时，先补充项目配置，再启动。
 
 ## 支持的项目
 

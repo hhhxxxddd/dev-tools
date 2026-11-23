@@ -31,7 +31,7 @@ dev-tools self status -e wsl --json
 
 发行版须已安装并启用 systemd。缺少 rsync，或首次部署未绑定外部 Python 且缺少 mise 时，Debian/Ubuntu 通过 extrepo/APT 安装；其他发行版须先自行安装工具。Linux 程序位于 `/opt/dev-tools`，入口为 `/usr/local/bin/dev-tools`。未指定外部解释器的首次安装会在 `/opt/dev-tools/host-mise` 准备 Python 宿主；后续部署沿用 `.host-python` 绑定。不共享 Windows 可执行目录和缓存。
 
-`dev-tools`、`help` 和命令帮助显示部署缺失或两端版本差异提示。显式 `-e wsl` / `-e win` 的帮助和 `-v` 查询实际目标端；不安装、升级或启动项目。跨端不支持的命令或执行约定会在执行前阻止，停止与更新通道保留。
+`dev-tools`、`help` 和命令帮助可能提示部署缺失或两端版本不同。WSL 帮助发现 Windows 版本较新时，提示使用 `sudo dev-tools upgrade` 更新 WSL。跨端执行命令时，版本提示指向较旧的一端。显式 `-e wsl` / `-e win` 的帮助和 `-v` 查询实际目标端；不安装、升级或启动项目。跨端不支持的命令或执行约定会在执行前阻止，停止与更新通道保留。
 两端分别维护安装副本：Windows 更新后，从 Windows 执行一次 `dev-tools self update -e wsl` 即可将当前代码部署到 WSL，版本相同也可重新部署。`list` 默认只查当前环境；`list --all` 才查询两端，某端连接失败只以黄色提示保留另一端结果，不代表需要升级。`dev-tools list -e wsl` 只查 WSL。
 
 原生 WSL 可获取新版，或重新部署安装时记录的源码：

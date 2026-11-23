@@ -12,8 +12,14 @@ from unittest.mock import patch
 from dev_tools import __version__
 from dev_tools.cli import main
 from dev_tools.cli_errors import TargetError, error_payload
-from dev_tools.i18n import message
-from dev_tools.runtimes.diagnostics import preflight, response_payload, target_status
+from dev_tools.controller import deployment_notice
+from dev_tools.i18n import language_scope, message
+from dev_tools.runtimes.diagnostics import (
+    preflight,
+    response_payload,
+    target_status,
+    version_notice,
+)
 
 
 class TransportDiagnosticsTests(unittest.TestCase):
@@ -53,6 +59,39 @@ class TransportDiagnosticsTests(unittest.TestCase):
         self.assertEqual(failed.exception.details["environment"], self.target)
         self.assertNotIn("upgrade -e", str(failed.exception))
         self.assertNotIn("self update", str(failed.exception))
+
+    def test_newer_target_points_to_native_upgrade(self):
+        for platform, target, command in (
+            ("nt", "wsl", "dev-tools upgrade"),
+            ("posix", "win", "sudo dev-tools upgrade"),
+        ):
+            with (
+                self.subTest(platform=platform),
+                patch("dev_tools.runtimes.diagnostics.os.name", platform),
+                patch("dev_tools.runtimes.diagnostics.__version__", "0.5.9"),
+                language_scope("en"),
+            ):
+                self.assertTrue(
+                    version_notice(target, "0.5.10").endswith(f"Update with: {command}")
+                )
+                self.assertEqual(version_notice(target, "0.5.9"), "")
+
+    def test_wsl_help_only_suggests_upgrading_wsl(self):
+        with (
+            patch("dev_tools.controller.WINDOWS", False),
+            patch("dev_tools.runtimes.diagnostics.os.name", "posix"),
+            patch("dev_tools.runtimes.diagnostics.__version__", "0.5.9"),
+            patch(
+                "dev_tools.controller.deployment_status",
+                return_value={"state": "installed", "version": "0.5.9"},
+            ),
+            patch("dev_tools.runtimes.diagnostics.target_status") as windows,
+            language_scope("en"),
+        ):
+            windows.return_value = {"state": "installed", "version": "0.5.8"}
+            self.assertEqual(deployment_notice(self.settings), "")
+            windows.return_value = {"state": "installed", "version": "0.5.10"}
+            self.assertTrue(deployment_notice(self.settings).endswith("sudo dev-tools upgrade"))
 
     def test_windows_discovery_failure_is_preserved_through_preflight_and_help(self):
         failure = TargetError(

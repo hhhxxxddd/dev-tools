@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -100,10 +101,7 @@ def smoke() -> dict:
         source.mkdir()
         child = source / "nested"
         child.mkdir()
-        (source / "dev-tools.toml").write_text(
-            render_toml({"schema": 1, "name": "transport-fixture", "toolchain": "system"}),
-            encoding="utf-8",
-        )
+        declaration = source / "dev-tools.toml"
         (source / ".nvmrc").write_text("22\n", encoding="utf-8")
         linux_child = linux_path(child)
         wsl_entry = [
@@ -121,21 +119,25 @@ def smoke() -> dict:
         environment = os.environ.copy()
         environment["WSL_UTF8"] = "1"
         environment["DEV_TOOLS_CACHE_ROOT"] = native_cache
-        variables = {"DEV_TOOLS_REGISTRY_ROOT", "DEV_TOOLS_STATE_ROOT", "DEV_TOOLS_CACHE_ROOT"}
+        environment["DEV_TOOLS_TEST_TRANSIENT"] = "1"
+        variables = {"DEV_TOOLS_REGISTRY_ROOT", "DEV_TOOLS_STATE_ROOT"}
         wslenv = [
             entry
             for entry in environment.get("WSLENV", "").split(":")
-            if entry and entry.split("/")[0] not in variables
+            if entry
+            and entry.split("/")[0]
+            not in variables | {"DEV_TOOLS_CACHE_ROOT", "DEV_TOOLS_TEST_TRANSIENT"}
         ]
         environment["WSLENV"] = ":".join(
             [
                 *wslenv,
                 "DEV_TOOLS_CACHE_ROOT/u",
-                *(name + "/p" for name in sorted(variables - {"DEV_TOOLS_CACHE_ROOT"})),
+                "DEV_TOOLS_TEST_TRANSIENT/u",
+                *(name + "/p" for name in sorted(variables)),
             ]
         )
 
-        def invoke(entry: list[str], *arguments: str, cwd: Path = child) -> dict:
+        def invoke(entry: list[str], *arguments: str, cwd: Path = child):
             result = subprocess.run(
                 [*entry, *arguments],
                 cwd=repository if entry is wsl_entry else cwd,
@@ -151,9 +153,25 @@ def smoke() -> dict:
                 raise AssertionError(
                     f"{arguments}: {result.returncode}\n{result.stdout}\n{result.stderr}"
                 )
-            return json.loads(result.stdout)
+            return json.loads(result.stdout) if "--json" in arguments else result.stdout
 
         for target in ("win", "wsl"):
+            command = (
+                [sys.executable, "-I", "-c", "import time; time.sleep(300)"]
+                if target == "win"
+                else ["/usr/bin/sleep", "300"]
+            )
+            declaration.write_text(
+                render_toml(
+                    {
+                        "schema": 1,
+                        "name": "transport-fixture",
+                        "toolchain": "system",
+                        "services": {"api": {"command": command, "restart": "never"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
             environment["DEV_TOOLS_REGISTRY_ROOT"] = str(root / (target + "-registry"))
             environment["DEV_TOOLS_STATE_ROOT"] = str(root / (target + "-state"))
             registered = False
@@ -194,6 +212,20 @@ def smoke() -> dict:
                 scanned = invoke(windows_entry, "scan", "..", "-e", target, "--json")
                 if scanned["action"] != "scan" or (source / "mise.toml").exists():
                     raise AssertionError(scanned)
+                remote = wsl_entry if target == "win" else windows_entry
+                native = windows_entry if target == "win" else wsl_entry
+                invoke(remote, "start", "transport-fixture", "-e", target)
+                status = invoke(native, "status", "transport-fixture", "-e", target, "--json")
+                if not status["ready"] or status["services"]["api"]["phase"] != "running":
+                    raise AssertionError(status)
+                invoke(remote, "stop", "-e", target, "--json")
+                started = invoke(remote, "start", "--all", "-e", target, "--json")
+                if started["projects"] != [{"name": "transport-fixture", "status": "started"}]:
+                    raise AssertionError(started)
+                invoke(remote, "stop", "transport-fixture", "-e", target)
+                status = invoke(native, "status", "transport-fixture", "-e", target, "--json")
+                if status["services"]["api"]["phase"] != "stopped":
+                    raise AssertionError(status)
             finally:
                 if registered:
                     invoke(windows_entry, "unregister", "-e", target, "--json")
@@ -229,6 +261,7 @@ def smoke() -> dict:
         return {
             "win_to_wsl": True,
             "wsl_to_win": True,
+            "remote_start_stop": True,
             "implicit_name": True,
             "list_unregister": True,
             "shared_help": True,
