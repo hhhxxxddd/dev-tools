@@ -65,16 +65,18 @@ dev-tools start
 
 源码变化按声明触发热重载或构建；依赖、锁文件和配置变化触发准备与服务恢复。部分变更需要短暂停服，具体行为由项目声明决定。
 
-省略 `-e` 使用当前平台。Windows 与 WSL 均可用 `-e win` / `-e wsl` 指定目标，例如：
+带项目名的 `start` / `stop` 省略 `-e` 时会查询 Windows 和 WSL 的注册，只在唯一匹配的环境执行。两端同名或无法确认唯一目标时，使用 `-e win` 或 `-e wsl` 指定环境。
 
 ```powershell
 dev-tools register -e wsl
 dev-tools list --all
+dev-tools start my-app
+dev-tools stop my-app
 dev-tools start my-app -e wsl
 dev-tools start my-app -e win
 ```
 
-在任意目录可用 `list --all` 查看项目名称和注册环境，再指定项目名与 `-e`。从 Windows 启动 WSL 项目使用 `-e wsl`；从 WSL 启动 Windows 项目使用 `-e win`。直接在 WSL 中控制 WSL 项目时，注册、启停等操作需要 `sudo`。入口无法自动确定时，先补充项目配置，再启动。
+`list --all` 可查看两端的注册项目。省略项目名时仍按当前目录匹配，`start --all` 仍只启动选定环境的项目。其他命令省略 `-e` 时使用当前平台。直接在 WSL 中控制 WSL 项目时，注册、启停等操作需要 `sudo`。
 
 ## 支持的项目
 

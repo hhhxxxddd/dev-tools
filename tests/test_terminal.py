@@ -177,7 +177,7 @@ class TerminalTests(unittest.TestCase):
             contextlib.redirect_stderr(diagnostic := Terminal()),
             self.assertRaises(SystemExit) as finished,
         ):
-            main(["start", "demo", "--json"])
+            main(["start", "demo", "-e", "win" if os.name == "nt" else "wsl", "--json"])
         self.assertEqual(finished.exception.code, 0)
         self.assertTrue(json.loads(stream.getvalue())["completed"])
         self.assertEqual(diagnostic.getvalue(), "")

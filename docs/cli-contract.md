@@ -14,7 +14,9 @@ evidence 还可包含脱敏 target、整数 errno、exception/command，以及 C
 
 ## 命令与输出
 
-环境参数为 `-e win|wsl`，所有命令省略时使用当前平台，包括 list、config、sysinfo、report 和 self。显式环境在同端和跨端均生效，支持放在命令前后。跨端读取目标侧配置，不传递调用端 --config；Windows hosts 的实际操作仍只支持 win，指定 wsl 明确报错。项目名可以省略，但当前目录必须唯一匹配注册的源码或工作目录；多重匹配不会猜测。`list --all` 不能与显式环境参数同时使用。
+环境参数 `-e win|wsl` 可放在命令前后，显式参数始终指定执行端。具名 `start` 和 `stop` 省略 `-e` 时，分别只读查询 Windows 和配置的 WSL 发行版的注册表。仅一端注册时在该端执行。两端同名或任一查询无法确认时以退出码 `1` 停止，并提示指定 `-e`。两端均无匹配时报告项目未注册。查询只检查注册，具名启停的实际执行超时规则保持不变。
+
+其他命令、`start --all` 和省略项目名的启停默认使用当前平台。省略项目名时，当前目录必须唯一匹配选定环境中注册的源码或工作目录。跨端读取目标侧配置，不传递调用端 `--config`。Windows hosts 的实际操作仅支持 win。`list --all` 不能与显式环境参数同时使用。
 
 工具箱命令 `dev-tools ssh|hosts|ports|which|net` 单独执行时显示对应帮助，等同于加 `-h` 或 `--help`，成功退出 0；显式 `-e` 查询目标端帮助。此行为由命令目录统一决定，具体子命令的必需参数仍会校验。
 
@@ -124,6 +126,8 @@ health.json 为 HTTP 响应字段子集，要求字段类型和值匹配，允�
 | `invalid_arguments` | 命令用法或参数无效 | 无 |
 | `invalid_config` | 本机或已识别的 TOML 配置无效 | 无 |
 | `project_not_registered` | 指定项目未注册，或当前目录没有匹配注册 | 无 |
+| `project_environment_ambiguous` | 具名启停省略 `-e` 时，两端均注册同名项目 | 无 |
+| `project_environment_unconfirmed` | 具名启停省略 `-e` 时，无法完成注册查询 | 无 |
 | `timeout` | 子进程、只读查询或服务就绪等待超时 | 数字 `timeout_seconds`（已知时） |
 | `preparation_failed` | prepare/start 项目操作失败 | 整数 `returncode`（已知时） |
 | `operation_failed` | 其他运行错误或目标环境未返回有效 JSON | 整数 `returncode`（已知时） |

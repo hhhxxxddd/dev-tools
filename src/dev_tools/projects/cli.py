@@ -787,6 +787,10 @@ def add_commands(commands) -> None:
             if action in {"prepare", "build", "show", "rename"}
             else t("常用命令"),
         )
+        if action in {"start", "stop"}:
+            command.epilog = t(
+                "带项目名且省略 -e 时查找唯一注册环境；同名或无法确认时需显式指定 -e。"
+            )
         command.add_argument(
             "name", nargs="?", metavar=t("项目名"), help=t("注册名称；省略时按当前目录唯一匹配")
         )

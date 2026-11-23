@@ -4,6 +4,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -324,7 +325,8 @@ class CliContractTests(unittest.TestCase):
     def test_remote_json_is_validated_and_external_output_stays_on_stderr(self):
         value = {"schema_version": CLI_SCHEMA_VERSION, "action": "start", "completed": True}
         result = subprocess.CompletedProcess([], 0, json.dumps(value), "native progress\n")
-        code, output, errors = self.invoke("start", "demo", "--json", remote=result)
+        remote = "wsl" if os.name == "nt" else "win"
+        code, output, errors = self.invoke("start", "demo", "-e", remote, "--json", remote=result)
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), value)
         self.assertEqual(errors, "native progress\n")

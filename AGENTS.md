@@ -23,8 +23,10 @@ Pure discovery/workflow modules are separate from platform runtime adapters.
   only from the target project's root mise configuration. `stop` cancels maintenance.
 - The separate wsl-devctl repository is a business reference, not a runtime dependency.
   Do not import its modules or read/migrate its registrations.
-- Route native operations explicitly through `-e win|wsl`; runtime and framework installation
-  must use the shared preparation engine. Keep Unix-only imports inside the WSL adapter.
+- Honor explicit `-e win|wsl` routing for native operations. Only named `start` and `stop`
+  without `-e` look up the project in both native registries before executing on a unique
+  target. Runtime and framework installation must use the shared preparation engine.
+  Keep Unix-only imports inside the WSL adapter.
 - Active registered projects synchronize declared dependency additions, changes and removals.
   Resolve lockfiles in native workspaces and copy only validated lockfiles back to source.
   Preserve custom workflows; automatic rediscovery uses an explicit generated-config mode.

@@ -251,8 +251,22 @@ def parser() -> argparse.ArgumentParser:
 
 def _dispatch(arguments: list[str], forwarded: list[str], environment: str, settings) -> None:
     from .cli_errors import TargetError
+    from .projects.targeting import (
+        REGISTRY_LOOKUP,
+        registration_payload,
+        resolve_project_environment,
+    )
     from .runtimes.diagnostics import preflight, response_payload, target_status, unavailable_target
     from .runtimes.router import forward_remote
+
+    native = "win" if os.name == "nt" else "wsl"
+    if forwarded[:1] == [REGISTRY_LOOKUP]:
+        if environment != native or len(forwarded) != 2:
+            raise ValueError(
+                message("Registration lookup requires one project name on the native target")
+            )
+        print(json.dumps(registration_payload(native, forwarded[1])))
+        raise SystemExit(0)
 
     command_parser = parser()
     # The catalog owns this policy for every toolbox command, including commands
@@ -261,7 +275,7 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
         arguments = [*arguments, "--help"]
         forwarded = [*forwarded, "--help"]
     scope = forwarded[: forwarded.index("--")] if "--" in forwarded else forwarded
-    if environment != ("win" if os.name == "nt" else "wsl") and (
+    if environment != native and (
         any(flag in scope for flag in ("-h", "--help", "-v", "--version"))
         or not scope
         or scope[0] == "help"
@@ -349,6 +363,8 @@ def _dispatch(arguments: list[str], forwarded: list[str], environment: str, sett
                 command_parser.error(
                     t("start --all cannot be combined with a project name or --service")
                 )
+            if args.project_command in {"start", "stop"} and args.name and arguments == forwarded:
+                environment = args.env = resolve_project_environment(args.name, native, settings)
             preflight(environment, forwarded, settings)
             if os.name == "nt" and environment == "wsl" and args.project_command == "status":
                 from .projects.cli import remote_wsl_status

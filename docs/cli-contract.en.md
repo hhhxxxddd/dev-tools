@@ -14,7 +14,9 @@ Statuses also add `desired_running` (boolean or null), `expected_workers` and `r
 
 ## Commands and output
 
-The environment option is `-e win|wsl`. Every command defaults to the current platform, including list, config, sysinfo, report and self. Explicit targets work locally and across platforms, before or after the command. Cross-platform execution reads target-side configuration without forwarding the caller's --config. Windows hosts actions still support only win and reject wsl explicitly. Project names may be omitted only when the current directory uniquely matches a registered source or workspace; ambiguous matches are never guessed. `list --all` cannot be combined with an explicit environment option.
+Pass `-e win|wsl` before or after the command to select its target explicitly. Named `start` and `stop` without `-e` perform read-only lookups in the Windows registry of projects and in the configured WSL distribution. A single registration selects its environment. If the name exists on both sides or either lookup is inconclusive, the command exits `1` and asks for `-e`. If neither side has a registration, the project is reported as unregistered. The lookup checks registration only. The action keeps its existing timeout rules.
+
+Other commands, `start --all`, and lifecycle commands without a project name default to the current platform. An omitted project name requires a unique source or workspace match in the selected environment. Cross-platform execution reads target-side configuration. The caller's `--config` stays local. Windows hosts actions support win only. `list --all` cannot be combined with an explicit environment option.
 
 Running `dev-tools ssh|hosts|ports|which|net` alone displays the corresponding help, equivalent to `-h` or `--help`, and exits 0. An explicit `-e` queries the target's help. The command catalog applies this rule to all toolbox commands; required arguments for specific subcommands are still validated.
 
@@ -124,6 +126,8 @@ Runtime errors, argument errors and configuration errors occurring before parsin
 | `invalid_arguments` | Invalid command usage or arguments | None |
 | `invalid_config` | Invalid local configuration or recognized TOML configuration | None |
 | `project_not_registered` | Specified project is unregistered, or the current directory matches no registration | None |
+| `project_environment_ambiguous` | Named lifecycle action without `-e` matches a registration on both sides | None |
+| `project_environment_unconfirmed` | Named lifecycle action without `-e` could not complete the registration lookup | None |
 | `timeout` | Subprocess, read-only query or service-readiness timeout | Numeric `timeout_seconds`, when known |
 | `preparation_failed` | Failed prepare/start project operation | Integer `returncode`, when known |
 | `operation_failed` | Other runtime error or invalid JSON from the target environment | Integer `returncode`, when known |

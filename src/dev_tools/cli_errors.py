@@ -46,7 +46,9 @@ JSON_COMMANDS = frozenset(
 ERROR_MESSAGES = {
     "invalid_arguments": "Invalid command arguments; see dev-tools help",
     "invalid_config": "Configuration is invalid; check the configuration and retry",
-    "project_not_registered": "Project is not registered in the selected environment",
+    "project_not_registered": "Project is not registered",
+    "project_environment_ambiguous": "Project is registered in both environments; specify -e win or -e wsl",
+    "project_environment_unconfirmed": "Could not confirm a unique project environment; specify -e win or -e wsl",
     "timeout": "Operation timed out; check the environment and retry",
     "preparation_failed": "Project preparation failed; inspect project logs and retry",
     "operation_failed": "Operation failed; check the environment or project logs and retry",
@@ -182,8 +184,18 @@ def error_payload(error: BaseException, *, code: str | None = None, action: str 
         elif source in {
             "project is not registered: {name}",
             "当前目录未匹配到已注册项目；请显式指定项目名",
+            "Project {name} is not registered in either environment",
         }:
             code = "project_not_registered"
+        elif (
+            source == "Project {name} is registered in both environments; specify -e win or -e wsl"
+        ):
+            code = "project_environment_ambiguous"
+        elif (
+            source
+            == "Could not check whether {name} is registered in {environment}; specify -e win or -e wsl"
+        ):
+            code = "project_environment_unconfirmed"
         elif source == "Invalid JSON response from target environment":
             code = "operation_failed"
         elif action in {"prepare", "start"} and isinstance(

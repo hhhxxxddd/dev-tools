@@ -93,14 +93,18 @@ def add_config(parser: argparse.ArgumentParser, *, root: bool = False) -> None:
     )
 
 
-def add_environment(parser: argparse.ArgumentParser, *, root: bool = False) -> None:
+def add_environment(
+    parser: argparse.ArgumentParser, *, root: bool = False, named_lifecycle: bool = False
+) -> None:
     parser.add_argument(
         "-e",
         "--env",
         choices=("win", "wsl"),
         metavar=t("环境"),
         default=("win" if os.name == "nt" else "wsl") if root else argparse.SUPPRESS,
-        help=t("执行环境：win 为 Windows，wsl 为 WSL；省略时使用当前平台"),
+        help=t("执行环境：win 为 Windows，wsl 为 WSL；具名启停默认查找注册环境")
+        if root or named_lifecycle
+        else t("执行环境：win 为 Windows，wsl 为 WSL；省略时使用当前平台"),
     )
 
 
@@ -119,7 +123,7 @@ class CommandCatalog:
         self.groups.setdefault(group or t("常用命令"), []).append((name, help))
         add_config(parser)
         if project:
-            add_environment(parser)
+            add_environment(parser, named_lifecycle=name in {"start", "stop"})
             parser.set_defaults(project_command=name)
         return parser
 
@@ -147,6 +151,7 @@ class CommandCatalog:
                 t("用法：dev-tools help <命令> 或 dev-tools <命令> --help"),
                 t("示例：dev-tools -e wsl list；dev-tools check demo"),
                 t("项目名可省略：当前目录必须唯一匹配已注册项目的源码或工作目录（含子目录）。"),
+                t("带项目名且省略 -e 时，start / stop 会查找唯一注册环境。"),
                 t("start 自动准备环境，运行期间跟进依赖变化；mise 的诊断命令为 mise doctor。"),
             )
         )

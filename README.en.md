@@ -65,16 +65,18 @@ dev-tools start
 
 Source changes trigger declared reloads or builds. Dependency, lockfile and configuration changes trigger preparation and service recovery. Some changes briefly stop services; project declarations determine the behavior.
 
-Omit `-e` for the current platform. Use `-e win` / `-e wsl` from either platform to select the target, for example:
+With a project name and no `-e`, `start` and `stop` look up registrations on Windows and WSL and run on the unique match. Pass `-e win` or `-e wsl` when the name exists on both sides or a unique target cannot be confirmed.
 
 ```powershell
 dev-tools register -e wsl
 dev-tools list --all
+dev-tools start my-app
+dev-tools stop my-app
 dev-tools start my-app -e wsl
 dev-tools start my-app -e win
 ```
 
-Run `list --all` from any directory to find the project's registered name and environment, then pass the name and `-e`. Use `-e wsl` to start a WSL project from Windows and `-e win` to start a Windows project from WSL. When controlling WSL projects directly in WSL, registration and lifecycle operations require `sudo`. If an entrypoint cannot be determined automatically, complete the project configuration before starting.
+Use `list --all` to see registrations on both sides. Omitting the project name still matches the current directory. `start --all` still operates within the selected environment. Other commands default to the current platform when `-e` is omitted. When controlling WSL projects directly in WSL, registration and lifecycle operations require `sudo`.
 
 ## Supported projects
 
